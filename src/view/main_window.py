@@ -1,10 +1,9 @@
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QComboBox, QPushButton, QLineEdit, QLabel, QSlider, QTextEdit,
-    QFrame, QSizePolicy, QSpacerItem
+    QFrame, QSizePolicy, QSpacerItem, QGraphicsView, QGraphicsScene
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty
-from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtCore import Qt
 from controller.engine import Engine
 
 from model.sorting.quicksort import QuickSort
@@ -17,7 +16,7 @@ from model.graphs.dfs import GraphDFS
 from model.graphs.dijkstra import Dijkstra
 from model.hashtable.hashtable import HashTable
 
-from view.scene_items import ArrayBarItem
+from view.scene_items import ArrayCircleItem
 from view.inspector import Inspector
 
 import random
@@ -26,12 +25,11 @@ import random
 # Виджеты для визуализации
 # ---------------------------
 class ArrayWidget(QWidget):
-    """Визуализация массива с плавной анимацией подсветки"""
+    """Для массивов (сортировки) - упрощенная версия"""
     def __init__(self):
         super().__init__()
         self.data = []
         self.highlighted_indices = set()
-        self._highlight_colors = {}
         self.setMinimumSize(600, 400)
 
     def set_data(self, data):
@@ -39,31 +37,7 @@ class ArrayWidget(QWidget):
         self.update()
 
     def highlight(self, indices):
-        # Плавно анимируем каждый новый индекс
-        for idx in indices:
-            self._animate_highlight(idx)
         self.highlighted_indices = set(indices)
-
-    def _animate_highlight(self, idx):
-        color_start = QColor("#5A9BD5")  # обычный
-        color_end = QColor("#E94B3C")    # подсветка
-        self._highlight_colors[idx] = color_start
-
-        anim = QPropertyAnimation(self, b"dummy")
-        anim.setDuration(300)
-        anim.setStartValue(0)
-        anim.setEndValue(1)
-        anim.valueChanged.connect(lambda val, i=idx: self._update_color(i, val))
-        anim.start()
-
-    def _update_color(self, idx, value):
-        # value: 0..1
-        start = QColor("#5A9BD5")
-        end = QColor("#E94B3C")
-        r = start.red() + (end.red()-start.red())*value
-        g = start.green() + (end.green()-start.green())*value
-        b = start.blue() + (end.blue()-start.blue())*value
-        self._highlight_colors[idx] = QColor(int(r), int(g), int(b))
         self.update()
 
     def swap_items(self, i, j):
@@ -71,12 +45,15 @@ class ArrayWidget(QWidget):
         self.update()
 
     def paintEvent(self, event):
+        from PyQt6.QtGui import QPainter, QColor
         painter = QPainter(self)
         if not self.data:
             return
         width = self.width() / len(self.data)
         for i, val in enumerate(self.data):
-            color = self._highlight_colors.get(i, QColor("#5A9BD5"))
+            color = QColor("#5A9BD5")
+            if i in self.highlighted_indices:
+                color = QColor("#E94B3C")
             painter.fillRect(i * width, self.height() - val * 10, width - 2, val * 10, color)
 
 class GraphWidget(QWidget):
@@ -156,12 +133,18 @@ class MainWindow(QMainWindow):
         self.engine = Engine()
         self.engine.step_ready.connect(self.on_step_ready)
 
+        # Текущий алгоритм и данные
+        self.current_algorithm = None
+        self.current_widget = None
+        self.array_data = []
+        self.visual_items = []
+
         # Панель инспектора
         self.inspector = Inspector()
 
-        # Алгоритм и виджет
-        self.current_algorithm = None
-        self.current_widget = None
+        # Графическая сцена (для сортировок)
+        self.scene = QGraphicsScene()
+        self.view = QGraphicsView(self.scene)
 
         self._setup_ui()
 
@@ -197,12 +180,17 @@ class MainWindow(QMainWindow):
         self.start_btn = QPushButton("Старт")
         self.step_btn = QPushButton("Шаг")
         self.reset_btn = QPushButton("Сброс")
+        
         for btn in [self.generate_btn, self.start_btn, self.step_btn, self.reset_btn]:
             btn.setStyleSheet("""
-                background-color: #5A9BD5;
-                color: white;
-                border-radius: 6px;
-                padding: 6px;
+                QPushButton {
+                    background-color: #5A9BD5;
+                    color: white;
+                    border-radius: 6px;
+                    padding: 6px;
+                }
+                QPushButton:hover { background-color: #4B89C6; }
+                QPushButton:pressed { background-color: #3A6FA3; }
             """)
 
         speed_layout = QHBoxLayout()
@@ -224,6 +212,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.step_btn)
         left_layout.addWidget(self.reset_btn)
         left_layout.addLayout(speed_layout)
+        left_layout.addWidget(self.inspector)
         left_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
 
         # Правая панель
@@ -234,16 +223,24 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(10,10,10,10)
         right_layout.setSpacing(8)
 
-        self.visualization_area = QWidget()
-        self.visualization_area.setStyleSheet("background-color: #fdfdfd; border: 1px solid #ccc; border-radius: 6px;")
+        # Область визуализации
+        self.visualization_widget = QWidget()
+        self.visualization_layout = QVBoxLayout(self.visualization_widget)
+        
+        # По умолчанию используем графическую сцену для сортировок
+        self.view.setStyleSheet("background: #fafafa; border: 1px solid #ccc; border-radius: 6px;")
+        self.view.setAlignment(Qt.AlignmentFlag.AlignBottom)
+        self.visualization_layout.addWidget(self.view)
+
         self.log_text = QTextEdit()
         self.log_text.setMaximumHeight(180)
         self.log_text.setReadOnly(True)
         self.log_text.setStyleSheet("background-color: #f9f9f9; border: 1px solid #ccc; border-radius: 6px;")
 
-        right_layout.addWidget(self.visualization_area)
+        right_layout.addWidget(QLabel("Визуализация:"))
+        right_layout.addWidget(self.visualization_widget, 4)
         right_layout.addWidget(QLabel("Пошаговое объяснение:"))
-        right_layout.addWidget(self.log_text)
+        right_layout.addWidget(self.log_text, 1)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
@@ -256,32 +253,9 @@ class MainWindow(QMainWindow):
         self.start_btn.clicked.connect(self._start_algorithm)
         self.step_btn.clicked.connect(self._step_algorithm)
         self.reset_btn.clicked.connect(self._reset_algorithm)
-        left_panel.setStyleSheet("""
-            background-color: #ffffff;
-            border-radius: 10px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.15);
-        """)
 
-        right_panel.setStyleSheet("""
-            background-color: #ffffff;
-            border-radius: 10px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            box-shadow: 2px 2px 15px rgba(0,0,0,0.2);
-        """)
-
-        self.visualization_area.setStyleSheet("""
-            background-color: #fdfdfd;
-            border-radius: 8px;
-            border: 1px solid #ccc;
-            box-shadow: inset 0px 0px 10px rgba(0,0,0,0.05);
-        """)
-
-
-
-
+        # Тестовые данные
+        self._generate_random_data()
 
     # ---------------------------
     # Методы управления
@@ -298,8 +272,18 @@ class MainWindow(QMainWindow):
             self.algorithm_combo.addItems(["HashTable"])
 
     def _generate_random_data(self):
-        data = [random.randint(1, 50) for _ in range(15)]
+        category = self.category_combo.currentText()
+        if category == "Сортировки":
+            data = [random.randint(5, 50) for _ in range(10)]
+        elif category == "Деревья":
+            data = [random.randint(1, 100) for _ in range(8)]
+        elif category == "Графы":
+            data = [random.randint(1, 20) for _ in range(6)]
+        elif category == "Хэш-таблицы":
+            data = [random.randint(1, 50) for _ in range(5)]
+        
         self.data_input.setText(",".join(map(str, data)))
+        self._log("Сгенерированы новые данные")
 
     def _start_algorithm(self):
         data_text = self.data_input.text()
@@ -316,42 +300,59 @@ class MainWindow(QMainWindow):
         if category == "Сортировки":
             if algo_name == "QuickSort":
                 self.current_algorithm = QuickSort(data.copy())
-            # Добавить MergeSort и BubbleSort аналогично
-            self.current_widget = ArrayWidget()
-            self.current_widget.set_data(data)
+            elif algo_name == "MergeSort":
+                self.current_algorithm = MergeSort(data.copy())
+            elif algo_name == "BubbleSort":
+                self.current_algorithm = BubbleSort(data.copy())
+            
+            # Используем графическую сцену для сортировок
+            self._switch_visualization_widget(self.view)
+            self._render_array(data)
 
         elif category == "Деревья":
             if algo_name == "BST":
                 self.current_algorithm = BST(data.copy())
             elif algo_name == "AVL":
                 self.current_algorithm = AVLTree(data.copy())
-            self.current_widget = TreeWidget()
-            self.current_widget.set_tree(data)
+            
+            tree_widget = TreeWidget()
+            tree_widget.set_tree(data)
+            self._switch_visualization_widget(tree_widget)
 
         elif category == "Графы":
             # Простейший пример графа
             graph = {i: [i+1] for i in range(len(data)-1)}
             if algo_name == "BFS":
                 self.current_algorithm = GraphBFS(graph, 0)
-            # DFS и Dijkstra аналогично
-            self.current_widget = GraphWidget()
-            self.current_widget.set_graph(graph, [])
+            elif algo_name == "DFS":
+                self.current_algorithm = GraphDFS(graph, 0)
+            elif algo_name == "Dijkstra":
+                self.current_algorithm = Dijkstra(graph, 0)
+            
+            graph_widget = GraphWidget()
+            graph_widget.set_graph(graph, [])
+            self._switch_visualization_widget(graph_widget)
 
         elif category == "Хэш-таблицы":
             self.current_algorithm = HashTable(data.copy())
-            self.current_widget = HashWidget(size=self.current_algorithm.size)
-            self.current_widget.set_table([None]*self.current_algorithm.size)
-
-        # Подмена области визуализации
-        old_widget = self.visualization_area
-        self.visualization_area = self.current_widget
-        self.visualization_area.setParent(None)
-        self.centralWidget().layout().replaceWidget(old_widget, self.current_widget)
-        old_widget.deleteLater()
+            hash_widget = HashWidget(size=self.current_algorithm.size)
+            hash_widget.set_table([None]*self.current_algorithm.size)
+            self._switch_visualization_widget(hash_widget)
 
         # Загружаем алгоритм в Engine
         self.engine.load_algorithm(self.current_algorithm)
         self._log(f"{algo_name} запущен")
+
+    def _switch_visualization_widget(self, new_widget):
+        """Переключает виджет визуализации"""
+        # Удаляем старый виджет
+        old_widget = self.visualization_layout.takeAt(0)
+        if old_widget and old_widget.widget():
+            old_widget.widget().setParent(None)
+        
+        # Добавляем новый
+        self.visualization_layout.addWidget(new_widget)
+        self.current_widget = new_widget
 
     def _step_algorithm(self):
         if self.current_algorithm:
@@ -360,25 +361,96 @@ class MainWindow(QMainWindow):
     def _reset_algorithm(self):
         if self.current_algorithm:
             self.current_algorithm.reset()
+            if hasattr(self, 'array_data') and self.array_data:
+                self._render_array(self.array_data)
             self._log("Алгоритм сброшен")
 
+    # ---------------------------
+    # Методы для визуализации сортировок
+    # ---------------------------
+    def _render_array(self, arr):
+        """Отрисовка массива в виде кружков с числами"""
+        self.scene.clear()
+        self.visual_items.clear()
+        self.array_data = arr.copy()
+        
+        radius = 25
+        spacing = 20
+        total_width = len(arr) * (radius * 2 + spacing)
+        start_x = 50  # начальная позиция
+        y = 200  # позиция по вертикали
+
+        for i, val in enumerate(arr):
+            x = start_x + i * (radius * 2 + spacing)
+            circle = ArrayCircleItem(x, y, val, i, radius)
+            self.scene.addItem(circle)
+            self.visual_items.append(circle)
+
+    def _swap_items(self, i, j):
+        """Анимация обмена кружков"""
+        if not (0 <= i < len(self.visual_items) and 0 <= j < len(self.visual_items)):
+            return
+
+        item_i = self.visual_items[i]
+        item_j = self.visual_items[j]
+        x_i, y_i = item_i.pos().x(), item_i.pos().y()
+        x_j, y_j = item_j.pos().x(), item_j.pos().y()
+
+        # Мгновенная перестановка
+        item_i.setPos(x_j, y_i)
+        item_j.setPos(x_i, y_j)
+
+        # Обновляем порядок
+        self.visual_items[i], self.visual_items[j] = self.visual_items[j], self.visual_items[i]
+
+    def _highlight_items(self, indices, color):
+        """Подсветка элементов"""
+        for i in range(len(self.visual_items)):
+            if i in indices:
+                self.visual_items[i].highlight(color)
+            else:
+                self.visual_items[i].reset_color()
+
+    # ---------------------------
+    # Обработка шагов алгоритма
+    # ---------------------------
     def on_step_ready(self, action):
         """Обработка шага алгоритма"""
         t = action.get("type")
+        
         if t in ["compare", "swap", "insert", "collision"]:
-            indices = action.get("indices")
-            if indices:
-                self.current_widget.highlight(indices)
-            if t == "swap":
+            indices = action.get("indices", [])
+            
+            if t == "compare":
+                self._highlight_items(indices, "#FFD700")
+                self._log(f"🔍 СРАВНЕНИЕ: элементы {indices}")
+            elif t == "swap":
                 i, j = indices
-                self.current_widget.swap_items(i, j)
-            if t == "insert" and "table" in action:
-                self.current_widget.set_table(action["table"])
-            self._log(str(action))
+                self._swap_items(i, j)
+                self._highlight_items([i, j], "#E94B3C")
+                self._log(f"🔄 ОБМЕН: элементы {i} и {j} меняются местами")
+            elif t == "insert":
+                arr = action.get("array")
+                if arr:
+                    self._render_array(arr)
+                self._log("Вставка элемента")
+            elif t == "collision":
+                self._log("Коллизия в хэш-таблице")
+                
         elif t == "visit":
-            self._log(f"Посещен узел: {action['node']}")
+            node = action.get("node")
+            if hasattr(self.current_widget, 'highlight'):
+                self.current_widget.highlight([node])
+            self._log(f"Посещен узел: {node}")
+            
         elif t == "complete":
-            self._log("Алгоритм завершен")
+            if hasattr(self, 'visual_items') and self.visual_items:
+                self._highlight_items(range(len(self.visual_items)), "#7EE081")
+            self._log("✅ Алгоритм завершён!")
+
+        # Обновляем инспектор
+        self.inspector.update_info(str(action))
 
     def _log(self, message):
+        """Добавление сообщения в лог"""
         self.log_text.append(f"• {message}")
