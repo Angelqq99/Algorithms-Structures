@@ -1,135 +1,147 @@
 """
-Элементы визуализации для QGraphicsScene.
+Элементы визуализации для QGraphicsScene с анимациями.
 """
-from PyQt6.QtWidgets import QGraphicsRectItem
-from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsTextItem,QGraphicsTextItem, QGraphicsDropShadowEffect
-from PyQt6.QtGui import QBrush, QColor, QFont, QRadialGradient
-from PyQt6.QtCore import QRectF, Qt, QPointF, QPropertyAnimation, QEasingCurve, QVariantAnimation
+from PyQt6.QtWidgets import QGraphicsObject, QGraphicsTextItem
+from PyQt6.QtGui import QBrush, QColor, QFont, QRadialGradient, QPen, QPainter
+from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, QPropertyAnimation, pyqtProperty
 
 
-class ArrayCircleItem(QGraphicsEllipseItem):
-    """Круг для визуализации элемента массива с числом внутри."""
+class ArrayCircleItem(QGraphicsObject):
+    """Круг для визуализации элемента массива с анимациями."""
+    
     def __init__(self, x, y, value, index, radius=25):
-        super().__init__(0, 0, radius * 2, radius * 2)
+        super().__init__()
         self.index = index
         self.value = value
         self.radius = radius
-
-        # Центрируем и задаем позицию
+        
+        # ИСПРАВЛЕНИЕ 1: Используем QColor вместо строк для цветов
+        self.default_color = QColor("#5A9BD5")  # Синий
+        self.highlight_color = QColor("#FFD700")  # Желтый
+        self.swap_color = QColor("#FF6B6B")  # Красный
+        self.complete_color = QColor("#7EE081")  # Зеленый
+        
+        # Текущий цвет должен быть QColor, а не строкой
+        self._current_color = self.default_color
+        
+        # Устанавливаем начальную позицию
         self.setPos(x, y)
-        self.setBrush(QBrush(QColor("#5A9BD5")))
-        self.setPen(QColor("#4B89C6"))
+        
+        # Анимация позиции
+        self.pos_animation = QPropertyAnimation(self, b"pos")
+        self.pos_animation.setDuration(500)
+        
+        # Анимация цвета - ИСПРАВЛЕНИЕ 2: правильное свойство
+        self.color_animation = QPropertyAnimation(self, b"circleColor")
+        self.color_animation.setDuration(300)
+        
+        # Таймер для анимации прыжка
+        self.bounce_timer = QTimer()
+        self.bounce_timer.timeout.connect(self._bounce_step)
+        self.bounce_steps = 0
+        self.original_y = y
 
-        # Добавляем текст
-        self.text = QGraphicsTextItem(str(value), self)
-        self.text.setDefaultTextColor(Qt.GlobalColor.white)
-        font = QFont("Segoe UI", 12, QFont.Weight.Bold)
-        self.text.setFont(font)
-        self.text.setPos(radius - self.text.boundingRect().width() / 2,
-                         radius - self.text.boundingRect().height() / 2)
+    def boundingRect(self):
+        return QRectF(0, 0, self.radius * 2, self.radius * 2)
+        
+    def paint(self, painter, option, widget):
+        # Включаем сглаживание
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # ИСПРАВЛЕНИЕ 3: Правильное создание градиента
+        gradient = QRadialGradient(self.radius, self.radius, self.radius)
+        gradient.setColorAt(0, self._current_color.lighter(150))
+        gradient.setColorAt(0.7, self._current_color)
+        gradient.setColorAt(1, self._current_color.darker(150))
+        
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(QPen(self._current_color.darker(200), 2))
+        painter.drawEllipse(0, 0, self.radius * 2, self.radius * 2)
+        
+        # Рисуем текст значения
+        painter.setPen(QColor("white"))
+        font = QFont("Arial", 12, QFont.Weight.Bold)
+        painter.setFont(font)
+        painter.drawText(self.boundingRect(), Qt.AlignmentFlag.AlignCenter, str(self.value))
+        
+        # # Рисуем индекс под кругом
+        # index_font = QFont("Arial", 8)
+        # painter.setFont(index_font)
+        # painter.setPen(QColor("#2c3e50"))
+        # painter.drawText(0, self.radius * 2 + 5, self.radius * 2, 15, 
+        #                 Qt.AlignmentFlag.AlignCenter, f"[{self.index}]")
 
-    def highlight(self, color="#FFD700"):
-        self.setBrush(QBrush(QColor(color)))
+    # ИСПРАВЛЕНИЕ 4: Правильное свойство для анимации цвета
+    @pyqtProperty(QColor)
+    def circleColor(self):
+        return self._current_color
+        
+    @circleColor.setter
+    def circleColor(self, value):
+        self._current_color = value
+        self.update()  # Важно: вызываем update для перерисовки
+
+    def highlight(self, color):
+        """Подсветка элемента с анимацией."""
+        # ИСПРАВЛЕНИЕ 5: Преобразуем строку в QColor если необходимо
+        if isinstance(color, str):
+            target_color = QColor(color)
+        else:
+            target_color = color
+            
+        self.color_animation.stop()
+        self.color_animation.setStartValue(self._current_color)
+        self.color_animation.setEndValue(target_color)
+        self.color_animation.start()
 
     def reset_color(self):
-        self.setBrush(QBrush(QColor("#5A9BD5")))
+        """Возврат к стандартному цвету с анимацией."""
+        self.color_animation.stop()
+        self.color_animation.setStartValue(self._current_color)
+        self.color_animation.setEndValue(self.default_color)
+        self.color_animation.start()
+
+    def animate_move(self, new_x, new_y, duration=500):
+        """Анимированное перемещение элемента."""
+        self.pos_animation.stop()
+        self.pos_animation.setDuration(duration)
+        self.pos_animation.setStartValue(self.pos())
+        self.pos_animation.setEndValue(QPointF(new_x, new_y))
+        
+        # ИСПРАВЛЕНИЕ 6: Добавляем easing для плавности
+        self.pos_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.pos_animation.start()
+
+    def bounce_animation(self):
+        """Анимация 'прыжка' элемента."""
+        self.bounce_steps = 0
+        self.original_y = self.y()
+        self.bounce_timer.start(50)
+
+    def _bounce_step(self):
+        """Шаг анимации прыжка."""
+        if self.bounce_steps >= 8:
+            self.bounce_timer.stop()
+            self.setY(self.original_y)
+            return
+            
+        # Простая синусоидальная анимация для плавного прыжка
+        import math
+        bounce_height = 15
+        progress = self.bounce_steps / 8.0
+        bounce_offset = math.sin(progress * math.pi) * bounce_height
+        
+        self.setY(self.original_y - bounce_offset)
+        self.bounce_steps += 1
 
     def update_value(self, value):
+        """Обновление значения."""
         self.value = value
-        self.text.setPlainText(str(value))
+        self.update()
+
+    def __str__(self):
+        return f"ArrayCircleItem(index={self.index}, value={self.value})"
 
 
-class ArrayCircleItem3D(QGraphicsEllipseItem):
-    """Объёмный кружок с числом внутри (3D-эффект + анимации)."""
-
-    def __init__(self, x, y, value, index, radius=25):
-        super().__init__(0, 0, radius * 2, radius * 2)
-        self.index = index
-        self.value = value
-        self.radius = radius
-        self.setPos(x, y)
-
-        # --- 3D градиент ---
-        gradient = QRadialGradient(radius, radius, radius * 1.2)
-        gradient.setColorAt(0, QColor("#8FC1FF"))
-        gradient.setColorAt(1, QColor("#3E7BFA"))
-        self.default_brush = QBrush(gradient)
-        self.setBrush(self.default_brush)
-        self.setPen(QColor("#3366CC"))
-
-        # --- Тень ---
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(15)
-        shadow.setOffset(3, 3)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        self.setGraphicsEffect(shadow)
-
-        # --- Текст ---
-        self.text = QGraphicsTextItem(str(value), self)
-        font = QFont("Segoe UI", 12, QFont.Weight.Bold)
-        self.text.setFont(font)
-        self.text.setDefaultTextColor(Qt.GlobalColor.white)
-        self._center_text()
-
-    def _center_text(self):
-        rect = self.text.boundingRect()
-        self.text.setPos(self.radius - rect.width() / 2, self.radius - rect.height() / 2)
-
-    # ---------------------------------------
-    # Эффекты
-    # ---------------------------------------
-    def highlight(self, color="#FFD700"):
-        """Подсветка кружка (с плавным переходом)."""
-        start_brush = self.brush().color()
-        end_color = QColor(color)
-
-        anim = QVariantAnimation()
-        anim.setStartValue(start_brush)
-        anim.setEndValue(end_color)
-        anim.setDuration(300)
-        anim.valueChanged.connect(lambda c: self.setBrush(QBrush(c)))
-        anim.start()
-        self._anim = anim  # предотвратить сборку мусора
-
-    def reset_color(self):
-        """Возврат к стандартному виду."""
-        self.setBrush(self.default_brush)
-
-    def animate_move(self, new_x, new_y):
-        """Плавное перемещение элемента (с защитой от GC)."""
-        from PyQt6.QtCore import QPropertyAnimation, QPointF, QEasingCurve
-        anim = QPropertyAnimation(self, b"pos")
-        anim.setDuration(400)
-        anim.setStartValue(self.pos())
-        anim.setEndValue(QPointF(new_x, new_y))
-        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-
-        # предотвращаем уничтожение GC
-        if not hasattr(self, "_active_anims"):
-            self._active_anims = []
-        self._active_anims.append(anim)
-        anim.finished.connect(lambda: self._active_anims.remove(anim))
-
-        anim.start()
-
-
-    def update_value(self, value):
-        self.value = value
-        self.text.setPlainText(str(value))
-        self._center_text()
-
-
-class ArrayBarItem(QGraphicsRectItem):
-    """Столбец для визуализации элемента массива."""
-
-    def __init__(self, x, height, index, width=20):
-        super().__init__(0, 0, width, height)
-        self.index = index
-        self.setPos(x, -height)
-        self.setBrush(QBrush(QColor("#3E7BFA")))
-
-    def highlight(self, color="#FA3E3E"):
-        self.setBrush(QBrush(QColor(color)))
-
-    def reset_color(self):
-        self.setBrush(QBrush(QColor("#3E7BFA")))
+# ИСПРАВЛЕНИЕ 7: Добавляем недостающий импорт
+from PyQt6.QtCore import QEasingCurve

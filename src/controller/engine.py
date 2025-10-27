@@ -16,26 +16,38 @@ class Engine(QObject):
         self.running = False
 
     def load_algorithm(self, algorithm):
+        """Загрузка алгоритма и инициализация генератора."""
         self.algorithm = algorithm
-        self.generator = algorithm.step_generator()
+        if hasattr(algorithm, 'step_generator'):
+            self.generator = algorithm.step_generator()
+        else:
+            self.generator = None
 
     def step(self):
         """Выполняет один шаг алгоритма."""
         if not self.generator:
             return
+            
         try:
             action = next(self.generator)
             self.step_ready.emit(action)
         except StopIteration:
             self.pause()
+            self.step_ready.emit({"type": "complete", "message": "Algorithm finished"})
 
     def run(self, interval_ms=300):
-        self.running = True
-        self.timer.start(interval_ms)
+        """Запуск автоматического выполнения."""
+        if self.generator:
+            self.running = True
+            self.timer.start(interval_ms)
 
     def pause(self):
+        """Пауза выполнения."""
         self.running = False
-        self.timer.stop()
+        if self.timer.isActive():
+            self.timer.stop()
 
     def _on_tick(self):
-        self.step()
+        """Обработчик таймера для автоматического режима."""
+        if self.running:
+            self.step()
