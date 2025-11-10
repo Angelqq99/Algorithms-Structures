@@ -5,9 +5,8 @@ from PyQt6.QtWidgets import (
     QProgressBar, QMessageBox
 )
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor, QFont, QPainter
 from controller.engine import Engine
-from PyQt6.QtGui import QPainter  # Добавьте этот импорт
 from model.sorting.quicksort import QuickSort
 from model.sorting.mergesort import MergeSort
 from model.sorting.bubblesort import BubbleSort
@@ -18,6 +17,8 @@ from model.graphs.dfs import GraphDFS
 from model.graphs.dijkstra import Dijkstra
 from model.hashtable.hashtable import HashTable
 
+from view.tree_visualizer import TreeVisualizer
+from view.tree_layout import CenteredTreeLayout, CompactTreeLayout
 from view.scene_items import ArrayCircleItem
 from view.inspector import Inspector
 
@@ -46,10 +47,12 @@ class MainWindow(QMainWindow):
         self.pending_actions = []
         self.total_steps = 0
         self.current_step = 0
+        self.algorithm_completed = False  # Флаг завершения алгоритма
 
         self.inspector = Inspector()
         self.scene = QGraphicsScene()
         self.view = QGraphicsView(self.scene)
+        self.tree_visualizer = TreeVisualizer(self.scene)
 
         self._setup_ui()
 
@@ -153,11 +156,6 @@ class MainWindow(QMainWindow):
         self.speed_label = QLabel("x5")
         speed_layout.addWidget(self.speed_label)
 
-        # Прогресс
-        self.progress_label = QLabel("Прогресс: 0%")
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-
         # Добавление элементов в левую панель
         left_layout.addWidget(self.category_combo)
         left_layout.addWidget(self.algorithm_combo)
@@ -168,8 +166,6 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.pause_btn)
         left_layout.addWidget(self.reset_btn)
         left_layout.addLayout(speed_layout)
-        left_layout.addWidget(self.progress_label)
-        left_layout.addWidget(self.progress_bar)
         left_layout.addWidget(QLabel("Инспектор состояния:"))
         left_layout.addWidget(self.inspector)
         left_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
@@ -202,7 +198,7 @@ class MainWindow(QMainWindow):
             }
         """)
         
-        # ИСПРАВЛЕНИЕ: Включаем сглаживание для view
+        # Включаем сглаживание для view
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         right_layout.addWidget(self.view, 4)
@@ -241,11 +237,9 @@ class MainWindow(QMainWindow):
     def _update_speed(self, value):
         """Изменение скорости во время работы."""
         self.speed_label.setText(f"x{value}")
-        if self.is_auto_mode and hasattr(self.engine, 'running') and self.engine.running:
-            new_interval = int(1000 / value)
-            if hasattr(self.engine, 'timer'):
-                self.engine.timer.setInterval(new_interval)
-            self._log(f"⚡ Скорость изменена: x{value}")
+        # Передаем множитель скорости в engine
+        self.engine.set_speed(value)
+        self._log(f"⚡ Скорость изменена: x{value}")
 
     def _on_category_changed(self, category):
         self.algorithm_combo.clear()
@@ -260,18 +254,20 @@ class MainWindow(QMainWindow):
 
     def _start_auto_mode(self):
         """Запуск автоматического режима."""
-        if not self.current_algorithm:
+        # Если алгоритм завершен или не загружен, запускаем заново
+        if self.algorithm_completed or not self.current_algorithm:
             if not self._start_algorithm():
                 return
 
         speed_value = self.speed_slider.value()
-        interval_ms = int(1000 / speed_value)
+        interval_ms = max(50, int(600 / speed_value))  # Адаптивный интервал
+        
         self.engine.run(interval_ms)
 
         self.is_auto_mode = True
         self.auto_btn.hide()
         self.pause_btn.show()
-        self.progress_bar.setVisible(True)
+        self.start_btn.setEnabled(False)  # Отключаем ручной режим в авторежиме
         self._log(f"▶ Автоматический режим запущен (скорость x{speed_value})")
 
     def _pause_auto_mode(self):
@@ -280,16 +276,22 @@ class MainWindow(QMainWindow):
         self.is_auto_mode = False
         self.pause_btn.hide()
         self.auto_btn.show()
+        self.start_btn.setEnabled(True)  # Включаем ручной режим обратно
         self._log("⏸ Автоматический режим приостановлен")
 
     def _step_algorithm(self):
         """Шаг в ручном режиме."""
-        if not self.current_algorithm:
+        # Если алгоритм завершен или не загружен, запускаем заново
+        if self.algorithm_completed or not self.current_algorithm:
             if not self._start_algorithm():
                 return
         
+        # В ручном режиме принудительно запускаем шаг
         if not self.is_animating:
-            self.engine.step()
+            success = self.engine.step()
+            if not success:
+                self._log("❌ Алгоритм завершен или произошла ошибка")
+                self.algorithm_completed = True
 
     def _reset_algorithm(self):
         """Сброс текущего алгоритма и интерфейса."""
@@ -298,18 +300,24 @@ class MainWindow(QMainWindow):
         self.current_algorithm = None
         self.is_auto_mode = False
         self.is_animating = False
+        self.algorithm_completed = False
         self.pending_actions.clear()
         self.current_step = 0
         self.total_steps = 0
 
         self.auto_btn.show()
         self.pause_btn.hide()
-        self.progress_bar.setVisible(False)
-        self.progress_label.setText("Прогресс: 0%")
+        self.start_btn.setEnabled(True)  # Всегда включаем кнопку ручного режима
         
-        # Восстанавливаем исходный массив
-        if hasattr(self, 'original_data'):
-            self._render_array(self.original_data)
+        # Восстанавливаем исходный массив из текущих данных
+        text = self.data_input.text()
+        try:
+            arr = [int(x.strip()) for x in text.split(",") if x.strip()]
+            self._render_array(arr)
+        except ValueError:
+            # Если данные невалидны, используем последний валидный массив
+            if hasattr(self, 'current_data'):
+                self._render_array(self.current_data)
         
         self._log("♻ Алгоритм сброшен. Можно запустить заново.")
 
@@ -318,12 +326,20 @@ class MainWindow(QMainWindow):
         count = random.randint(6, 12)
         data = [random.randint(10, 99) for _ in range(count)]
         self.data_input.setText(",".join(map(str, data)))
-        self.original_data = data.copy()
+        
+        # Сохраняем текущие данные
+        self.current_data = data.copy()
         self._render_array(data)
+        
+        # Автоматически сбрасываем алгоритм при генерации новых данных
+        self._reset_algorithm()
         self._log(f"🎲 Сгенерированы {count} случайных чисел")
 
     def _start_algorithm(self):
         """Запуск выбранного алгоритма."""
+        # Сначала сбрасываем предыдущий алгоритм
+        self._reset_algorithm()
+        
         text = self.data_input.text()
         try:
             arr = [int(x.strip()) for x in text.split(",") if x.strip()]
@@ -339,8 +355,8 @@ class MainWindow(QMainWindow):
 
         algo_name = self.algorithm_combo.currentText()
         
-        # Сохраняем оригинальные данные
-        self.original_data = arr.copy()
+        # Сохраняем текущие данные
+        self.current_data = arr.copy()
         
         # Создание алгоритма в зависимости от выбора
         algorithms = {
@@ -358,12 +374,29 @@ class MainWindow(QMainWindow):
         if algo_name in algorithms:
             self.current_algorithm = algorithms[algo_name]()
             self.engine.load_algorithm(self.current_algorithm)
-            self._render_array(arr)
+            
+            # Для деревьев используем специальный рендеринг
+            if algo_name in ["BST", "AVL"]:
+                # Получаем начальное состояние дерева
+                tree_structure = self._get_initial_tree_structure()
+                if tree_structure:
+                    self._render_tree(tree_structure)
+                else:
+                    self._render_array(arr)
+            else:
+                self._render_array(arr)
+                
             self._log(f"🔧 Алгоритм '{algo_name}' загружен. Готов к выполнению.")
             return True
         else:
             self._log(f"❌ Алгоритм '{algo_name}' не найден")
             return False
+
+    def _get_initial_tree_structure(self):
+        """Получает начальную структуру дерева из алгоритма."""
+        if hasattr(self.current_algorithm, '_get_tree_structure'):
+            return self.current_algorithm._get_tree_structure(self.current_algorithm.root)
+        return None
 
     def _create_sample_graph(self, arr):
         """Создание примерного графа для алгоритмов на графах."""
@@ -403,6 +436,30 @@ class MainWindow(QMainWindow):
             
             # Анимация появления (подъем снизу)
             circle.animate_move(x, y, 400 + i * 80)
+
+    def _render_tree(self, tree_data):
+        """Рендеринг дерева вместо массива."""
+        self.scene.clear()
+        self.visual_items.clear()
+        
+        if not tree_data:
+            self._log("❌ Нет данных для построения дерева")
+            return
+        
+        # Создаем дерево с анимацией
+        root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=True)
+        
+        if root:
+            # Центрируем view на дереве
+            self._center_on_tree()
+            self._log("🌳 Дерево построено и отображено")
+        else:
+            self._log("❌ Ошибка при построении дерева")
+
+    def _center_on_tree(self):
+        """Центрирует вид на содержимом сцены."""
+        if self.scene.items():
+            self.view.fitInView(self.scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def _swap_items(self, i, j):
         """Анимированный обмен элементов."""
@@ -460,33 +517,53 @@ class MainWindow(QMainWindow):
         """Обработка действия с анимацией."""
         self.is_animating = True
         self.current_step += 1
+        self.start_btn.setEnabled(False)
         
         t = action.get("type")
         
-        if t == "compare":
+        # Базовые длительности анимаций
+        base_delay = 800
+        speed_factor = max(0.3, 1.0 / self.speed_slider.value())
+        
+        if t == "tree":
+            # Обработка действий с деревьями
+            tree_data = action.get("tree_data")
+            if tree_data:
+                self._render_tree(tree_data)
+            self._log(action.get("description", "Действие с деревом"))
+            self._schedule_next_action(int(600 * speed_factor))
+        
+        elif t == "traversal":
+            # Обход дерева
+            node_sequence = action.get("nodes", [])
+            self.tree_visualizer.highlight_traversal(node_sequence)
+            self._log(f"🔄 Обход дерева: {action.get('description', '')}")
+            self._schedule_next_action(int(len(node_sequence) * 500 * speed_factor))
+        
+        elif t == "compare":
             i, j = action["indices"]
             self._highlight_items([i, j], "#FFD700", 
                                 f"🔍 Сравнение: элемент[{i}] = {self.array_data[i]} vs элемент[{j}] = {self.array_data[j]}")
-            self._schedule_next_action(800)
+            self._schedule_next_action(int(base_delay * speed_factor))
             
         elif t == "swap":
             i, j = action["indices"]
             self._swap_items(i, j)
             self._log(f"🔄 Обмен элементов {i} и {j}")
-            self._schedule_next_action(1000)
+            self._schedule_next_action(int(1000 * speed_factor))
             
         elif t == "insert":
             arr = action.get("array")
             if arr:
                 self._render_array(arr)
             self._log("📥 Вставка элемента")
-            self._schedule_next_action(600)
+            self._schedule_next_action(int(600 * speed_factor))
             
         elif t == "collision":
             for item in self.visual_items:
                 item.highlight("#FFA500")
             self._log("⚡ Коллизия в хэш-таблице")
-            self._schedule_next_action(800)
+            self._schedule_next_action(int(800 * speed_factor))
             
         elif t == "visit":
             node_index = action.get('node')
@@ -494,23 +571,19 @@ class MainWindow(QMainWindow):
                 self.visual_items[node_index].highlight("#4ECDC4")
                 self.visual_items[node_index].bounce_animation()
             self._log(f"📍 Посещен узел: {node_index}")
-            self._schedule_next_action(600)
+            self._schedule_next_action(int(600 * speed_factor))
             
         elif t == "complete":
             self._animate_completion()
             self._log("✅ Алгоритм успешно завершён!")
             self.is_animating = False
-            self.progress_bar.setValue(100)
-            self.progress_label.setText("Прогресс: 100% (завершено)")
+            self.algorithm_completed = True
+            # Автоматически выходим из авторежима при завершении
+            if self.is_auto_mode:
+                self._pause_auto_mode()
 
         # Обновление инспектора
         self.inspector.update_info(json.dumps(action, indent=2))
-        
-        # Обновление прогресса
-        if hasattr(self.current_algorithm, 'get_progress'):
-            progress = self.current_algorithm.get_progress()
-            self.progress_bar.setValue(int(progress * 100))
-            self.progress_label.setText(f"Прогресс: {int(progress * 100)}%")
 
     def _schedule_next_action(self, delay):
         """Запланировать следующее действие после задержки."""
@@ -523,9 +596,13 @@ class MainWindow(QMainWindow):
         if self.pending_actions:
             next_action = self.pending_actions.pop(0)
             self._process_action(next_action)
-        elif self.is_auto_mode:
-            # В автоматическом режиме запрашиваем следующий шаг
-            QTimer.singleShot(100, self.engine.step)
+        elif self.is_auto_mode and not self.algorithm_completed:
+            # В автоматическом режиме продолжаем выполнение
+            QTimer.singleShot(100, self.engine._on_tick)
+        else:
+            # В ручном режиме просто завершаем анимацию
+            # Разблокируем кнопку ручного режима
+            self.start_btn.setEnabled(True)
 
     def _animate_completion(self):
         """Анимация завершения алгоритма - последовательная подсветка."""
@@ -552,7 +629,3 @@ class MainWindow(QMainWindow):
         """Обработка закрытия приложения."""
         self.engine.pause()
         event.accept()
-
-
-# Необходимый импорт для QPainter
-from PyQt6.QtGui import QPainter

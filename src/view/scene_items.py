@@ -3,7 +3,7 @@
 """
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsTextItem
 from PyQt6.QtGui import QBrush, QColor, QFont, QRadialGradient, QPen, QPainter
-from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, QPropertyAnimation, pyqtProperty
+from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, QPropertyAnimation, pyqtProperty, QEasingCurve
 
 
 class ArrayCircleItem(QGraphicsObject):
@@ -15,27 +15,21 @@ class ArrayCircleItem(QGraphicsObject):
         self.value = value
         self.radius = radius
         
-        # ИСПРАВЛЕНИЕ 1: Используем QColor вместо строк для цветов
         self.default_color = QColor("#5A9BD5")  # Синий
         self.highlight_color = QColor("#FFD700")  # Желтый
         self.swap_color = QColor("#FF6B6B")  # Красный
         self.complete_color = QColor("#7EE081")  # Зеленый
         
-        # Текущий цвет должен быть QColor, а не строкой
         self._current_color = self.default_color
         
-        # Устанавливаем начальную позицию
         self.setPos(x, y)
         
-        # Анимация позиции
         self.pos_animation = QPropertyAnimation(self, b"pos")
         self.pos_animation.setDuration(500)
         
-        # Анимация цвета - ИСПРАВЛЕНИЕ 2: правильное свойство
         self.color_animation = QPropertyAnimation(self, b"circleColor")
         self.color_animation.setDuration(300)
         
-        # Таймер для анимации прыжка
         self.bounce_timer = QTimer()
         self.bounce_timer.timeout.connect(self._bounce_step)
         self.bounce_steps = 0
@@ -45,10 +39,8 @@ class ArrayCircleItem(QGraphicsObject):
         return QRectF(0, 0, self.radius * 2, self.radius * 2)
         
     def paint(self, painter, option, widget):
-        # Включаем сглаживание
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # ИСПРАВЛЕНИЕ 3: Правильное создание градиента
         gradient = QRadialGradient(self.radius, self.radius, self.radius)
         gradient.setColorAt(0, self._current_color.lighter(150))
         gradient.setColorAt(0.7, self._current_color)
@@ -58,20 +50,11 @@ class ArrayCircleItem(QGraphicsObject):
         painter.setPen(QPen(self._current_color.darker(200), 2))
         painter.drawEllipse(0, 0, self.radius * 2, self.radius * 2)
         
-        # Рисуем текст значения
         painter.setPen(QColor("white"))
         font = QFont("Arial", 12, QFont.Weight.Bold)
         painter.setFont(font)
         painter.drawText(self.boundingRect(), Qt.AlignmentFlag.AlignCenter, str(self.value))
-        
-        # # Рисуем индекс под кругом
-        # index_font = QFont("Arial", 8)
-        # painter.setFont(index_font)
-        # painter.setPen(QColor("#2c3e50"))
-        # painter.drawText(0, self.radius * 2 + 5, self.radius * 2, 15, 
-        #                 Qt.AlignmentFlag.AlignCenter, f"[{self.index}]")
 
-    # ИСПРАВЛЕНИЕ 4: Правильное свойство для анимации цвета
     @pyqtProperty(QColor)
     def circleColor(self):
         return self._current_color
@@ -79,11 +62,9 @@ class ArrayCircleItem(QGraphicsObject):
     @circleColor.setter
     def circleColor(self, value):
         self._current_color = value
-        self.update()  # Важно: вызываем update для перерисовки
+        self.update()
 
     def highlight(self, color):
-        """Подсветка элемента с анимацией."""
-        # ИСПРАВЛЕНИЕ 5: Преобразуем строку в QColor если необходимо
         if isinstance(color, str):
             target_color = QColor(color)
         else:
@@ -95,37 +76,30 @@ class ArrayCircleItem(QGraphicsObject):
         self.color_animation.start()
 
     def reset_color(self):
-        """Возврат к стандартному цвету с анимацией."""
         self.color_animation.stop()
         self.color_animation.setStartValue(self._current_color)
         self.color_animation.setEndValue(self.default_color)
         self.color_animation.start()
 
     def animate_move(self, new_x, new_y, duration=500):
-        """Анимированное перемещение элемента."""
         self.pos_animation.stop()
         self.pos_animation.setDuration(duration)
         self.pos_animation.setStartValue(self.pos())
         self.pos_animation.setEndValue(QPointF(new_x, new_y))
-        
-        # ИСПРАВЛЕНИЕ 6: Добавляем easing для плавности
         self.pos_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.pos_animation.start()
 
     def bounce_animation(self):
-        """Анимация 'прыжка' элемента."""
         self.bounce_steps = 0
         self.original_y = self.y()
         self.bounce_timer.start(50)
 
     def _bounce_step(self):
-        """Шаг анимации прыжка."""
         if self.bounce_steps >= 8:
             self.bounce_timer.stop()
             self.setY(self.original_y)
             return
             
-        # Простая синусоидальная анимация для плавного прыжка
         import math
         bounce_height = 15
         progress = self.bounce_steps / 8.0
@@ -135,7 +109,6 @@ class ArrayCircleItem(QGraphicsObject):
         self.bounce_steps += 1
 
     def update_value(self, value):
-        """Обновление значения."""
         self.value = value
         self.update()
 
@@ -143,5 +116,80 @@ class ArrayCircleItem(QGraphicsObject):
         return f"ArrayCircleItem(index={self.index}, value={self.value})"
 
 
-# ИСПРАВЛЕНИЕ 7: Добавляем недостающий импорт
-from PyQt6.QtCore import QEasingCurve
+class TreeNodeItem(ArrayCircleItem):
+    """Узел дерева с поддержкой связей и иерархии."""
+    
+    def __init__(self, x, y, value, radius=25):
+        super().__init__(x, y, value, -1, radius)
+        self.children = []
+        self.parent = None
+        self.level = 0
+        self.tree_connections = []
+        
+        # Цвета для деревьев
+        self.default_color = QColor("#9B59B6")  # Фиолетовый для узлов дерева
+        self._current_color = self.default_color
+
+    def add_child(self, child_node):
+        child_node.parent = self
+        child_node.level = self.level + 1
+        self.children.append(child_node)
+
+    def add_connection(self, connection):
+        self.tree_connections.append(connection)
+
+
+class TreeConnectionItem(QGraphicsObject):
+    """Соединение между узлами дерева."""
+    
+    def __init__(self, start_node, end_node):
+        super().__init__()
+        self.start_node = start_node
+        self.end_node = end_node
+        self.setZValue(-1)  # Линии под узлами
+        
+        # Добавляем ссылку на соединение в узлы
+        start_node.add_connection(self)
+        end_node.add_connection(self)
+
+    def boundingRect(self):
+        start_pos = self.start_node.scenePos()
+        end_pos = self.end_node.scenePos()
+        
+        padding = 10
+        x1 = min(start_pos.x(), end_pos.x()) - padding
+        y1 = min(start_pos.y(), end_pos.y()) - padding
+        x2 = max(start_pos.x(), end_pos.x()) + padding
+        y2 = max(start_pos.y(), end_pos.y()) + padding
+        
+        return QRectF(x1, y1, x2 - x1, y2 - y1)
+
+    def paint(self, painter, option, widget):
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Более толстая и контрастная линия для дерева
+        painter.setPen(QPen(QColor("#34495E"), 3, Qt.PenStyle.SolidLine))
+        
+        start_pos = self.start_node.scenePos()
+        end_pos = self.end_node.scenePos()
+        
+        # Смещаем начало и конец линии к краям кругов
+        start_radius = self.start_node.radius
+        end_radius = self.end_node.radius
+        
+        # Вычисляем направление вектора
+        dx = end_pos.x() - start_pos.x()
+        dy = end_pos.y() - start_pos.y()
+        distance = (dx**2 + dy**2)**0.5
+        
+        if distance > 0:
+            # Нормализуем и умножаем на радиусы
+            dx_unit = dx / distance
+            dy_unit = dy / distance
+            
+            start_x = start_pos.x() + dx_unit * start_radius
+            start_y = start_pos.y() + dy_unit * start_radius
+            end_x = end_pos.x() - dx_unit * end_radius
+            end_y = end_pos.y() - dy_unit * end_radius
+            
+            painter.drawLine(QPointF(start_x, start_y), QPointF(end_x, end_y))
