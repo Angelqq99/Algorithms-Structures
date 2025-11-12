@@ -8,7 +8,7 @@ import math
 class TreeLayout:
     """Базовый класс для алгоритмов расположения деревьев."""
     
-    def __init__(self, x_spacing=80, y_spacing=100):
+    def __init__(self, x_spacing=180, y_spacing=150):  # Увеличены расстояния для больших узлов
         self.x_spacing = x_spacing
         self.y_spacing = y_spacing
     

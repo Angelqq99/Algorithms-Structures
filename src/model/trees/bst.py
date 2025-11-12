@@ -1,7 +1,7 @@
 from model.base_algorithm import BaseAlgorithm
 
 class BST(BaseAlgorithm):
-    """BST с поддержкой визуализации дерева."""
+    """Бинарное дерево поиска (BST) с поддержкой визуализации."""
     
     class Node:
         def __init__(self, value):
@@ -30,13 +30,14 @@ class BST(BaseAlgorithm):
             }
         
         # Обход inorder для демонстрации
-        inorder_values = self._inorder_traversal(self.root)
-        yield {
-            "type": "traversal",
-            "nodes": inorder_values,  # Передаем значения, а не узлы
-            "description": "In-order обход дерева",
-            "traversal_type": "inorder"
-        }
+        if self.root:
+            inorder_values = self._inorder_traversal(self.root)
+            yield {
+                "type": "traversal",
+                "nodes": inorder_values,
+                "description": "In-order обход дерева",
+                "traversal_type": "inorder"
+            }
 
         yield {
             "type": "complete",
@@ -86,10 +87,47 @@ class BST(BaseAlgorithm):
         
         result = []
         result.extend(self._inorder_traversal(node.left))
-        result.append(node.value)  # Возвращаем значения, а не узлы
+        result.append(node.value)
         result.extend(self._inorder_traversal(node.right))
         
         return result
+
+    def _preorder_traversal(self, node):
+        """Pre-order обход дерева."""
+        if node is None:
+            return []
+        
+        result = [node.value]
+        result.extend(self._preorder_traversal(node.left))
+        result.extend(self._preorder_traversal(node.right))
+        
+        return result
+
+    def _postorder_traversal(self, node):
+        """Post-order обход дерева."""
+        if node is None:
+            return []
+        
+        result = []
+        result.extend(self._postorder_traversal(node.left))
+        result.extend(self._postorder_traversal(node.right))
+        result.append(node.value)
+        
+        return result
+
+    def search(self, value):
+        """Поиск значения в дереве."""
+        return self._search(self.root, value)
+
+    def _search(self, node, value):
+        """Рекурсивный поиск значения."""
+        if node is None or node.value == value:
+            return node
+            
+        if value < node.value:
+            return self._search(node.left, value)
+        else:
+            return self._search(node.right, value)
 
     def _estimate_total_steps(self):
         """Оценка общего количества шагов."""

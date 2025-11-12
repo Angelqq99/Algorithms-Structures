@@ -1,7 +1,7 @@
-from ..base_algorithm import BaseAlgorithm
+from model.base_algorithm import BaseAlgorithm
 
 class AVLTree(BaseAlgorithm):
-    """AVL дерево с поддержкой визуализации."""
+    """AVL дерево (сбалансированное бинарное дерево поиска) с поддержкой визуализации."""
     
     class Node:
         def __init__(self, value):
@@ -28,6 +28,16 @@ class AVLTree(BaseAlgorithm):
                 "description": f"Вставлен узел: {val} (AVL)"
             }
         
+        # Обход inorder для демонстрации
+        if self.root:
+            inorder_values = self._inorder_traversal(self.root)
+            yield {
+                "type": "traversal",
+                "nodes": inorder_values,
+                "description": "In-order обход AVL дерева",
+                "traversal_type": "inorder"
+            }
+
         yield {
             "type": "complete",
             "description": "Построение AVL дерева завершено"
@@ -127,7 +137,20 @@ class AVLTree(BaseAlgorithm):
                 
         return node_data
 
+    def _inorder_traversal(self, node):
+        """In-order обход дерева."""
+        if node is None:
+            return []
+        
+        result = []
+        result.extend(self._inorder_traversal(node.left))
+        result.append(node.value)
+        result.extend(self._inorder_traversal(node.right))
+        
+        return result
+
     def _estimate_total_steps(self):
         """Оценка общего количества шагов."""
         n = len(self.data)
         return n * 4  # Вставка + балансировка
+

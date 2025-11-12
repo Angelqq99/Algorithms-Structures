@@ -12,6 +12,10 @@ from model.sorting.mergesort import MergeSort
 from model.sorting.bubblesort import BubbleSort
 from model.trees.bst import BST
 from model.trees.avl import AVLTree
+from model.trees.red_black_tree import RedBlackTree
+from model.trees.splay_tree import SplayTree
+from model.trees.treap import Treap
+from model.trees.b_tree import BTree
 from model.graphs.bfs import GraphBFS
 from model.graphs.dfs import GraphDFS
 from model.graphs.dijkstra import Dijkstra
@@ -51,7 +55,8 @@ class MainWindow(QMainWindow):
 
         self.inspector = Inspector()
         self.scene = QGraphicsScene()
-        self.view = QGraphicsView(self.scene)
+        from view.scene_items import ZoomableGraphicsView
+        self.view = ZoomableGraphicsView(self.scene)
         self.tree_visualizer = TreeVisualizer(self.scene)
 
         self._setup_ui()
@@ -246,7 +251,7 @@ class MainWindow(QMainWindow):
         if category == "Сортировки":
             self.algorithm_combo.addItems(["QuickSort", "MergeSort", "BubbleSort"])
         elif category == "Деревья":
-            self.algorithm_combo.addItems(["BST", "AVL"])
+            self.algorithm_combo.addItems(["BST", "AVL", "RedBlackTree", "SplayTree", "Treap", "BTree"])
         elif category == "Графы":
             self.algorithm_combo.addItems(["BFS", "DFS", "Dijkstra"])
         elif category == "Хэш-таблицы":
@@ -343,12 +348,15 @@ class MainWindow(QMainWindow):
         text = self.data_input.text()
         try:
             arr = [int(x.strip()) for x in text.split(",") if x.strip()]
-            if len(arr) < 2:
-                QMessageBox.warning(self, "Ошибка", "Введите хотя бы 2 числа")
+            if len(arr) < 1:
+                QMessageBox.warning(self, "Ошибка", "Введите хотя бы 1 число")
                 return False
-            if len(arr) > 20:
+            if len(arr) > 15 and self.algorithm_combo.currentText() in ["BST", "AVL", "RedBlackTree", "SplayTree", "Treap"]:
                 QMessageBox.warning(self, "Предупреждение", 
-                                  "Для лучшей визуализации рекомендуется не более 20 элементов")
+                                  "Для деревьев рекомендуется не более 15 элементов")
+            if len(arr) > 20 and self.algorithm_combo.currentText() == "BTree":
+                QMessageBox.warning(self, "Предупреждение", 
+                                  "Для B-дерева рекомендуется не более 20 элементов")
         except ValueError:
             QMessageBox.warning(self, "Ошибка", "Вводите только числа через запятую")
             return False
@@ -365,6 +373,10 @@ class MainWindow(QMainWindow):
             "BubbleSort": lambda: BubbleSort(arr.copy()),
             "BST": lambda: BST(arr.copy()),
             "AVL": lambda: AVLTree(arr.copy()),
+            "RedBlackTree": lambda: RedBlackTree(arr.copy()),
+            "SplayTree": lambda: SplayTree(arr.copy()),
+            "Treap": lambda: Treap(arr.copy()),
+            "BTree": lambda: BTree(arr.copy()),
             "BFS": lambda: GraphBFS(self._create_sample_graph(arr), 0),
             "DFS": lambda: GraphDFS(self._create_sample_graph(arr), 0),
             "Dijkstra": lambda: Dijkstra(self._create_sample_graph(arr), 0),
@@ -372,22 +384,25 @@ class MainWindow(QMainWindow):
         }
 
         if algo_name in algorithms:
-            self.current_algorithm = algorithms[algo_name]()
-            self.engine.load_algorithm(self.current_algorithm)
-            
-            # Для деревьев используем специальный рендеринг
-            if algo_name in ["BST", "AVL"]:
-                # Получаем начальное состояние дерева
-                tree_structure = self._get_initial_tree_structure()
-                if tree_structure:
-                    self._render_tree(tree_structure)
+            try:
+                self.current_algorithm = algorithms[algo_name]()
+                self.engine.load_algorithm(self.current_algorithm)
+                
+                # Для деревьев используем специальный рендеринг
+                if algo_name in ["BST", "AVL", "RedBlackTree", "SplayTree", "Treap", "BTree"]:
+                    # Сначала показываем пустое дерево
+                    self._render_tree(None)
+                    self._log(f"🌳 Дерево '{algo_name}' инициализировано. Готово к построению.")
                 else:
                     self._render_array(arr)
-            else:
-                self._render_array(arr)
-                
-            self._log(f"🔧 Алгоритм '{algo_name}' загружен. Готов к выполнению.")
-            return True
+                    
+                self._log(f"🔧 Алгоритм '{algo_name}' загружен. Готов к выполнению.")
+                return True
+            except Exception as e:
+                self._log(f"❌ Ошибка при создании алгоритма: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return False
         else:
             self._log(f"❌ Алгоритм '{algo_name}' не найден")
             return False
@@ -395,6 +410,7 @@ class MainWindow(QMainWindow):
     def _get_initial_tree_structure(self):
         """Получает начальную структуру дерева из алгоритма."""
         if hasattr(self.current_algorithm, '_get_tree_structure'):
+            # Передаем только root, без self
             return self.current_algorithm._get_tree_structure(self.current_algorithm.root)
         return None
 
@@ -439,27 +455,44 @@ class MainWindow(QMainWindow):
 
     def _render_tree(self, tree_data):
         """Рендеринг дерева вместо массива."""
-        self.scene.clear()
-        self.visual_items.clear()
-        
-        if not tree_data:
-            self._log("❌ Нет данных для построения дерева")
-            return
-        
-        # Создаем дерево с анимацией
-        root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=True)
-        
-        if root:
-            # Центрируем view на дереве
-            self._center_on_tree()
-            self._log("🌳 Дерево построено и отображено")
-        else:
-            self._log("❌ Ошибка при построении дерева")
+        try:
+            # Очищаем сцену безопасно
+            self.scene.clear()
+            self.visual_items.clear()
+            
+            # Если данных нет, показываем сообщение
+            if not tree_data:
+                text_item = self.scene.addText("Дерево пустое или строится...")
+                text_item.setPos(0, 0)
+                self._log("ℹ️ Дерево пустое - начните выполнение алгоритма")
+                return
+            
+            # Создаем дерево с анимацией
+            root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=True)
+            
+            if root:
+                # Центрируем view на дереве
+                self._center_on_tree()
+                self._log("🌳 Дерево построено и отображено")
+            else:
+                self._log("❌ Ошибка при построении дерева")
+        except Exception as e:
+            self._log(f"❌ Ошибка при визуализации дерева: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # В случае ошибки отображаем массив
+            if hasattr(self, 'current_data'):
+                self._render_array(self.current_data)
 
     def _center_on_tree(self):
-        """Центрирует вид на содержимом сцены."""
+        """Центрирует вид на содержимом сцены без масштабирования."""
         if self.scene.items():
-            self.view.fitInView(self.scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            rect = self.scene.itemsBoundingRect()
+            rect.adjust(-150, -150, 150, 150)
+            self.view.setSceneRect(rect)
+            self.view.centerOn(rect.center())
+            self.view.resetTransform()   # убираем масштабирование fitInView
+
 
     def _swap_items(self, i, j):
         """Анимированный обмен элементов."""
@@ -629,3 +662,5 @@ class MainWindow(QMainWindow):
         """Обработка закрытия приложения."""
         self.engine.pause()
         event.accept()
+
+

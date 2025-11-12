@@ -12,7 +12,7 @@ class Engine(QObject):
         self.timer.timeout.connect(self._on_tick)
         self.running = False
         self.current_interval = 300
-        self.manual_mode = False  # Флаг ручного режима
+        self.manual_mode = False
 
     def load_algorithm(self, algorithm):
         """Загрузка алгоритма и инициализация генератора."""
@@ -60,7 +60,7 @@ class Engine(QObject):
 
     def _on_tick(self):
         """Обработчик таймера для автоматического режима."""
-        if self.running:
+        if self.running and self.generator:
             try:
                 action = next(self.generator)
                 self.step_ready.emit(action)
