@@ -1,7 +1,8 @@
 """
 Визуализатор деревьев с анимациями.
 """
-from PyQt6.QtCore import QTimer, QPropertyAnimation, pyqtProperty, QEasingCurve, QRectF
+from cmath import rect
+from PyQt6.QtCore import QTimer, QPropertyAnimation, pyqtProperty, QEasingCurve, QRectF,Qt
 from PyQt6.QtGui import QColor
 from view.scene_items import TreeNodeItem, TreeConnectionItem
 from view.tree_layout import CenteredTreeLayout, CompactTreeLayout
@@ -15,9 +16,10 @@ class TreeVisualizer:
         self.nodes = []
         self.connections = []
         # Увеличены расстояния для больших узлов
-        self.layout_algorithm = CenteredTreeLayout(x_spacing=200, y_spacing=150)
+        self.layout_algorithm = CenteredTreeLayout(x_spacing=850, y_spacing=850)
         self.value_to_node = {}  # Словарь для сопоставления значений и узлов
         self.current_tree_type = "BST"  # Тип текущего дерева
+        self._auto_fit_view()
     
     def clear(self):
         """Очищает сцену от всех элементов дерева безопасно."""
@@ -54,7 +56,8 @@ class TreeVisualizer:
         
         try:
             # Устанавливаем большой размер сцены для больших узлов
-            self.scene.setSceneRect(-800, -400, 1600, 800)
+            rect = self.scene.itemsBoundingRect()
+            self.scene.setSceneRect(rect.adjusted(-500, -500, 500, 500))
             
             # Создаем корневой узел
             root = self._create_node_from_data(tree_structure, 0, 0)
@@ -79,45 +82,12 @@ class TreeVisualizer:
             else:
                 self._add_all_to_scene()
             
-            # Центрируем вид на дереве
-            self._center_view_on_tree()
-            
             return root
         except Exception as e:
             print(f"Ошибка при создании дерева: {e}")
             import traceback
             traceback.print_exc()
             return None
-    
-    def _center_view_on_tree(self):
-        """Центрирует вид на дереве."""
-        if not self.nodes:
-            return
-            
-        # Находим bounding box всех узлов
-        min_x = float('inf')
-        max_x = float('-inf')
-        min_y = float('inf')
-        max_y = float('-inf')
-        
-        for node in self.nodes:
-            if node and hasattr(node, 'pos'):
-                pos = node.pos()
-                min_x = min(min_x, pos.x())
-                max_x = max(max_x, pos.x())
-                min_y = min(min_y, pos.y())
-                max_y = max(max_y, pos.y())
-        
-        # Добавляем большие отступы для больших узлов
-        padding = 200
-        scene_rect = QRectF(
-            min_x - padding, 
-            min_y - padding, 
-            (max_x - min_x) + 2 * padding, 
-            (max_y - min_y) + 2 * padding
-        )
-        
-        self.scene.setSceneRect(scene_rect)
     
     def _create_node_from_data(self, node_data, x, y):
         """Создает TreeNodeItem из данных узла."""
@@ -138,7 +108,7 @@ class TreeVisualizer:
                     tree_type = "Treap"
             
             # Создаем узел с увеличенным радиусом
-            node = TreeNodeItem(x, y, value, radius=80)
+            node = TreeNodeItem(x, y, value, radius=95)
             
             # Устанавливаем цвет в зависимости от типа дерева
             node.set_tree_type_color(tree_type)
@@ -175,6 +145,8 @@ class TreeVisualizer:
             if child and hasattr(child, 'scenePos'):  # Проверяем, что child не None и валиден
                 try:
                     connection = TreeConnectionItem(node, child)
+                    # начинаем с нулевой непрозрачности
+                    connection.setOpacity(0.0)
                     self.connections.append(connection)
                     self._create_connections(child)
                 except Exception as e:
@@ -184,31 +156,46 @@ class TreeVisualizer:
         """Добавляет все узлы и соединения на сцену."""
         # Сначала добавляем все узлы
         for node in self.nodes:
-            if node and node.scene() != self.scene and hasattr(node, 'setVisible'):
-                self.scene.addItem(node)
+            try:
+                if node and node.scene() != self.scene and hasattr(node, 'setVisible'):
+                    self.scene.addItem(node)
+                    node.setVisible(True)
+            except Exception:
+                # безопасно продолжаем
+                pass
         
         # Затем добавляем соединения
         for connection in self.connections:
-            if connection and connection.scene() != self.scene:
-                self.scene.addItem(connection)
+            try:
+                if connection and connection.scene() != self.scene:
+                    self.scene.addItem(connection)
+                    connection.setVisible(True)
+                    connection.setOpacity(1.0)
+            except Exception:
+                pass
     
-    def animate_tree_construction(self, root, delay=300):
+    def animate_tree_construction(self, root, delay=360):
         """Анимирует построение дерева."""
         if not root or not hasattr(root, 'setVisible'):
             return
             
         # Сначала добавляем все элементы на сцену невидимыми
         for node in self.nodes:
-            if node and hasattr(node, 'setVisible'):
-                node.setVisible(False)
-                if node.scene() != self.scene:
-                    self.scene.addItem(node)
+            try:
+                if node and hasattr(node, 'setVisible'):
+                    node.setVisible(False)
+                    if node.scene() != self.scene:
+                        self.scene.addItem(node)
+            except Exception:
+                pass
         
         for connection in self.connections:
-            if connection:
+            try:
                 connection.setVisible(False)
                 if connection.scene() != self.scene:
                     self.scene.addItem(connection)
+            except Exception:
+                pass
         
         # Анимируем появление узлов и соединений
         self._animate_nodes_appearance(root, delay)
@@ -224,7 +211,7 @@ class TreeVisualizer:
         # Анимация соединений с детьми
         for child in node.children:
             if child and hasattr(child, 'scenePos'):  # Проверяем, что child валиден
-                connection_delay = current_delay + delay // 2
+                connection_delay = current_delay + int(delay * 0.5)
                 QTimer.singleShot(connection_delay, 
                                 lambda n=node, c=child: self._safe_animate_connection_appearance(n, c))
                 
@@ -253,18 +240,25 @@ class TreeVisualizer:
                 
             node.setVisible(True)
             node.setScale(0.1)
-            node.setOpacity(0.3)
+            node.setOpacity(0.0)
             
+            # Храним анимации в самом узле, чтобы GC их не удалил
             scale_anim = QPropertyAnimation(node, b"scale")
-            scale_anim.setDuration(500)
+            scale_anim.setDuration(700)
             scale_anim.setStartValue(0.1)
             scale_anim.setEndValue(1.0)
-            scale_anim.setEasingCurve(QEasingCurve.Type.OutBack)
+            scale_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
             
             opacity_anim = QPropertyAnimation(node, b"opacity")
-            opacity_anim.setDuration(400)
-            opacity_anim.setStartValue(0.3)
+            opacity_anim.setDuration(700)
+            opacity_anim.setStartValue(0.0)
             opacity_anim.setEndValue(1.0)
+            opacity_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+            
+            # сохраняем ссылки
+            if not hasattr(node, "_entry_anims"):
+                node._entry_anims = []
+            node._entry_anims.extend([scale_anim, opacity_anim])
             
             scale_anim.start()
             opacity_anim.start()
@@ -288,7 +282,7 @@ class TreeVisualizer:
             raise e
     
     def _animate_connection_appearance(self, parent, child):
-        """Анимирует появление соединения."""
+        """Анимирует появление соединения (fade-in)."""
         if not parent or not child or not hasattr(parent, 'scenePos') or not hasattr(child, 'scenePos'):
             return
             
@@ -303,6 +297,17 @@ class TreeVisualizer:
         if connection:
             try:
                 connection.setVisible(True)
+                # плавный fade-in
+                anim = QPropertyAnimation(connection, b"opacity")
+                anim.setDuration(520)
+                anim.setStartValue(0.0)
+                anim.setEndValue(1.0)
+                anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+                # сохраняем в объекте connection, чтобы анимация не уничтожилась
+                if not hasattr(connection, "_fade_anims"):
+                    connection._fade_anims = []
+                connection._fade_anims.append(anim)
+                anim.start()
             except RuntimeError as e:
                 if "wrapped C/C++ object" in str(e):
                     print("Предупреждение: соединение удалено")
@@ -311,7 +316,7 @@ class TreeVisualizer:
             except Exception as e:
                 print(f"Ошибка при показе соединения: {e}")
     
-    def highlight_traversal(self, node_values, delay=800):
+    def highlight_traversal(self, node_values, delay=900):
         """Подсвечивает последовательность узлов по их значениям."""
         for i, value in enumerate(node_values):
             QTimer.singleShot(i * delay, lambda v=value: self._safe_highlight_node_by_value(v))
@@ -335,7 +340,7 @@ class TreeVisualizer:
                 node.highlight(QColor("#FFD700"))
                 
                 # Возвращаем исходный цвет через некоторое время
-                QTimer.singleShot(500, lambda: self._safe_reset_node_color(node, original_color))
+                QTimer.singleShot(600, lambda: self._safe_reset_node_color(node, original_color))
         except RuntimeError as e:
             if "wrapped C/C++ object" in str(e):
                 return
@@ -363,3 +368,14 @@ class TreeVisualizer:
             raise e
         except Exception as e:
             print(f"Ошибка при сбросе цвета узла: {e}")
+    
+    def _auto_fit_view(self):
+        """Автоматическое подгонка вида (вызывается только при инициализации)."""
+        view = self.scene.views()[0] if self.scene.views() else None
+        if not view:
+            return
+        
+        rect = self.scene.itemsBoundingRect()
+        if rect.isValid():
+            rect.adjust(-200, -200, 200, 200)  # небольшой паддинг
+            view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)

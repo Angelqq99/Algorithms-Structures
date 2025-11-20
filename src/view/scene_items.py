@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, QPropertyAnimation, pyqtPr
 # ==========================
 # 🔍 QGraphicsView с масштабированием колесиком
 # ==========================
+# scene_items.py - обновленный класс ZoomableGraphicsView
 class ZoomableGraphicsView(QGraphicsView):
     """QGraphicsView с поддержкой масштабирования колесиком мыши."""
     def __init__(self, *args, **kwargs):
@@ -17,9 +18,15 @@ class ZoomableGraphicsView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        
+        # Всегда показывать скроллбары
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        # Улучшенное управление скроллом
         self.scale_factor = 1.15
-        self.min_zoom = 0.2
-        self.max_zoom = 4.0
+        self.min_zoom = 0.1  # Уменьшил минимальный zoom для большего обзора
+        self.max_zoom = 5.0  # Увеличил максимальный zoom
         self._current_scale = 1.0
 
     def wheelEvent(self, event: QWheelEvent):
@@ -32,6 +39,11 @@ class ZoomableGraphicsView(QGraphicsView):
         if self.min_zoom <= new_scale <= self.max_zoom:
             self.scale(factor, factor)
             self._current_scale = new_scale
+
+    def reset_zoom(self):
+        """Сброс зума к начальному состоянию."""
+        self.resetTransform()
+        self._current_scale = 1.0
 
 
 # ==========================
@@ -46,6 +58,7 @@ class ArrayCircleItem(QGraphicsObject):
         self.value = value
         self.radius = radius
         
+        # Цвета по умолчанию
         self.default_color = QColor("#5A9BD5")
         self.highlight_color = QColor("#FFD700")
         self.swap_color = QColor("#FF6B6B")
@@ -56,11 +69,14 @@ class ArrayCircleItem(QGraphicsObject):
         self.setPos(x, y)
         self.setZValue(1)
         
+        # Анимации храним в атрибутах, чтобы они не удалялись GC
         self.pos_animation = QPropertyAnimation(self, b"pos")
-        self.pos_animation.setDuration(500)
+        self.pos_animation.setDuration(600)
+        self.pos_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         
         self.color_animation = QPropertyAnimation(self, b"circleColor")
-        self.color_animation.setDuration(300)
+        self.color_animation.setDuration(350)
+        self.color_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         
         self.bounce_timer = QTimer()
         self.bounce_timer.timeout.connect(self._bounce_step)
@@ -82,23 +98,27 @@ class ArrayCircleItem(QGraphicsObject):
             
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
+        # Более объёмный радиальный градиент
         gradient = QRadialGradient(self.radius, self.radius, self.radius)
-        gradient.setColorAt(0, self._current_color.lighter(130))
-        gradient.setColorAt(0.7, self._current_color)
-        gradient.setColorAt(1, self._current_color.darker(130))
+        gradient.setColorAt(0.0, self._current_color.lighter(170))
+        gradient.setColorAt(0.4, self._current_color)
+        gradient.setColorAt(1.0, self._current_color.darker(140))
         
         painter.setBrush(QBrush(gradient))
-        painter.setPen(QPen(self._current_color.darker(200), 3))
+        painter.setPen(QPen(self._current_color.darker(220), max(2, int(self.radius * 0.06))))
         painter.drawEllipse(0, 0, self.radius * 2, self.radius * 2)
         
+        # Текст внутри круга — крупный и контрастный
         font = QFont()
         font.setPointSizeF(self.radius * 0.6)
         font.setBold(True)
         painter.setFont(font)
 
         text_rect = QRectF(0, 0, self.radius * 2, self.radius * 2)
-        painter.setPen(QColor(30, 30, 30, 160))
-        painter.drawText(text_rect.translated(3, 3), Qt.AlignmentFlag.AlignCenter, str(self.value))
+
+        # Тень/outline текста: сначала более тёмный тон со смещением -> затем белый текст
+        painter.setPen(QPen(QColor(20, 20, 20, 200)))
+        painter.drawText(text_rect.translated(2, 2), Qt.AlignmentFlag.AlignCenter, str(self.value))
         painter.setPen(Qt.GlobalColor.white)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(self.value))
 
@@ -129,14 +149,16 @@ class ArrayCircleItem(QGraphicsObject):
         self.color_animation.setEndValue(self.default_color)
         self.color_animation.start()
 
-    def animate_move(self, new_x, new_y, duration=500):
+    def animate_move(self, new_x, new_y, duration=600):
+        """Плавное перемещение на новую позицию с InOutCubic."""
         if not self._is_valid or not self.scene():
             return
         self.pos_animation.stop()
-        self.pos_animation.setDuration(duration)
+        # адаптивная длительность (длиннее для больших перемещений)
+        self.pos_animation.setDuration(max(300, int(duration * 1.2)))
         self.pos_animation.setStartValue(self.pos())
         self.pos_animation.setEndValue(QPointF(new_x, new_y))
-        self.pos_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.pos_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self.pos_animation.start()
 
     def bounce_animation(self):
@@ -144,21 +166,28 @@ class ArrayCircleItem(QGraphicsObject):
             return
         self.bounce_steps = 0
         self.original_y = self.y()
-        self.bounce_timer.start(50)
+        self.bounce_timer.start(45)
 
     def _bounce_step(self):
         if not self._is_valid or not self.scene():
             self.bounce_timer.stop()
             return
-        if self.bounce_steps >= 8:
+        if self.bounce_steps >= 10:
             self.bounce_timer.stop()
-            self.setY(self.original_y)
+            try:
+                self.setY(self.original_y)
+            except RuntimeError:
+                pass
             return
         import math
-        bounce_height = 20
-        progress = self.bounce_steps / 8.0
+        bounce_height = max(8, self.radius * 0.18)
+        progress = self.bounce_steps / 10.0
         bounce_offset = math.sin(progress * math.pi) * bounce_height
-        self.setY(self.original_y - bounce_offset)
+        try:
+            self.setY(self.original_y - bounce_offset)
+        except RuntimeError:
+            self.bounce_timer.stop()
+            return
         self.bounce_steps += 1
 
     def update_value(self, value):
@@ -173,7 +202,7 @@ class ArrayCircleItem(QGraphicsObject):
 class TreeNodeItem(ArrayCircleItem):
     """Крупный узел дерева."""
     
-    def __init__(self, x, y, value, radius=80):  # Увеличен радиус до 80
+    def __init__(self, x, y, value, radius=95):  # Увеличен радиус до 95 (более читаемые узлы)
         super().__init__(x, y, value, -1, radius)
         self.children = []
         self.parent = None
@@ -199,25 +228,25 @@ class TreeNodeItem(ArrayCircleItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         gradient = QRadialGradient(self.radius, self.radius, self.radius)
-        gradient.setColorAt(0, self._current_color.lighter(130))
-        gradient.setColorAt(0.6, self._current_color)
-        gradient.setColorAt(1, self._current_color.darker(160))
+        gradient.setColorAt(0.0, self._current_color.lighter(170))
+        gradient.setColorAt(0.4, self._current_color)
+        gradient.setColorAt(1.0, self._current_color.darker(180))
         painter.setBrush(QBrush(gradient))
-        painter.setPen(QPen(self._current_color.darker(200), 4))  # Увеличена толщина обводки
+        painter.setPen(QPen(self._current_color.darker(220), max(3, int(self.radius * 0.05))))
         painter.drawEllipse(0, 0, self.radius * 2, self.radius * 2)
 
         font = QFont()
-        font.setPointSizeF(self.radius * 0.5)  # Увеличен размер шрифта
+        font.setPointSizeF(self.radius * 0.65)  # Увеличен размер шрифта для лучшей читабельности
         font.setBold(True)
         painter.setFont(font)
 
         text_rect = QRectF(0, 0, self.radius * 2, self.radius * 2)
         
-        # Тень текста
-        painter.setPen(QColor(30, 30, 30, 160))
+        # Тень текста (смещённая)
+        painter.setPen(QPen(QColor(0, 0, 0, 200)))
         painter.drawText(text_rect.translated(2, 2), Qt.AlignmentFlag.AlignCenter, str(self.value))
         
-        # Основной текст
+        # Основной текст (белый, контрастный)
         painter.setPen(Qt.GlobalColor.white)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(self.value))
 
@@ -261,6 +290,8 @@ class TreeConnectionItem(QGraphicsObject):
         self.end_node = end_node
         self.setZValue(-1)
         self._is_valid = True
+        # контейнер анимаций, чтобы не терялись
+        self._animations = []
         
         if start_node and hasattr(start_node, 'add_connection'):
             start_node.add_connection(self)
@@ -276,7 +307,7 @@ class TreeConnectionItem(QGraphicsObject):
         try:
             start_pos = self.start_node.scenePos()
             end_pos = self.end_node.scenePos()
-            padding = 80  # Увеличен padding
+            padding = max(40, int(self.start_node.radius * 0.6))  # адаптивный padding
             x1 = min(start_pos.x(), end_pos.x()) - padding
             y1 = min(start_pos.y(), end_pos.y()) - padding
             x2 = max(start_pos.x(), end_pos.x()) + padding
@@ -290,7 +321,11 @@ class TreeConnectionItem(QGraphicsObject):
             return
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(QPen(QColor("#502C2C"), 6, Qt.PenStyle.SolidLine))  # Увеличена толщина
+            pen = QPen(QColor("#2A2A2A"))
+            pen.setWidth(max(3, int(self.start_node.radius * 0.08) + 4))  # гладкая и толстая линия
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
             start_pos = self.start_node.scenePos()
             end_pos = self.end_node.scenePos()
             dx = end_pos.x() - start_pos.x()
