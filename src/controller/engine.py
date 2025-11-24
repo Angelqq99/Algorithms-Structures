@@ -1,30 +1,44 @@
-"""Контроллер (Engine) — управляет связью между моделью и визуализацией."""
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
 class Engine(QObject):
-    step_ready = pyqtSignal(dict)  # сигнал с действием от модели
-
+    """Контроллер для управления выполнением алгоритмов."""
+    
+    step_ready = pyqtSignal(dict)  # Сигнал с действием для визуализации
+    
     def __init__(self):
         super().__init__()
-        self.algorithm = None
         self.generator = None
         self.timer = QTimer()
         self.timer.timeout.connect(self._on_tick)
-        self.running = False
-        self.current_interval = 300
-        self.manual_mode = False
-
+        self.speed_multiplier = 1.0
+        self.is_paused = False
+        
     def load_algorithm(self, algorithm):
-        """Загрузка алгоритма и инициализация генератора."""
+        """Загрузка алгоритма и его генератора."""
         self.algorithm = algorithm
-        if hasattr(algorithm, 'step_generator'):
-            self.generator = algorithm.step_generator()
-        else:
-            self.generator = None
-
+        self.generator = algorithm.step_generator()
+        self.is_paused = False
+        
+    def set_speed(self, multiplier):
+        """Установка множителя скорости."""
+        self.speed_multiplier = multiplier
+        
+    def run(self, interval_ms=500):
+        """Запуск автоматического выполнения."""
+        if self.generator and not self.timer.isActive():
+            interval = max(50, int(interval_ms / self.speed_multiplier))
+            self.timer.start(interval)
+            self.is_paused = False
+            
+    def pause(self):
+        """Пауза выполнения."""
+        if self.timer.isActive():
+            self.timer.stop()
+        self.is_paused = True
+            
     def step(self):
-        """Выполняет один шаг алгоритма в ручном режиме."""
-        if not self.generator:
+        """Выполнение одного шага вручную."""
+        if self.is_paused or not self.generator:
             return False
             
         try:
@@ -32,38 +46,9 @@ class Engine(QObject):
             self.step_ready.emit(action)
             return True
         except StopIteration:
-            self.pause()
-            self.step_ready.emit({"type": "complete", "message": "Algorithm finished"})
             return False
-
-    def run(self, interval_ms=300):
-        """Запуск автоматического выполнения."""
-        if self.generator:
-            self.running = True
-            self.manual_mode = False
-            self.current_interval = interval_ms
-            self.timer.start(interval_ms)
-
-    def pause(self):
-        """Пауза выполнения."""
-        self.running = False
-        if self.timer.isActive():
-            self.timer.stop()
-
-    def set_speed(self, speed_multiplier):
-        """Установка скорости выполнения."""
-        new_interval = max(50, int(600 / speed_multiplier))
-        self.current_interval = new_interval
-        
-        if self.timer.isActive():
-            self.timer.setInterval(new_interval)
-
+            
     def _on_tick(self):
         """Обработчик таймера для автоматического режима."""
-        if self.running and self.generator:
-            try:
-                action = next(self.generator)
-                self.step_ready.emit(action)
-            except StopIteration:
-                self.pause()
-                self.step_ready.emit({"type": "complete", "message": "Algorithm finished"})
+        if not self.step():
+            self.timer.stop()

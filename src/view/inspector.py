@@ -77,10 +77,80 @@ class Inspector(QTextEdit):
     def update_info(self, info):
         """Обновление информации с красивым форматированием."""
         try:
-            # Парсим и переформатируем JSON для красивого отображения
-            parsed = json.loads(info)
-            formatted_info = json.dumps(parsed, indent=2, ensure_ascii=False)
+            # Если info уже строка, пытаемся распарсить как JSON
+            if isinstance(info, str):
+                parsed = json.loads(info)
+            else:
+                parsed = info
+            
+            # Добавляем человеко-читаемое описание
+            enhanced_info = self._enhance_with_description(parsed)
+            
+            # Форматируем JSON
+            formatted_info = json.dumps(enhanced_info, indent=2, ensure_ascii=False)
             self.setPlainText(formatted_info)
         except:
             # Если не JSON, отображаем как есть
             self.setPlainText(str(info))
+    
+    def _enhance_with_description(self, data):
+        """Добавляет человеко-читаемое описание к данным."""
+        if not isinstance(data, dict):
+            return data
+            
+        action_type = data.get('type', '')
+        description = ""
+        
+        if action_type == "graph_init":
+            graph_data = data.get('graph', {})
+            start_node = data.get('start_node', '')
+            description = f"Инициализация графа. Начальный узел: {start_node}. Всего узлов: {len(graph_data)}"
+            
+        elif action_type == "visit":
+            node = data.get('node', '')
+            description = f"Посещение узла: {node}"
+            
+        elif action_type == "discover":
+            from_node = data.get('from_node', '')
+            to_node = data.get('node', '')
+            description = f"Обнаружение связи: узел {from_node} → узел {to_node}"
+            
+        elif action_type == "update_distance":
+            node = data.get('node', '')
+            new_distance = data.get('new_distance', '')
+            old_distance = data.get('old_distance', 'неизвестно')
+            description = f"Обновление расстояния до узла {node}: {old_distance} → {new_distance}"
+            
+        elif action_type == "compare":
+            indices = data.get('indices', [])
+            if len(indices) == 2:
+                description = f"Сравнение элементов: индекс {indices[0]} и индекс {indices[1]}"
+            
+        elif action_type == "swap":
+            indices = data.get('indices', [])
+            if len(indices) == 2:
+                description = f"Обмен элементов: индекс {indices[0]} и индекс {indices[1]}"
+            
+        elif action_type == "tree":
+            description = "Обновление структуры дерева"
+            
+        elif action_type == "traversal":
+            nodes = data.get('nodes', [])
+            description = f"Обход дерева: {len(nodes)} узлов"
+            
+        elif action_type == "complete":
+            description = "✅ Алгоритм завершен"
+            
+        elif action_type == "collision":
+            description = "⚡ Обнаружена коллизия в хэш-таблице"
+            
+        elif action_type == "insert":
+            description = "📥 Вставка нового элемента"
+        
+        # Добавляем описание в данные
+        if description:
+            enhanced_data = data.copy()
+            enhanced_data['_description'] = description
+            return enhanced_data
+        
+        return data

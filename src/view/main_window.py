@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QFrame, QSizePolicy, QSpacerItem, QGraphicsView, QGraphicsScene,
     QProgressBar, QMessageBox
 )
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty, QRectF
 from PyQt6.QtGui import QColor, QFont, QPainter
 from controller.engine import Engine
 from model.sorting.quicksort import QuickSort
@@ -22,12 +22,14 @@ from model.graphs.dijkstra import Dijkstra
 from model.hashtable.hashtable import HashTable
 
 from view.tree_visualizer import TreeVisualizer
+from view.graph_visualizer import GraphVisualizer
 from view.tree_layout import CenteredTreeLayout, CompactTreeLayout
-from view.scene_items import ArrayCircleItem
+from view.scene_items import ArrayCircleItem, ZoomableGraphicsView
 from view.inspector import Inspector
 
 import random
 import json
+import math
 
 
 class MainWindow(QMainWindow):
@@ -53,11 +55,21 @@ class MainWindow(QMainWindow):
         self.current_step = 0
         self.algorithm_completed = False  # Флаг завершения алгоритма
 
-        self.inspector = Inspector()
+        # Инициализация сцены и визуализаторов
         self.scene = QGraphicsScene()
-        from view.scene_items import ZoomableGraphicsView
         self.view = ZoomableGraphicsView(self.scene)
         self.tree_visualizer = TreeVisualizer(self.scene)
+        self.graph_visualizer = GraphVisualizer(self.scene, self.view)
+        self.inspector = Inspector()
+
+        # Инициализация элементов интерфейса для графов
+        self.graph_layout_label = None
+        self.graph_layout_combo = None
+
+        # Добавляем таймер для отложенного сброса зума
+        self.zoom_reset_timer = QTimer()
+        self.zoom_reset_timer.setSingleShot(True)
+        self.zoom_reset_timer.timeout.connect(self._delayed_zoom_reset)
 
         self._setup_ui()
 
@@ -111,12 +123,24 @@ class MainWindow(QMainWindow):
         
         left_layout.addWidget(QLabel("Алгоритм:"))
         self.algorithm_combo = QComboBox()
-        self._on_category_changed(self.category_combo.currentText())
+        # Инициализация выпадающего списка алгоритмов
+        self._initialize_algorithm_combo()
 
         # Данные
         left_layout.addWidget(QLabel("Данные:"))
         self.data_input = QLineEdit()
         self.data_input.setPlaceholderText("Введите данные через запятую: 5,2,8,1")
+
+        # Для графов добавляем выбор компоновки
+        self.graph_layout_label = QLabel("Компоновка графа:")
+        self.graph_layout_combo = QComboBox()
+        self.graph_layout_combo.addItems(["Авто", "Пружинная", "Круговая", "Древовидная", "ForceAtlas"])
+        # Сначала скрываем, покажутся при выборе категории "Графы"
+        self.graph_layout_label.hide()
+        self.graph_layout_combo.hide()
+        
+        left_layout.addWidget(self.graph_layout_label)
+        left_layout.addWidget(self.graph_layout_combo)
 
         # Кнопки управления
         self.generate_btn = QPushButton("🎲 Сгенерировать случайные данные")
@@ -239,14 +263,9 @@ class MainWindow(QMainWindow):
         self.pause_btn.clicked.connect(self._pause_auto_mode)
         self.reset_btn.clicked.connect(self._reset_algorithm)
 
-    def _update_speed(self, value):
-        """Изменение скорости во время работы."""
-        self.speed_label.setText(f"x{value}")
-        # Передаем множитель скорости в engine
-        self.engine.set_speed(value)
-        self._log(f"⚡ Скорость изменена: x{value}")
-
-    def _on_category_changed(self, category):
+    def _initialize_algorithm_combo(self):
+        """Инициализация выпадающего списка алгоритмов."""
+        category = self.category_combo.currentText()
         self.algorithm_combo.clear()
         if category == "Сортировки":
             self.algorithm_combo.addItems(["QuickSort", "MergeSort", "BubbleSort"])
@@ -256,6 +275,27 @@ class MainWindow(QMainWindow):
             self.algorithm_combo.addItems(["BFS", "DFS", "Dijkstra"])
         elif category == "Хэш-таблицы":
             self.algorithm_combo.addItems(["HashTable"])
+
+    def _update_speed(self, value):
+        """Изменение скорости во время работы."""
+        self.speed_label.setText(f"x{value}")
+        # Передаем множитель скорости в engine
+        self.engine.set_speed(value)
+        self._log(f"⚡ Скорость изменена: x{value}")
+
+    def _on_category_changed(self, category):
+        """Обработка изменения категории алгоритма."""
+        # Сначала обновляем список алгоритмов
+        self._initialize_algorithm_combo()
+        
+        # Показываем/скрываем элементы для графов
+        if self.graph_layout_label and self.graph_layout_combo:
+            if category == "Графы":
+                self.graph_layout_label.show()
+                self.graph_layout_combo.show()
+            else:
+                self.graph_layout_label.hide()
+                self.graph_layout_combo.hide()
 
     def _start_auto_mode(self):
         """Запуск автоматического режима."""
@@ -300,31 +340,55 @@ class MainWindow(QMainWindow):
 
     def _reset_algorithm(self):
         """Сброс текущего алгоритма и интерфейса."""
-        self.engine.pause()
-        self.engine.generator = None
-        self.current_algorithm = None
-        self.is_auto_mode = False
-        self.is_animating = False
-        self.algorithm_completed = False
-        self.pending_actions.clear()
-        self.current_step = 0
-        self.total_steps = 0
-
-        self.auto_btn.show()
-        self.pause_btn.hide()
-        self.start_btn.setEnabled(True)  # Всегда включаем кнопку ручного режима
-        
-        # Восстанавливаем исходный массив из текущих данных
-        text = self.data_input.text()
         try:
-            arr = [int(x.strip()) for x in text.split(",") if x.strip()]
-            self._render_array(arr)
-        except ValueError:
-            # Если данные невалидны, используем последний валидный массив
-            if hasattr(self, 'current_data'):
-                self._render_array(self.current_data)
-        
-        self._log("♻ Алгоритм сброшен. Можно запустить заново.")
+            # Останавливаем движок
+            self.engine.pause()
+            self.engine.generator = None
+            
+            # Очищаем визуализаторы
+            if hasattr(self, 'graph_visualizer'):
+                self.graph_visualizer.clear()
+            
+            # Очищаем сцену
+            self.scene.clear()
+            
+            # Сбрасываем состояние
+            self.current_algorithm = None
+            self.is_auto_mode = False
+            self.is_animating = False
+            self.algorithm_completed = False
+            self.pending_actions.clear()
+            self.current_step = 0
+            self.total_steps = 0
+
+            # Обновляем UI
+            self.auto_btn.show()
+            self.pause_btn.hide()
+            self.start_btn.setEnabled(True)
+            
+            # Восстанавливаем исходный массив
+            text = self.data_input.text()
+            try:
+                arr = [int(x.strip()) for x in text.split(",") if x.strip()]
+                self._render_array(arr)
+            except ValueError:
+                if hasattr(self, 'current_data'):
+                    self._render_array(self.current_data)
+            
+            # Принудительное обновление
+            self.scene.update()
+            if hasattr(self, 'view'):
+                self.view.update()
+            
+            self._log("♻ Алгоритм сброшен. Можно запустить заново.")
+            
+            # Запланировать сброс зума после сброса алгоритма
+            self._schedule_zoom_reset()
+            
+        except Exception as e:
+            print(f"Error resetting algorithm: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _generate_random_data(self):
         """Генерация случайных данных с анимацией."""
@@ -339,6 +403,42 @@ class MainWindow(QMainWindow):
         # Автоматически сбрасываем алгоритм при генерации новых данных
         self._reset_algorithm()
         self._log(f"🎲 Сгенерированы {count} случайных чисел")
+        
+        # Запланировать сброс зума после генерации данных
+        self._schedule_zoom_reset()
+
+    def _schedule_zoom_reset(self):
+        """Запланировать сброс зума с небольшой задержкой."""
+        # Останавливаем предыдущий таймер если он активен
+        if self.zoom_reset_timer.isActive():
+            self.zoom_reset_timer.stop()
+        
+        # Запускаем с задержкой чтобы дать время на обновление сцены
+        self.zoom_reset_timer.start(100)
+
+    def _delayed_zoom_reset(self):
+        """Отложенный сброс зума к содержимому."""
+        try:
+            if hasattr(self, 'view') and self.view:
+                # Используем fit_to_content для масштабирования под содержимое
+                if hasattr(self.view, 'fit_to_content'):
+                    self.view.fit_to_content(200)  # 200px отступ
+                else:
+                    # Fallback для старого поведения
+                    rect = self.scene.itemsBoundingRect()
+                    if rect.isValid():
+                        rect.adjust(-200, -200, 200, 200)
+                        self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                
+                # Дополнительно центрируем вид
+                if self.scene and self.scene.items():
+                    rect = self.scene.itemsBoundingRect()
+                    if rect.isValid():
+                        self.view.centerOn(rect.center())
+                        
+                self._log("🔍 Масштаб сброшен к содержимому")
+        except Exception as e:
+            print(f"Error resetting zoom: {e}")
 
     def _start_algorithm(self):
         """Запуск выбранного алгоритма."""
@@ -351,62 +451,85 @@ class MainWindow(QMainWindow):
             if len(arr) < 1:
                 QMessageBox.warning(self, "Ошибка", "Введите хотя бы 1 число")
                 return False
-            if len(arr) > 15 and self.algorithm_combo.currentText() in ["BST", "AVL", "RedBlackTree", "SplayTree", "Treap"]:
-                QMessageBox.warning(self, "Предупреждение", 
-                                  "Для деревьев рекомендуется не более 15 элементов")
-            if len(arr) > 20 and self.algorithm_combo.currentText() == "BTree":
-                QMessageBox.warning(self, "Предупреждение", 
-                                  "Для B-дерева рекомендуется не более 20 элементов")
+            
+            # Сохраняем текущие данные
+            self.current_data = arr.copy()
+            
+            algo_name = self.algorithm_combo.currentText()
+            
+            # Создание алгоритма в зависимости от выбора
+            algorithms = {
+                "QuickSort": lambda: QuickSort(arr.copy()),
+                "MergeSort": lambda: MergeSort(arr.copy()),
+                "BubbleSort": lambda: BubbleSort(arr.copy()),
+                "BST": lambda: BST(arr.copy()),
+                "AVL": lambda: AVLTree(arr.copy()),
+                "RedBlackTree": lambda: RedBlackTree(arr.copy()),
+                "SplayTree": lambda: SplayTree(arr.copy()),
+                "Treap": lambda: Treap(arr.copy()),
+                "BTree": lambda: BTree(arr.copy()),
+                # Для графов используем правильную направленность
+                "BFS": lambda: GraphBFS(self._create_tree_graph(arr), arr[0] if arr else 0),
+                "DFS": lambda: GraphDFS(self._create_tree_graph(arr), arr[0] if arr else 0),
+                "Dijkstra": lambda: Dijkstra(self._create_tree_graph(arr, weight_mode='diff'), arr[0] if arr else 0),
+                "HashTable": lambda: HashTable(arr.copy())
+            }
+
+            if algo_name in algorithms:
+                try:
+                    self.current_algorithm = algorithms[algo_name]()
+                    self.engine.load_algorithm(self.current_algorithm)
+                    
+                    # Для графов используем специальный рендеринг
+                    if algo_name in ["BFS", "DFS", "Dijkstra"]:
+                        # Очищаем сцену и готовимся к построению графа
+                        self.scene.clear()
+                        
+                        # Создаем граф с использованием значений массива
+                        graph_data = self._create_tree_graph(arr)
+                        
+                        # Устанавливаем соответствие ID -> значение
+                        self.graph_visualizer.node_values = {val: val for val in arr}
+                        
+                        # Устанавливаем выбранный алгоритм компоновки
+                        if self.graph_layout_combo:
+                            layout_name = self.graph_layout_combo.currentText()
+                            layout_map = {
+                                "Авто": "Auto",
+                                "Пружинная": "Spring", 
+                                "Круговая": "Circular",
+                                "Древовидная": "Tree",
+                                "ForceAtlas": "ForceAtlas"
+                            }
+                            
+                            if layout_name in layout_map:
+                                selected_layout = layout_map[layout_name]
+                                success = self.graph_visualizer.set_layout_algorithm(selected_layout)
+                                if success:
+                                    if layout_name == "Авто":
+                                        self._log("📐 Используется автоматический выбор компоновки")
+                                    else:
+                                        self._log(f"📐 Установлена компоновка: {layout_name}")
+                        
+                        self._log(f"🕸️ Подготовка графа для алгоритма {algo_name}...")
+                        
+                    else:
+                        self._render_array(arr)
+                        
+                    self._log(f"🔧 Алгоритм '{algo_name}' загружен. Готов к выполнению.")
+                    return True
+                except Exception as e:
+                    self._log(f"❌ Ошибка при создании алгоритма: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    return False
+            else:
+                self._log(f"❌ Алгоритм '{algo_name}' не найден")
+                return False
+                
         except ValueError:
             QMessageBox.warning(self, "Ошибка", "Вводите только числа через запятую")
             return False
-
-        algo_name = self.algorithm_combo.currentText()
-        
-        # Сохраняем текущие данные
-        self.current_data = arr.copy()
-        
-        # Создание алгоритма в зависимости от выбора
-        algorithms = {
-            "QuickSort": lambda: QuickSort(arr.copy()),
-            "MergeSort": lambda: MergeSort(arr.copy()),
-            "BubbleSort": lambda: BubbleSort(arr.copy()),
-            "BST": lambda: BST(arr.copy()),
-            "AVL": lambda: AVLTree(arr.copy()),
-            "RedBlackTree": lambda: RedBlackTree(arr.copy()),
-            "SplayTree": lambda: SplayTree(arr.copy()),
-            "Treap": lambda: Treap(arr.copy()),
-            "BTree": lambda: BTree(arr.copy()),
-            "BFS": lambda: GraphBFS(self._create_sample_graph(arr), 0),
-            "DFS": lambda: GraphDFS(self._create_sample_graph(arr), 0),
-            "Dijkstra": lambda: Dijkstra(self._create_sample_graph(arr), 0),
-            "HashTable": lambda: HashTable(arr.copy())
-        }
-
-        if algo_name in algorithms:
-            try:
-                self.current_algorithm = algorithms[algo_name]()
-                self.engine.load_algorithm(self.current_algorithm)
-                
-                # Для деревьев используем специальный рендеринг
-                if algo_name in ["BST", "AVL", "RedBlackTree", "SplayTree", "Treap", "BTree"]:
-                    # Сначала показываем пустое дерево
-                    self._render_tree(None)
-                    self._log(f"🌳 Дерево '{algo_name}' инициализировано. Готово к построению.")
-                else:
-                    self._render_array(arr)
-                    
-                self._log(f"🔧 Алгоритм '{algo_name}' загружен. Готов к выполнению.")
-                return True
-            except Exception as e:
-                self._log(f"❌ Ошибка при создании алгоритма: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                return False
-        else:
-            self._log(f"❌ Алгоритм '{algo_name}' не найден")
-            return False
-
     def _get_initial_tree_structure(self):
         """Получает начальную структуру дерева из алгоритма."""
         if hasattr(self.current_algorithm, '_get_tree_structure'):
@@ -414,17 +537,295 @@ class MainWindow(QMainWindow):
             return self.current_algorithm._get_tree_structure(self.current_algorithm.root)
         return None
 
-    def _create_sample_graph(self, arr):
-        """Создание примерного графа для алгоритмов на графах."""
+    def _create_tree_graph(self, arr, weight_mode="diff", min_weight=1, max_weight=10, directed=False):
+        """
+        Создает древовидный граф вместо полного графа.
+        
+        Параметры:
+        - arr: список значений для узлов
+        - weight_mode: "diff", "uniform", "random"
+        - min_weight, max_weight: диапазон весов для random режима
+        - directed: True для ориентированного графа, False для неориентированного
+        """
         graph = {}
-        n = len(arr)
-        for i in range(n):
-            neighbors = []
-            if i + 1 < n:
-                neighbors.append(i + 1)
-            if i * 2 < n:
-                neighbors.append(i * 2)
-            graph[i] = neighbors
+        if not arr:
+            return graph
+
+        # Уникальные узлы (сохраняем порядок входного списка)
+        nodes = list(dict.fromkeys(arr))
+
+        # Вспомог: генерация веса между двумя значениями
+        def make_weight(a, b):
+            if weight_mode == "diff":
+                return max(min_weight, abs(int(a) - int(b)))
+            elif weight_mode == "uniform":
+                return max(1, int(min_weight))
+            elif weight_mode == "random":
+                return random.randint(min_weight, max_weight)
+            else:
+                # fallback
+                return max(1, abs(int(a) - int(b)))
+
+        # Инициализация пустых словарей
+        for v in nodes:
+            graph[v] = {}
+
+        # Строим сбалансированное дерево из узлов
+        if len(nodes) == 1:
+            return graph
+
+        # Создаем древовидную структуру
+        root = nodes[0]
+        remaining_nodes = nodes[1:]
+        
+        # Распределяем оставшиеся узлы как детей
+        level_nodes = [root]
+        
+        while remaining_nodes:
+            next_level = []
+            for parent in level_nodes:
+                if not remaining_nodes:
+                    break
+                    
+                # Создаем 1-2 детей для каждого родителя
+                num_children = min(2, len(remaining_nodes))
+                for _ in range(num_children):
+                    if not remaining_nodes:
+                        break
+                    child = remaining_nodes.pop(0)
+                    
+                    # Добавляем связь родитель-ребенок
+                    w = make_weight(parent, child)
+                    graph[parent][child] = w
+                    
+                    # Для неориентированного графа добавляем обратную связь
+                    if not directed:
+                        graph[child][parent] = w
+                    
+                    next_level.append(child)
+            
+            level_nodes = next_level
+
+        # Небольшой лог
+        try:
+            edge_count = sum(len(neighbors) for neighbors in graph.values())
+            if directed:
+                self._log(f"🌳 Создан ориентированный граф: узлов={len(nodes)}, ребер={edge_count}")
+            else:
+                self._log(f"🌳 Создан неориентированный граф: узлов={len(nodes)}, ребер={edge_count}")
+        except Exception:
+            print(f"Generated tree graph: nodes={len(nodes)}")
+
+        return graph
+
+    def _create_sample_graph(self, arr,
+                             graph_type="tree",  # По умолчанию используем древовидную структуру
+                             directed=False,
+                             weight_mode="diff",
+                             density=0.5,
+                             rows=None,
+                             cols=None,
+                             min_weight=1,
+                             max_weight=10):
+        """
+        Генерация образцового графа.
+
+        Параметры:
+        - arr: список уникальных значений узлов
+        - graph_type: "complete", "random", "chain", "star", "grid", "tree"
+        - directed: True/False
+        - weight_mode: "diff" (|a-b|, минимум 1), "random", "uniform"
+        - density: для "random" - вероятность наличия ребра (0..1)
+        - rows, cols: для "grid" можно указать размеры сетки; если не указаны, подбираются автоматически
+        - min_weight, max_weight: для режима "random" диапазон весов
+
+        Возвращает словарь вида:
+        { node_value: { neighbor_value: weight, ... }, ... }
+        (всегда словари соседей, удобно для Dijkstra)
+        """
+        graph = {}
+        if not arr:
+            return graph
+
+        # Уникальные узлы (сохраняем порядок входного списка)
+        nodes = list(dict.fromkeys(arr))
+
+        # Вспомог: генерация веса между двумя значениями
+        def make_weight(a, b):
+            if weight_mode == "diff":
+                return max(min_weight, abs(int(a) - int(b)))
+            elif weight_mode == "uniform":
+                return max(1, int(min_weight))
+            elif weight_mode == "random":
+                return random.randint(min_weight, max_weight)
+            else:
+                # fallback
+                return max(1, abs(int(a) - int(b)))
+
+        # Инициализация пустых словарей
+        for v in nodes:
+            graph[v] = {}
+
+        if graph_type == "complete":
+            for i, u in enumerate(nodes):
+                for j, v in enumerate(nodes):
+                    if i == j:
+                        continue
+                    w = make_weight(u, v)
+                    graph[u][v] = w
+                    if not directed:
+                        graph[v][u] = w
+
+        elif graph_type == "random":
+            # Плотность: вероятность наличия ребра между парой узлов
+            p = max(0.0, min(1.0, float(density)))
+            for i, u in enumerate(nodes):
+                for j, v in enumerate(nodes):
+                    if i == j:
+                        continue
+                    if random.random() <= p:
+                        w = make_weight(u, v)
+                        graph[u][v] = w
+                        if not directed:
+                            graph[v][u] = w
+
+        elif graph_type == "chain":
+            # Связываем в последовательную цепочку: 0-1-2-...
+            for i in range(len(nodes)-1):
+                u = nodes[i]
+                v = nodes[i+1]
+                w = make_weight(u, v)
+                graph[u][v] = w
+                if not directed:
+                    graph[v][u] = w
+
+        elif graph_type == "star":
+            # Первый узел центр
+            center = nodes[0]
+            for v in nodes[1:]:
+                w = make_weight(center, v)
+                graph[center][v] = w
+                if not directed:
+                    graph[v][center] = w
+
+        elif graph_type == "grid":
+            # Параметры rows x cols
+            n = len(nodes)
+            if rows is None or cols is None:
+                # стараемся подобрать близкую к квадрату сетку
+                cols = int(math.ceil(math.sqrt(n)))
+                rows = int(math.ceil(n / cols))
+            # размещаем ноды в сетку по порядку
+            grid = []
+            idx = 0
+            for r in range(rows):
+                row = []
+                for c in range(cols):
+                    if idx < n:
+                        row.append(nodes[idx])
+                        idx += 1
+                    else:
+                        row.append(None)
+                grid.append(row)
+            # соединяем соседей по 4-направлениям
+            for r in range(rows):
+                for c in range(cols):
+                    u = grid[r][c]
+                    if u is None:
+                        continue
+                    neighbors = []
+                    for dr, dc in ((0,1),(1,0),(0,-1),(-1,0)):
+                        rr = r + dr
+                        cc = c + dc
+                        if 0 <= rr < rows and 0 <= cc < cols:
+                            v = grid[rr][cc]
+                            if v is not None:
+                                neighbors.append(v)
+                    for v in neighbors:
+                        w = make_weight(u, v)
+                        graph[u][v] = w
+                        if not directed:
+                            graph[v][u] = w
+
+        elif graph_type == "tree":
+            # Генерация сбалансированного дерева
+            if len(nodes) == 1:
+                return graph
+
+            root = nodes[0]
+            remaining_nodes = nodes[1:]
+            
+            level_nodes = [root]
+            
+            while remaining_nodes:
+                next_level = []
+                for parent in level_nodes:
+                    if not remaining_nodes:
+                        break
+                        
+                    # Создаем 1-2 детей для каждого родителя
+                    num_children = min(2, len(remaining_nodes))
+                    for _ in range(num_children):
+                        if not remaining_nodes:
+                            break
+                        child = remaining_nodes.pop(0)
+                        
+                        w = make_weight(parent, child)
+                        graph[parent][child] = w
+                        if not directed:
+                            graph[child][parent] = w
+                        
+                        next_level.append(child)
+                
+                level_nodes = next_level
+
+        else:
+            # fallback to tree
+            if len(nodes) == 1:
+                return graph
+
+            root = nodes[0]
+            remaining_nodes = nodes[1:]
+            
+            level_nodes = [root]
+            
+            while remaining_nodes:
+                next_level = []
+                for parent in level_nodes:
+                    if not remaining_nodes:
+                        break
+                        
+                    num_children = min(2, len(remaining_nodes))
+                    for _ in range(num_children):
+                        if not remaining_nodes:
+                            break
+                        child = remaining_nodes.pop(0)
+                        
+                        w = make_weight(parent, child)
+                        graph[parent][child] = w
+                        if not directed:
+                            graph[child][parent] = w
+                        
+                        next_level.append(child)
+                
+                level_nodes = next_level
+
+        # Убедимся, что для неориентированного графа все связи симметричны
+        if not directed:
+            for u in list(graph.keys()):
+                for v, w in list(graph[u].items()):
+                    if v not in graph:
+                        graph[v] = {}
+                    if u not in graph[v]:
+                        graph[v][u] = w
+
+        # Небольшой лог (удобно при отладке)
+        try:
+            self._log(f"🧩 Generated graph: type={graph_type}, nodes={len(nodes)}, directed={directed}")
+        except Exception:
+            # если _log недоступен (редко), печатаем в stdout
+            print(f"Generated graph: type={graph_type}, nodes={len(nodes)}, directed={directed}")
+
         return graph
 
     def _render_array(self, arr):
@@ -436,7 +837,10 @@ class MainWindow(QMainWindow):
         radius, spacing = 30, 15
         total_width = len(arr) * (radius * 2 + spacing)
         scene_width = max(800, total_width + 100)
-        self.scene.setSceneRect(0, 0, scene_width, 400)
+        
+        # Устанавливаем расширенную область сцены для прокрутки
+        extended_scene_rect = QRectF(-2000, -2000, 4000, 4000)
+        self.scene.setSceneRect(extended_scene_rect)
         
         start_x = (scene_width - total_width) / 2
         start_y = 150
@@ -452,6 +856,7 @@ class MainWindow(QMainWindow):
             
             # Анимация появления (подъем снизу)
             circle.animate_move(x, y, 400 + i * 80)
+            QTimer.singleShot(400 + i * 80, lambda c=circle: setattr(c, "is_spawning", False))
 
     def _render_tree(self, tree_data):
         """Рендеринг дерева вместо массива."""
@@ -459,6 +864,10 @@ class MainWindow(QMainWindow):
             # Очищаем сцену безопасно
             self.scene.clear()
             self.visual_items.clear()
+            
+            # Устанавливаем расширенную область сцены для прокрутки
+            extended_scene_rect = QRectF(-3000, -3000, 6000, 6000)
+            self.scene.setSceneRect(extended_scene_rect)
             
             # Если данных нет, показываем сообщение
             if not tree_data:
@@ -485,14 +894,58 @@ class MainWindow(QMainWindow):
                 self._render_array(self.current_data)
 
     def _center_on_tree(self):
-        """Центрирует вид на содержимом сцены без масштабирования."""
+        """Центрирует вид на содержимом сцены с масштабированием."""
         if self.scene.items():
-            rect = self.scene.itemsBoundingRect()
-            rect.adjust(-150, -150, 150, 150)
-            self.view.setSceneRect(rect)
-            self.view.centerOn(rect.center())
-            self.view.resetTransform()   # убираем масштабирование fitInView
+            # Используем fit_to_content для автоматического масштабирования
+            if hasattr(self, 'view') and self.view:
+                if hasattr(self.view, 'fit_to_content'):
+                    self.view.fit_to_content(150)
+                else:
+                    rect = self.scene.itemsBoundingRect()
+                    if rect.isValid():
+                        rect.adjust(-150, -150, 150, 150)
+                        self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                self._log("🔍 Дерево отмасштабировано для обзора")
 
+    def _center_and_scale_graph(self):
+        """Центрирует и масштабирует граф для лучшего отображения."""
+        if not self.nodes:
+            return
+            
+        try:
+            # Находим границы графа с учетом увеличенных расстояний
+            all_positions = [node.pos() for node in self.nodes.values()]
+            min_x = min(pos.x() for pos in all_positions)
+            max_x = max(pos.x() for pos in all_positions)
+            min_y = min(pos.y() for pos in all_positions)
+            max_y = max(pos.y() for pos in all_positions)
+            
+            width = max_x - min_x
+            height = max_y - min_y
+            
+            # Добавляем отступы для лучшего отображения
+            padding = 150  # Увеличенный отступ
+            scene_rect = QRectF(min_x - padding, min_y - padding, 
+                               width + 2*padding, height + 2*padding)
+            
+            # Устанавливаем расширенную область сцены
+            if hasattr(self.view, 'set_scene_rect_based_on_content'):
+                self.view.set_scene_rect_based_on_content(scene_rect, padding)
+            else:
+                # Fallback
+                extended_rect = QRectF(-2000, -2000, 4000, 4000)
+                self.scene.setSceneRect(extended_rect)
+            
+            # Центрируем вид на графе с помощью fit_to_content
+            if self.view:
+                if hasattr(self.view, 'fit_to_content'):
+                    self.view.fit_to_content(padding)
+                else:
+                    self.view.fitInView(scene_rect, Qt.AspectRatioMode.KeepAspectRatio)
+                self._log("🔍 Граф отмасштабирован для лучшего обзора")
+            
+        except Exception as e:
+            print(f"Error centering graph: {e}")
 
     def _swap_items(self, i, j):
         """Анимированный обмен элементов."""
@@ -543,7 +996,6 @@ class MainWindow(QMainWindow):
         if self.is_animating:
             self.pending_actions.append(action)
             return
-            
         self._process_action(action)
 
     def _process_action(self, action):
@@ -573,6 +1025,60 @@ class MainWindow(QMainWindow):
             self._log(f"🔄 Обход дерева: {action.get('description', '')}")
             self._schedule_next_action(int(len(node_sequence) * 500 * speed_factor))
         
+        elif t == "graph_init":
+            # Инициализация графа через GraphVisualizer
+            success = self.graph_visualizer.process_action(action)
+            if success:
+                # Получаем дополнительную информацию о графе для инспектора
+                graph_info = self.graph_visualizer.get_graph_info()
+                action["graph_info"] = graph_info
+                self._log(f"🕸️ Инициализирован граф для {action.get('algorithm', 'алгоритма')}")
+            else:
+                self._log("❌ Ошибка при создании графа")
+            self._schedule_next_action(int(800 * speed_factor))
+            
+        elif t == "visit":
+            node_index = action.get('node')
+            # Для графов используем визуализатор графов
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                success = self.graph_visualizer.process_action(action)
+                if success:
+                    # Добавляем информацию о связях для инспектора
+                    if node_index in self.graph_visualizer.adjacency_list:
+                        action["connections"] = self.graph_visualizer.adjacency_list[node_index]
+                    self._log(f"📍 Посещен узел: {node_index}")
+            # Для массивов используем обычную подсветку
+            elif node_index < len(self.visual_items):
+                self.visual_items[node_index].highlight("#4ECDC4")
+                self.visual_items[node_index].bounce_animation()
+                self._log(f"📍 Посещен элемент: {node_index}")
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "discover":
+            from_node = action.get('from_node')
+            to_node = action.get('node')
+            # Для графов используем визуализатор графов
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                success = self.graph_visualizer.process_action(action)
+                if success:
+                    # Добавляем информацию о весе ребра для инспектора
+                    edge_key = self.graph_visualizer._get_edge_key(from_node, to_node)
+                    edge_item = self.graph_visualizer.edges.get(edge_key)
+                    if edge_item and hasattr(edge_item, 'weight'):
+                        action["edge_weight"] = edge_item.weight
+                    self._log(f"🔍 Обнаружен узел {to_node} из узла {from_node}")
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "update_distance":
+            node_index = action.get('node')
+            new_distance = action.get('new_distance')
+            # Для графов используем визуализатор графов
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                success = self.graph_visualizer.process_action(action)
+                if success:
+                    self._log(f"📊 Обновлено расстояние до узла {node_index}: {new_distance}")
+            self._schedule_next_action(int(600 * speed_factor))
+            
         elif t == "compare":
             i, j = action["indices"]
             self._highlight_items([i, j], "#FFD700", 
@@ -598,25 +1104,26 @@ class MainWindow(QMainWindow):
             self._log("⚡ Коллизия в хэш-таблице")
             self._schedule_next_action(int(800 * speed_factor))
             
-        elif t == "visit":
-            node_index = action.get('node')
-            if node_index < len(self.visual_items):
-                self.visual_items[node_index].highlight("#4ECDC4")
-                self.visual_items[node_index].bounce_animation()
-            self._log(f"📍 Посещен узел: {node_index}")
-            self._schedule_next_action(int(600 * speed_factor))
-            
         elif t == "complete":
-            self._animate_completion()
-            self._log("✅ Алгоритм успешно завершён!")
+            # Завершение алгоритма
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                # Для графов используем визуализатор графов
+                success = self.graph_visualizer.process_action(action)
+                if success:
+                    self._log("✅ Алгоритм успешно завершён!")
+            else:
+                # Для массивов используем обычную анимацию
+                self._animate_completion()
+                self._log("✅ Алгоритм успешно завершён!")
+            
             self.is_animating = False
             self.algorithm_completed = True
             # Автоматически выходим из авторежима при завершении
             if self.is_auto_mode:
                 self._pause_auto_mode()
 
-        # Обновление инспектора
-        self.inspector.update_info(json.dumps(action, indent=2))
+        # Обновление инспектора с расширенной информацией
+        self.inspector.update_info(action)
 
     def _schedule_next_action(self, delay):
         """Запланировать следующее действие после задержки."""
@@ -662,5 +1169,3 @@ class MainWindow(QMainWindow):
         """Обработка закрытия приложения."""
         self.engine.pause()
         event.accept()
-
-
