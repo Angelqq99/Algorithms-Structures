@@ -663,7 +663,7 @@ class GraphNodeItem(QGraphicsEllipseItem):
 
 
 class GraphEdgeItem(QGraphicsObject):
-    """Визуальный элемент для ребра графа."""
+    """Визуальный элемент для ребра графа с отрисовкой стрелок для ориентированных графов."""
 
     def __init__(self, start_node, end_node, weight=None, is_directed=False):
         super().__init__()
@@ -675,13 +675,8 @@ class GraphEdgeItem(QGraphicsObject):
         self._color = QColor("#2c3e50")
         self._pen_width = 3
         
-        # Уникальный идентификатор ребра для неориентированных графов
-        if not is_directed:
-            # Создаем нормализованный ключ для неориентированного ребра
-            node_values = sorted([start_node.value, end_node.value])
-            self.edge_key = f"{node_values[0]}-{node_values[1]}"
-        else:
-            self.edge_key = f"{start_node.value}-{end_node.value}"
+        # Уникальный идентификатор ребра
+        self.edge_key = f"{start_node.value}-{end_node.value}"
         
         # Регистрируем ребро в узлах
         if hasattr(start_node, 'add_connected_edge'):
@@ -822,12 +817,58 @@ class GraphEdgeItem(QGraphicsObject):
             painter.setPen(pen)
             painter.drawLine(p1, p2)
             
+            # ОТРИСОВКА СТРЕЛОК ДЛЯ ОРИЕНТИРОВАННЫХ ГРАФОВ
+            if self.is_directed:
+                # Размер стрелки (зависит от толщины линии)
+                arrow_size = 14
+                
+                # Позиция стрелки - ближе к целевому узлу (80% от расстояния)
+                arrow_ratio = 0.8
+                arrow_point = QPointF(
+                    p1.x() + dx_unit * (distance * arrow_ratio - end_radius),
+                    p1.y() + dy_unit * (distance * arrow_ratio - end_radius)
+                )
+                
+                # Угол линии
+                angle = math.atan2(dy, dx)
+                
+                # Точки для стрелки (большой треугольник)
+                arrow_p1 = QPointF(
+                    arrow_point.x() - arrow_size * math.cos(angle - math.pi/6),
+                    arrow_point.y() - arrow_size * math.sin(angle - math.pi/6)
+                )
+                arrow_p2 = QPointF(
+                    arrow_point.x() - arrow_size * math.cos(angle + math.pi/6),
+                    arrow_point.y() - arrow_size * math.sin(angle + math.pi/6)
+                )
+                
+                # Рисуем стрелку (закрашенный треугольник)
+                painter.save()
+                
+                # Темный контур для лучшей видимости
+                painter.setPen(QPen(QColor("#000000"), 1))
+                painter.setBrush(QBrush(self._color))
+                
+                # Рисуем треугольник
+                arrow_path = QPainterPath()
+                arrow_path.moveTo(arrow_point)
+                arrow_path.lineTo(arrow_p1)
+                arrow_path.lineTo(arrow_p2)
+                arrow_path.closeSubpath()
+                
+                painter.drawPath(arrow_path)
+                painter.restore()
+                
+                # Добавляем маленькую белую точку в центре стрелки для лучшей видимости
+                painter.save()
+                painter.setBrush(QBrush(QColor("#FFFFFF")))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(arrow_point, 2, 2)
+                painter.restore()
+            
             # Обновляем позицию текста веса
             if self.weight_text and self.weight is not None:
                 self._update_weight_text_position()
-            
-            # ИСПРАВЛЕНИЕ: УБРАН КОД ДЛЯ ОТРИСОВКИ СТРЕЛОК
-            # Теперь стрелки не рисуются даже для ориентированных графов
                 
         except Exception as e:
             print(f"Error painting edge: {e}")

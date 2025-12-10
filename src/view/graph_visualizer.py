@@ -4,11 +4,11 @@
 from PyQt6.QtCore import QTimer, QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor
 from view.scene_items import GraphNodeItem, GraphEdgeItem
-from view.graph_layout import SpringLayout, CircularLayout, TreeLayout  # Убрал ForceAtlasLayout
+from view.graph_layout import SpringLayout, CircularLayout, TreeLayout
 
 
 class GraphVisualizer:
-    """Класс для визуализации алгоритмов на графах (BFS, DFS, Dijkstra)."""
+    """Класс для визуализации алгоритмов на графов (BFS, DFS, Dijkstra)."""
     
     def __init__(self, scene, view):
         self.scene = scene
@@ -28,8 +28,8 @@ class GraphVisualizer:
         self.layout_algorithm = self.layout_algorithms[self.current_layout]
         self.user_selected_layout = None
         
-        # Исправление: сохраняем переданную направленность графа
-        self.is_directed = False
+        # Направленность графа (True - ориентированный, False - неориентированный)
+        self.is_directed = False  # По умолчанию неориентированный
         self.animation_duration_ms = 500
 
     def set_layout_algorithm(self, algorithm_name):
@@ -43,6 +43,11 @@ class GraphVisualizer:
                 
             return True
         return False
+
+    def set_directed(self, is_directed):
+        """Устанавливает направленность графа."""
+        self.is_directed = is_directed
+        print(f"Graph direction set to: {'directed' if is_directed else 'undirected'}")
 
     def clear(self):
         """Очищает сцену - исправленная версия."""
@@ -104,7 +109,7 @@ class GraphVisualizer:
         if not self.is_directed:
             return tuple(sorted((u, v)))
         else:
-            return (u, v)
+            return (u, v)  # Для ориентированных графов порядок важен
 
     def _analyze_graph_structure(self, graph_data):
         """Анализирует структуру графа для выбора лучшего алгоритма компоновки."""
@@ -165,14 +170,16 @@ class GraphVisualizer:
         
         return normalized
 
-    def create_graph(self, graph_data, start_node_value=None, is_directed=False):
+    def create_graph(self, graph_data, start_node_value=None, is_directed=None):
         """Создает начальное представление графа."""
+        # Используем переданное значение или значение по умолчанию
+        if is_directed is not None:
+            self.is_directed = is_directed
+        
         print(f"Creating graph with layout: {self.current_layout}")
-        print(f"Graph data: {len(graph_data)} nodes, directed: {is_directed}")
+        print(f"Graph data: {len(graph_data)} nodes, directed: {self.is_directed}")
         
         self.clear()
-        # Исправление: сохраняем переданную направленность
-        self.is_directed = is_directed
         self.adjacency_list = {}
 
         try:
@@ -222,8 +229,6 @@ class GraphVisualizer:
                     
                     # Для неориентированного графа добавляем обратную связь
                     if not self.is_directed:
-                        if u_val not in self.adjacency_list:
-                            self.adjacency_list[u_val] = []
                         if v_val not in self.adjacency_list:
                             self.adjacency_list[v_val] = []
                         if u_val not in self.adjacency_list[v_val]:
@@ -302,11 +307,8 @@ class GraphVisualizer:
                 graph_data = action["graph"]
                 start_node = action["start_node"]
                 
-                # Исправление: передаем правильную направленность
-                algorithm = action.get("algorithm", "")
-                is_directed = algorithm == "Dijkstra"
-                
-                success = self.create_graph(graph_data, start_node, is_directed=is_directed)
+                # Используем настройку направленности из визуализатора
+                success = self.create_graph(graph_data, start_node, is_directed=self.is_directed)
                 if success:
                     self._center_and_scale_graph()
                 return success
