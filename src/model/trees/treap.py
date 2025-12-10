@@ -1,3 +1,4 @@
+
 import random
 from model.base_algorithm import BaseAlgorithm
 
@@ -20,8 +21,9 @@ class Treap(BaseAlgorithm):
         """Генератор шагов для Treap."""
         for val in self.data:
             priority = random.randint(1, 100)
-            self.root = self._insert(self.root, val, priority)
+            self.root = self._insert_silent(self.root, val, priority, None)
             
+            # Только финальное состояние
             tree_structure = self._get_tree_structure(self.root)
             yield {
                 "type": "tree",
@@ -43,19 +45,19 @@ class Treap(BaseAlgorithm):
             "description": "Построение Treap завершено"
         }
 
-    def _insert(self, node, value, priority, parent=None):
-        """Вставка в Treap."""
+    def _insert_silent(self, node, value, priority, parent=None):
+        """Вставка в Treap без промежуточных yield."""
         if node is None:
             new_node = self.Node(value, priority)
             new_node.parent = parent
             return new_node
             
         if value <= node.value:
-            node.left = self._insert(node.left, value, priority, node)
+            node.left = self._insert_silent(node.left, value, priority, node)
             if node.left.priority > node.priority:
                 node = self._rotate_right(node)
         else:
-            node.right = self._insert(node.right, value, priority, node)
+            node.right = self._insert_silent(node.right, value, priority, node)
             if node.right.priority > node.priority:
                 node = self._rotate_left(node)
                 
@@ -88,9 +90,15 @@ class Treap(BaseAlgorithm):
         if node is None:
             return None
             
+        # Для Treap показываем значение и приоритет в двух строках
         node_data = {
-            'value': f"{node.value}(p:{node.priority})",
-            'children': []
+            'value': f"{node.value}\n[{node.priority}]",  # Значение и приоритет
+            'children': [],
+            'properties': {  # Дополнительные свойства для визуализации
+                'value': node.value,
+                'priority': node.priority,
+                'node_type': 'TreapNode'
+            }
         }
         
         if node.left:
@@ -120,5 +128,4 @@ class Treap(BaseAlgorithm):
     def _estimate_total_steps(self):
         """Оценка общего количества шагов."""
         n = len(self.data)
-        return n * 4  # Вставка + балансировка
-
+        return n * 2  # Вставка + обход

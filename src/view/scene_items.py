@@ -1,9 +1,8 @@
-
 """
 Элементы визуализации для QGraphicsScene с анимациями.
 """
 from PyQt6.QtWidgets import QGraphicsObject, QGraphicsView, QGraphicsTextItem, QGraphicsEllipseItem
-from PyQt6.QtGui import QBrush, QColor, QFont, QRadialGradient, QPen, QPainter, QWheelEvent, QPainterPath
+from PyQt6.QtGui import QBrush, QColor, QFont, QRadialGradient, QPen, QPainter, QWheelEvent, QPainterPath, QLinearGradient
 from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal, QObject
 import math
 
@@ -433,6 +432,7 @@ class TreeConnectionItem(QGraphicsObject):
         self._is_valid = True
         self._animations = []
 
+        # Безопасное добавление соединения
         if start_node and hasattr(start_node, 'add_connection'):
             start_node.add_connection(self)
         if end_node and hasattr(end_node, 'add_connection'):
@@ -448,7 +448,11 @@ class TreeConnectionItem(QGraphicsObject):
         try:
             start_pos = self.start_node.scenePos()
             end_pos = self.end_node.scenePos()
-            padding = max(40, int(self.start_node.radius * 0.6))
+            
+            # 🛠 FIX: Безопасное получение радиуса с fallback-значением
+            # Если это BTree узел, у него нет атрибута radius, поэтому используем getattr
+            start_radius = getattr(self.start_node, 'radius', 40)
+            padding = max(40, int(start_radius * 0.6))
 
             x1 = min(start_pos.x(), end_pos.x()) - padding
             y1 = min(start_pos.y(), end_pos.y()) - padding
@@ -456,7 +460,8 @@ class TreeConnectionItem(QGraphicsObject):
             y2 = max(start_pos.y(), end_pos.y()) + padding
 
             return QRectF(x1, y1, x2 - x1, y2 - y1)
-        except RuntimeError:
+        except Exception: 
+            # Ловим любые ошибки, включая AttributeError, чтобы не крашить paint engine
             return QRectF(0, 0, 0, 0)
 
     def paint(self, painter, option, widget):
@@ -465,8 +470,13 @@ class TreeConnectionItem(QGraphicsObject):
 
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # 🛠 FIX: Безопасное получение радиуса
+            start_radius = getattr(self.start_node, 'radius', 40)
+            end_radius = getattr(self.end_node, 'radius', 40)
+            
             pen = QPen(QColor("#2A2A2A"))
-            pen.setWidth(max(3, int(self.start_node.radius * 0.08) + 4))
+            pen.setWidth(max(3, int(start_radius * 0.08) + 4))
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
             painter.setPen(pen)
@@ -482,16 +492,36 @@ class TreeConnectionItem(QGraphicsObject):
                 dx_unit = dx / distance
                 dy_unit = dy / distance
 
-                start_x = start_pos.x() + dx_unit * self.start_node.radius
-                start_y = start_pos.y() + dy_unit * self.start_node.radius
+                start_x = start_pos.x() + dx_unit * start_radius
+                start_y = start_pos.y() + dy_unit * start_radius
 
-                end_x = end_pos.x() - dx_unit * self.end_node.radius
-                end_y = end_pos.y() - dy_unit * self.end_node.radius
+                end_x = end_pos.x() - dx_unit * end_radius
+                end_y = end_pos.y() - dy_unit * end_radius
 
                 painter.drawLine(QPointF(start_x, start_y), QPointF(end_x, end_y))
 
-        except RuntimeError:
+        except Exception:
+            # Игнорируем ошибки отрисовки, чтобы предотвратить вылет
             pass
+
+    def prepareForRemoval(self):
+        """Подготовка к удалению из сцены."""
+        self._is_valid = False
+        
+        # Останавливаем все анимации
+        if hasattr(self, '_animations'):
+            for anim in self._animations:
+                try:
+                    if hasattr(anim, 'stop'):
+                        anim.stop()
+                except:
+                    pass
+            self._animations.clear()
+        
+        # Очищаем ссылки
+        self.start_node = None
+        self.end_node = None
+
 
 class GraphNodeItem(QGraphicsEllipseItem):
     """Визуальный элемент для узла графа."""
@@ -825,3 +855,282 @@ class GraphEdgeItem(QGraphicsObject):
                 self.end_node.remove_connected_edge(self)
         except Exception as e:
             print(f"Error in edge destructor: {e}")
+
+
+class BTreeNodeItem(QGraphicsObject):
+    """Прямоугольный узел для B-дерева с несколькими ключами."""
+    
+    def __init__(self, x, y, keys, is_leaf=False, key_count=0):
+        super().__init__()
+        
+        self._is_valid = True
+        
+        # Устанавливаем флаги
+        self.setFlag(QGraphicsObject.GraphicsItemFlag.ItemIsMovable, False)
+        self.setFlag(QGraphicsObject.GraphicsItemFlag.ItemIsSelectable, False)
+        
+        self.keys = keys if keys is not None else []
+        self.is_leaf = is_leaf
+        self.key_count = key_count if key_count > 0 else len(self.keys)
+        
+        # Размеры узла
+        self.key_width = 40
+        self.key_height = 40
+        self.key_spacing = 8
+        self.padding = 15
+        
+        # Цвета
+        self.bg_color = QColor("#20B2AA")
+        self.key_bg_color = QColor("#FFFFFF")
+        self.key_text_color = QColor("#333333")
+        self.border_color = QColor("#1A7F7A")
+        self.leaf_color = QColor("#98FB98") if is_leaf else QColor("#FFD700")
+        
+        # Вычисляем размеры узла СРАЗУ
+        self._update_node_size()
+        
+        self.setPos(x, y)
+        self.setZValue(1)
+        
+        # Дочерние узлы и соединения
+        self.children = []
+        self.parent = None
+        self.connections = []
+
+    # 🛠 FIX: Добавляем свойство radius для совместимости с TreeConnectionItem
+    @property
+    def radius(self):
+        """Возвращает эмуляцию радиуса (половина диагонали) для корректной стыковки линий."""
+        if hasattr(self, 'node_width') and hasattr(self, 'node_height'):
+            return math.sqrt(self.node_width**2 + self.node_height**2) / 2
+        return 40
+
+    def set_tree_type_color(self, tree_type):
+        """Устанавливает цветовую схему в зависимости от типа дерева."""
+        if not getattr(self, '_is_valid', False):
+            return
+        
+        if tree_type == "BTree":
+            # Цвета для B-дерева
+            self.bg_color = QColor("#20B2AA")
+            self.border_color = QColor("#1A7F7A")
+            self.update()
+        else:
+            # Цвета по умолчанию для других типов деревьев
+            self.bg_color = QColor("#20B2AA")
+            self.border_color = QColor("#1A7F7A")
+            self.update()
+    
+    def _update_node_size(self):
+        """Обновляет размеры узла на основе количества ключей."""
+        # Всегда устанавливаем значения по умолчанию
+        if not hasattr(self, 'key_count'):
+            self.key_count = 0
+        
+        if self.key_count == 0:
+            self.node_width = 160
+        else:
+            self.node_width = max(160, 
+                                self.key_count * (self.key_width + self.key_spacing) - 
+                                self.key_spacing + 2 * self.padding)
+        
+        self.node_height = self.key_height + 2 * self.padding + 20  # +20 для индикатора листа
+        
+        # Гарантируем минимальные размеры
+        self.node_width = max(self.node_width, 160)
+        self.node_height = max(self.node_height, 80)
+    
+    def boundingRect(self):
+        if not self._is_valid:
+            return QRectF(0, 0, 0, 0)
+        
+        try:
+            # Убедимся, что размеры вычислены
+            if not hasattr(self, 'node_width') or not hasattr(self, 'node_height'):
+                self._update_node_size()
+            
+            width = self.node_width
+            height = self.node_height
+            
+            # Дополнительный запас для тени, обводки
+            extra_padding = 10
+            
+            # Центрируем прямоугольник относительно (0, 0)
+            return QRectF(
+                -width / 2 - extra_padding, 
+                -height / 2 - extra_padding, 
+                width + 2 * extra_padding, 
+                height + 2 * extra_padding
+            )
+        except Exception as e:
+            print(f"Error in BTreeNodeItem.boundingRect(): {e}")
+            # Возвращаем безопасный прямоугольник
+            return QRectF(-100, -100, 200, 200)
+    
+    def paint(self, painter, option, widget):
+        if not self._is_valid:
+            return
+        
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # Убедимся, что размеры вычислены
+            if not hasattr(self, 'node_width') or not hasattr(self, 'node_height'):
+                self._update_node_size()
+            
+            # Основной прямоугольник узла
+            rect = QRectF(-self.node_width/2, -self.node_height/2, 
+                         self.node_width, self.node_height)
+            
+            # Градиентная заливка
+            gradient = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+            gradient.setColorAt(0.0, self.bg_color.lighter(120))
+            gradient.setColorAt(0.5, self.bg_color)
+            gradient.setColorAt(1.0, self.bg_color.darker(120))
+            
+            painter.setBrush(QBrush(gradient))
+            painter.setPen(QPen(self.border_color, 2))
+            painter.drawRoundedRect(rect, 10, 10)
+            
+            # Индикатор типа узла в верхней части
+            type_rect = QRectF(-30, -self.node_height/2 + 5, 60, 20)
+            type_gradient = QLinearGradient(type_rect.topLeft(), type_rect.bottomRight())
+            
+            if self.is_leaf:
+                type_gradient.setColorAt(0.0, QColor("#98FB98").lighter(120))
+                type_gradient.setColorAt(1.0, QColor("#32CD32"))
+                type_text = "ЛИСТ"
+            else:
+                type_gradient.setColorAt(0.0, QColor("#FFD700").lighter(120))
+                type_gradient.setColorAt(1.0, QColor("#FFA500"))
+                type_text = "УЗЕЛ"
+            
+            painter.setBrush(QBrush(type_gradient))
+            painter.setPen(QPen(self.border_color.darker(150), 1))
+            painter.drawRoundedRect(type_rect, 5, 5)
+            
+            # Текст типа
+            painter.setPen(QColor("#333333"))
+            font = QFont()
+            font.setPointSize(9)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(type_rect, Qt.AlignmentFlag.AlignCenter, type_text)
+            
+            # Рисуем ключи
+            if self.keys and len(self.keys) > 0:
+                total_keys_width = len(self.keys) * self.key_width + (len(self.keys) - 1) * self.key_spacing
+                start_x = -total_keys_width / 2
+                
+                for i, key in enumerate(self.keys):
+                    key_x = start_x + i * (self.key_width + self.key_spacing)
+                    key_rect = QRectF(key_x, -self.key_height/2 + 15, 
+                                     self.key_width, self.key_height)
+                    
+                    # Градиент для ключа
+                    key_gradient = QLinearGradient(key_rect.topLeft(), key_rect.bottomRight())
+                    key_gradient.setColorAt(0.0, QColor("#FFFFFF"))
+                    key_gradient.setColorAt(0.5, self.key_bg_color)
+                    key_gradient.setColorAt(1.0, QColor("#F0F0F0"))
+                    
+                    painter.setBrush(QBrush(key_gradient))
+                    painter.setPen(QPen(self.border_color, 1))
+                    painter.drawRoundedRect(key_rect, 6, 6)
+                    
+                    # Текст ключа
+                    painter.setPen(self.key_text_color)
+                    font.setPointSize(12)
+                    font.setBold(True)
+                    painter.setFont(font)
+                    painter.drawText(key_rect, Qt.AlignmentFlag.AlignCenter, str(key))
+                    
+                    # Индекс ключа (маленький текст сверху)
+                    index_rect = QRectF(key_rect.x(), key_rect.y() - 12, key_rect.width(), 12)
+                    font.setPointSize(8)
+                    painter.setFont(font)
+                    painter.setPen(QColor("#666666"))
+                    painter.drawText(index_rect, Qt.AlignmentFlag.AlignCenter, f"K[{i}]")
+            
+            # Количество ключей в нижней части
+            count_text = f"Ключей: {self.key_count}"
+            count_rect = QRectF(
+                -self.node_width/2 + 10,
+                self.node_height/2 - 20,
+                self.node_width - 20,
+                15
+            )
+            painter.setPen(QColor("#444444"))
+            font.setPointSize(8)
+            font.setBold(False)
+            painter.setFont(font)
+            painter.drawText(count_rect, Qt.AlignmentFlag.AlignLeft, count_text)
+            
+        except Exception as e:
+            print(f"Error painting BTreeNodeItem: {e}")
+    
+    def prepareForRemoval(self):
+        """Подготовка к удалению из сцены."""
+        self._is_valid = False
+        
+        # Останавливаем все анимации
+        try:
+            if hasattr(self, '_entry_anims'):
+                for anim in self._entry_anims:
+                    try:
+                        if anim and hasattr(anim, 'stop'):
+                            anim.stop()
+                    except:
+                        pass
+                self._entry_anims = []
+        except:
+            pass
+        
+        # Очищаем связи
+        try:
+            if hasattr(self, 'connections'):
+                for conn in self.connections:
+                    try:
+                        if conn and hasattr(conn, '_is_valid'):
+                            conn._is_valid = False
+                    except:
+                        pass
+                self.connections.clear()
+        except:
+            pass
+        
+        try:
+            self.children.clear()
+        except:
+            pass
+        
+        self.parent = None
+    
+    def add_child(self, child_node):
+        """Добавляет дочерний узел."""
+        if not self._is_valid or not child_node or not getattr(child_node, '_is_valid', False):
+            return
+        
+        if not hasattr(self, 'children'):
+            self.children = []
+        
+        if child_node not in self.children:
+            self.children.append(child_node)
+            child_node.parent = self
+    
+    # 🛠 FIX: Добавляем метод add_connection, который вызывает TreeConnectionItem
+    def add_connection(self, connection):
+        """Добавляет соединение (для совместимости с TreeConnectionItem)."""
+        if connection and self._is_valid:
+            if not hasattr(self, 'connections'):
+                self.connections = []
+            self.connections.append(connection)
+
+    def update_keys(self, new_keys):
+        """Обновляет ключи узла."""
+        if not self._is_valid:
+            return
+        
+        self.keys = new_keys if new_keys is not None else []
+        self.key_count = len(self.keys)
+        self._update_node_size()
+        self.update()

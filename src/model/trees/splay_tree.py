@@ -17,9 +17,9 @@ class SplayTree(BaseAlgorithm):
     def step_generator(self):
         """Генератор шагов для Splay-дерева."""
         for val in self.data:
-            self.root = self._insert(self.root, val)
-            self.root = self._splay(self.root, val)
+            self.root = self._insert_silent(self.root, val)
             
+            # Только финальное состояние
             tree_structure = self._get_tree_structure(self.root)
             yield {
                 "type": "tree",
@@ -41,58 +41,25 @@ class SplayTree(BaseAlgorithm):
             "description": "Построение Splay-дерева завершено"
         }
 
-    def _insert(self, node, value, parent=None):
-        """Вставка в Splay-дерево."""
+    def _insert_silent(self, node, value, parent=None):
+        """Вставка в Splay-дерево без промежуточных yield."""
         if node is None:
             new_node = self.Node(value)
             new_node.parent = parent
             return new_node
             
         if value < node.value:
-            node.left = self._insert(node.left, value, node)
+            node.left = self._insert_silent(node.left, value, node)
         elif value > node.value:
-            node.right = self._insert(node.right, value, node)
+            node.right = self._insert_silent(node.right, value, node)
+        
+        # Splay операция для вставленного узла
+        if node.left and node.left.value == value:
+            return self._rotate_right(node)
+        elif node.right and node.right.value == value:
+            return self._rotate_left(node)
             
         return node
-
-    def _splay(self, node, value):
-        """Splay операция - перемещает узел с заданным значением в корень."""
-        if node is None or node.value == value:
-            return node
-            
-        if value < node.value:
-            if node.left is None:
-                return node
-                
-            if value < node.left.value:
-                node.left.left = self._splay(node.left.left, value)
-                node = self._rotate_right(node)
-            elif value > node.left.value:
-                node.left.right = self._splay(node.left.right, value)
-                if node.left.right:
-                    node.left = self._rotate_left(node.left)
-                    
-            if node.left:
-                return self._rotate_right(node)
-            else:
-                return node
-                
-        else:
-            if node.right is None:
-                return node
-                
-            if value < node.right.value:
-                node.right.left = self._splay(node.right.left, value)
-                if node.right.left:
-                    node.right = self._rotate_right(node.right)
-            elif value > node.right.value:
-                node.right.right = self._splay(node.right.right, value)
-                node = self._rotate_left(node)
-                
-            if node.right:
-                return self._rotate_left(node)
-            else:
-                return node
 
     def _rotate_left(self, x):
         """Левый поворот."""
@@ -153,4 +120,4 @@ class SplayTree(BaseAlgorithm):
     def _estimate_total_steps(self):
         """Оценка общего количества шагов."""
         n = len(self.data)
-        return n * 6  # Вставка + splay операции
+        return n * 2  # Вставка + обход

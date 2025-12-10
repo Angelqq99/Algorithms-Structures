@@ -18,9 +18,9 @@ class AVLTree(BaseAlgorithm):
     def step_generator(self):
         """Генератор шагов для AVL дерева."""
         for val in self.data:
-            self.root = self._insert(self.root, val, None)
+            self.root = self._insert_silent(self.root, val, None)
             
-            # Возвращаем текущее состояние дерева
+            # Только финальное состояние после вставки
             tree_structure = self._get_tree_structure(self.root)
             yield {
                 "type": "tree",
@@ -43,17 +43,17 @@ class AVLTree(BaseAlgorithm):
             "description": "Построение AVL дерева завершено"
         }
 
-    def _insert(self, node, value, parent):
-        """Рекурсивная вставка в AVL дерево."""
+    def _insert_silent(self, node, value, parent):
+        """Рекурсивная вставка в AVL дерево без промежуточных yield."""
         if node is None:
             new_node = self.Node(value)
             new_node.parent = parent
             return new_node
             
         if value < node.value:
-            node.left = self._insert(node.left, value, node)
+            node.left = self._insert_silent(node.left, value, node)
         else:
-            node.right = self._insert(node.right, value, node)
+            node.right = self._insert_silent(node.right, value, node)
             
         # Обновляем высоту
         node.height = 1 + max(self._get_height(node.left), self._get_height(node.right))
@@ -152,5 +152,4 @@ class AVLTree(BaseAlgorithm):
     def _estimate_total_steps(self):
         """Оценка общего количества шагов."""
         n = len(self.data)
-        return n * 4  # Вставка + балансировка
-
+        return n * 2  # Вставка + обход

@@ -4,7 +4,7 @@
 from PyQt6.QtCore import QTimer, QPointF, QRectF, Qt
 from PyQt6.QtGui import QColor
 from view.scene_items import GraphNodeItem, GraphEdgeItem
-from view.graph_layout import SpringLayout, CircularLayout, TreeLayout, ForceAtlasLayout
+from view.graph_layout import SpringLayout, CircularLayout, TreeLayout  # Убрал ForceAtlasLayout
 
 
 class GraphVisualizer:
@@ -22,8 +22,7 @@ class GraphVisualizer:
         self.layout_algorithms = {
             "Spring": SpringLayout(node_distance=300),
             "Circular": CircularLayout(node_distance=350),
-            "Tree": TreeLayout(node_distance=250),
-            "ForceAtlas": ForceAtlasLayout(node_distance=280)
+            "Tree": TreeLayout(node_distance=250)
         }
         self.current_layout = "Spring"
         self.layout_algorithm = self.layout_algorithms[self.current_layout]
@@ -140,10 +139,8 @@ class GraphVisualizer:
             return "Circular"
         elif avg_degree <= 1.5:
             return "Tree"
-        elif avg_degree >= 3:
-            return "Spring"
         else:
-            return "ForceAtlas"
+            return "Spring"
 
     def _normalize_graph_data(self, graph_data):
         """Нормализует данные графа к единому формату."""
@@ -306,9 +303,8 @@ class GraphVisualizer:
                 start_node = action["start_node"]
                 
                 # Исправление: передаем правильную направленность
-                # Для BFS/DFS обычно неориентированные, для Dijkstra - могут быть ориентированные
                 algorithm = action.get("algorithm", "")
-                is_directed = algorithm == "Dijkstra"  # Dijkstra может работать с ориентированными графами
+                is_directed = algorithm == "Dijkstra"
                 
                 success = self.create_graph(graph_data, start_node, is_directed=is_directed)
                 if success:

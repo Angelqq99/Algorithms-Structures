@@ -24,28 +24,18 @@ class RedBlackTree(BaseAlgorithm):
             new_node.left = self.NIL
             new_node.right = self.NIL
             
-            yield {
-                "type": "tree",
-                "tree_data": self._get_tree_structure(self.root),
-                "description": f"Начинаем вставку узла: {val} (красный)"
-            }
-            
             # BST вставка
             self._bst_insert(new_node)
             
-            yield {
-                "type": "tree",
-                "tree_data": self._get_tree_structure(self.root),
-                "description": f"Узел {val} вставлен (красный), начинаем балансировку"
-            }
-            
             # Балансировка
-            yield from self._fix_insert(new_node)
+            self._fix_insert_silent(new_node)
             
+            # Только финальное состояние после вставки
+            tree_structure = self._get_tree_structure(self.root)
             yield {
                 "type": "tree",
-                "tree_data": self._get_tree_structure(self.root),
-                "description": f"Балансировка после вставки {val} завершена"
+                "tree_data": tree_structure,
+                "description": f"Вставлен узел: {val} (красно-черное дерево)"
             }
         
         # Обход inorder для демонстрации
@@ -87,129 +77,52 @@ class RedBlackTree(BaseAlgorithm):
         else:
             parent.right = new_node
 
-    def _fix_insert(self, node):
-        """Балансировка после вставки с yield для визуализации."""
+    def _fix_insert_silent(self, node):
+        """Балансировка после вставки без промежуточных yield."""
         while node != self.root and node.parent.color == 'RED':
             if node.parent == node.parent.parent.left:
                 uncle = node.parent.parent.right
                 
                 # Случай 1: дядя красный
                 if uncle.color == 'RED':
-                    yield {
-                        "type": "tree",
-                        "tree_data": self._get_tree_structure(self.root),
-                        "description": f"Случай 1: Дядя узла {node.value} красный - перекрашиваем"
-                    }
-                    
                     node.parent.color = 'BLACK'
                     uncle.color = 'BLACK'
                     node.parent.parent.color = 'RED'
                     node = node.parent.parent
-                    
-                    yield {
-                        "type": "tree",
-                        "tree_data": self._get_tree_structure(self.root),
-                        "description": f"Перекрашены: родитель и дядя в черный, дедушка в красный"
-                    }
                 else:
                     # Случай 2: узел - правый ребенок
                     if node == node.parent.right:
-                        yield {
-                            "type": "tree",
-                            "tree_data": self._get_tree_structure(self.root),
-                            "description": f"Случай 2: Узел {node.value} - правый ребенок, левый поворот"
-                        }
-                        
                         node = node.parent
                         self._left_rotate(node)
-                        
-                        yield {
-                            "type": "tree",
-                            "tree_data": self._get_tree_structure(self.root),
-                            "description": f"Выполнен левый поворот вокруг узла {node.value}"
-                        }
                     
                     # Случай 3: узел - левый ребенок
-                    yield {
-                        "type": "tree",
-                        "tree_data": self._get_tree_structure(self.root),
-                        "description": f"Случай 3: Узел {node.value} - левый ребенок, правый поворот и перекрашивание"
-                    }
-                    
                     node.parent.color = 'BLACK'
                     node.parent.parent.color = 'RED'
                     self._right_rotate(node.parent.parent)
-                    
-                    yield {
-                        "type": "tree",
-                        "tree_data": self._get_tree_structure(self.root),
-                        "description": f"Выполнен правый поворот и перекрашивание"
-                    }
             else:
                 # Симметричный случай для правого поддерева
                 uncle = node.parent.parent.left
                 
                 # Случай 1: дядя красный
                 if uncle.color == 'RED':
-                    yield {
-                        "type": "tree",
-                        "tree_data": self._get_tree_structure(self.root),
-                        "description": f"Случай 1 (симметричный): Дядя узла {node.value} красный - перекрашиваем"
-                    }
-                    
                     node.parent.color = 'BLACK'
                     uncle.color = 'BLACK'
                     node.parent.parent.color = 'RED'
                     node = node.parent.parent
-                    
-                    yield {
-                        "type": "tree",
-                        "tree_data": self._get_tree_structure(self.root),
-                        "description": f"Перекрашены: родитель и дядя в черный, дедушка в красный"
-                    }
                 else:
                     # Случай 2: узел - левый ребенок
                     if node == node.parent.left:
-                        yield {
-                            "type": "tree",
-                            "tree_data": self._get_tree_structure(self.root),
-                            "description": f"Случай 2 (симметричный): Узел {node.value} - левый ребенок, правый поворот"
-                        }
-                        
                         node = node.parent
                         self._right_rotate(node)
-                        
-                        yield {
-                            "type": "tree",
-                            "tree_data": self._get_tree_structure(self.root),
-                            "description": f"Выполнен правый поворот вокруг узла {node.value}"
-                        }
                     
                     # Случай 3: узел - правый ребенок
-                    yield {
-                        "type": "tree",
-                        "tree_data": self._get_tree_structure(self.root),
-                        "description": f"Случай 3 (симметричный): Узел {node.value} - правый ребенок, левый поворот и перекрашивание"
-                    }
-                    
                     node.parent.color = 'BLACK'
                     node.parent.parent.color = 'RED'
                     self._left_rotate(node.parent.parent)
-                    
-                    yield {
-                        "type": "tree",
-                        "tree_data": self._get_tree_structure(self.root),
-                        "description": f"Выполнен левый поворот и перекрашивание"
-                    }
         
         # Гарантируем, что корень черный
         if self.root.color != 'BLACK':
             self.root.color = 'BLACK'
-            yield {
-                "type": "tree",
-                "tree_data": self._get_tree_structure(self.root),
-                "description": "Корень перекрашен в черный цвет"
-            }
 
     def _left_rotate(self, x):
         """Левый поворот вокруг узла x."""
@@ -288,4 +201,4 @@ class RedBlackTree(BaseAlgorithm):
     def _estimate_total_steps(self):
         """Оценка общего количества шагов."""
         n = len(self.data)
-        return n * 8  # Вставка + несколько шагов балансировки на каждый узел
+        return n * 2  # Вставка + обход
