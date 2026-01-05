@@ -1166,12 +1166,41 @@ class BTreeNodeItem(QGraphicsObject):
                 self.connections = []
             self.connections.append(connection)
 
-    def update_keys(self, new_keys):
-        """Обновляет ключи узла."""
+    def update_keys(self, new_keys, animate=True):
+        """Обновляет ключи узла с анимацией."""
         if not self._is_valid:
             return
         
+        # Сохраняем старые ключи для анимации
+        old_keys = self.keys.copy()
         self.keys = new_keys if new_keys is not None else []
         self.key_count = len(self.keys)
+        
+        # Пересчитываем размер
         self._update_node_size()
+        
+        if animate:
+            # Анимация обновления
+            self._animate_keys_update(old_keys, new_keys)
+        else:
+            self.update()
+        
+    def _animate_keys_update(self, old_keys, new_keys):
+        """Анимирует обновление ключей."""
+        # Простая анимация - изменение прозрачности
+        if hasattr(self, 'setOpacity'):
+            self.setOpacity(0.7)
+            
+            # Восстанавливаем через задержку
+            timer = QTimer()
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda: self._finish_keys_animation())
+            timer.start(300)
+        
+        self.update()
+
+    def _finish_keys_animation(self):
+        """Завершает анимацию обновления ключей."""
+        if hasattr(self, 'setOpacity'):
+            self.setOpacity(1.0)
         self.update()

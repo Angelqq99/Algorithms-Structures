@@ -7,10 +7,10 @@ from PyQt6.QtWidgets import (
     QProgressBar, QMessageBox, QCheckBox, QGraphicsLineItem, QGraphicsTextItem,
     QGraphicsObject, QGraphicsRectItem,
     QGridLayout, QGroupBox, QScrollArea, QDialog, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView
+    QHeaderView, QAbstractItemView, QApplication
 )
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty, QRectF, pyqtSignal, QEasingCurve, QObject
-from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty, QRectF, pyqtSignal, QEasingCurve, QObject, QPointF
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QClipboard
 from controller.engine import Engine
 from model.sorting.quicksort import QuickSort
 from model.sorting.mergesort import MergeSort
@@ -29,13 +29,14 @@ from model.hashtable.hashtable import HashTable
 from view.tree_visualizer import TreeVisualizer
 from view.graph_visualizer import GraphVisualizer
 from view.tree_layout import CenteredTreeLayout, CompactTreeLayout
-from view.scene_items import ArrayCircleItem, ZoomableGraphicsView
+from view.scene_items import ArrayCircleItem, ZoomableGraphicsView, TreeNodeItem, BTreeNodeItem, TreeConnectionItem
 from view.inspector import Inspector
 
 import random
 import json
 import math
 from datetime import datetime
+import re
 
 
 class TempArraysWidget(QFrame):
@@ -828,9 +829,6 @@ class ChainsViewerDialog(QDialog):
     def _copy_all_chains(self):
         """Копирует все цепочки в текстовом формате."""
         try:
-            from PyQt6.QtGui import QClipboard
-            from PyQt6.QtWidgets import QApplication
-            
             text = "Все цепочки в хэш-таблице:\n\n"
             
             for i, cell_data in enumerate(self.hashtable_data):
@@ -935,6 +933,19 @@ class MainWindow(QMainWindow):
         self.hashtable_animation_timer.timeout.connect(self._animate_hashtable_cell)
         self.animation_queue = []
 
+        # Инициализация интерактивных операций
+        self.interactive_widget = None
+        self.val_input = None
+        self.tree_ops_combo = None
+        self.execute_btn = None
+        self.btn_min = self.btn_max = self.btn_height = self.btn_balance = None
+        self.btn_clear = self.btn_random = None
+        self.btn_fit_view = self.btn_center = self.btn_zoom_in = self.btn_zoom_out = None
+        
+        # Для интерактивного поиска
+        self._search_generator = None
+        self._search_value = None
+
         self._setup_ui()
         self._connect_signals()
 
@@ -945,16 +956,21 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
 
-        # Левая панель
+        # Левая панель (управление)
         left_panel = self._create_left_panel()
         
-        # Правая панель
-        right_panel = self._create_right_panel()
+        # Центральная панель (визуализация)
+        center_panel = self._create_center_panel()
+        
+        # Правая панель (интерактивные операции)
+        right_panel = self._create_interactive_panel()
+        self.interactive_widget = right_panel
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
+        splitter.addWidget(center_panel)
         splitter.addWidget(right_panel)
-        splitter.setSizes([400, 1000])
+        splitter.setSizes([350, 800, 350])
         main_layout.addWidget(splitter)
 
         # Первичная генерация
@@ -999,7 +1015,6 @@ class MainWindow(QMainWindow):
         self.directed_label = QLabel("Направленность:")
         self.directed_checkbox = QCheckBox("Ориентированный граф")
         self.directed_checkbox.setChecked(self.graph_directed)
-        self.directed_checkbox.stateChanged.connect(self._on_directed_changed)
         
         self.graph_layout_label = QLabel("Компоновка графа:")
         self.graph_layout_combo = QComboBox()
@@ -1026,7 +1041,7 @@ class MainWindow(QMainWindow):
         self.collision_method_combo.addItems(["Линейное пробирование", "Квадратичное пробирование", 
                                               "Двойное хеширование", "Метод цепочек"])
         
-        # Размер таблицы
+        # Размер таблиции
         self.table_size_label = QLabel("Размер таблицы:")
         self.table_size_slider = QSlider(Qt.Orientation.Horizontal)
         self.table_size_slider.setRange(5, 30)
@@ -1058,8 +1073,8 @@ class MainWindow(QMainWindow):
         # Новая кнопка для просмотра цепочек
         self.view_chains_btn = QPushButton("🔗 Просмотреть цепочки")
         self.view_chains_btn.clicked.connect(self._show_chains_viewer)
-        self.view_chains_btn.setEnabled(False)  # Изначально неактивна
-        self.view_chains_btn.hide()  # Скрыта по умолчанию
+        self.view_chains_btn.setEnabled(False)
+        self.view_chains_btn.hide()
 
         self.pause_btn.hide()
 
@@ -1144,7 +1159,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.auto_btn)
         left_layout.addWidget(self.pause_btn)
         left_layout.addWidget(self.reset_btn)
-        left_layout.addWidget(self.view_chains_btn)  # Добавляем новую кнопку
+        left_layout.addWidget(self.view_chains_btn)
         left_layout.addLayout(speed_layout)
         
         # Виджет временных массивов MergeSort
@@ -1157,22 +1172,24 @@ class MainWindow(QMainWindow):
 
         return left_panel
 
-    def _create_right_panel(self):
-        right_panel = QFrame()
-        right_panel.setStyleSheet("""
+    def _create_center_panel(self):
+        """Создает центральную панель с визуализацией."""
+        center_panel = QFrame()
+        center_panel.setStyleSheet("""
             QFrame {
                 background-color: #ffffff; 
                 border-radius: 8px;
                 border: 1px solid #d0d0d0;
             }
         """)
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(15, 15, 15, 15)
-        right_layout.setSpacing(8)
+        
+        center_layout = QVBoxLayout(center_panel)
+        center_layout.setContentsMargins(15, 15, 15, 15)
+        center_layout.setSpacing(8)
 
         viz_label = QLabel("Визуализация:")
         viz_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50;")
-        right_layout.addWidget(viz_label)
+        center_layout.addWidget(viz_label)
 
         self.view.setStyleSheet("""
             QGraphicsView {
@@ -1184,11 +1201,15 @@ class MainWindow(QMainWindow):
         
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        right_layout.addWidget(self.view, 4)
+        center_layout.addWidget(self.view, 4)
+        
+        # Добавляем панель управления визуализацией
+        viz_controls = self._create_visualization_controls()
+        center_layout.addWidget(viz_controls)
 
         log_label = QLabel("Пошаговое объяснение:")
         log_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50;")
-        right_layout.addWidget(log_label)
+        center_layout.addWidget(log_label)
 
         self.log_text = QTextEdit()
         self.log_text.setMaximumHeight(200)
@@ -1202,9 +1223,244 @@ class MainWindow(QMainWindow):
                 font-family: 'Consolas', 'Monaco', monospace;
             }
         """)
-        right_layout.addWidget(self.log_text, 1)
+        center_layout.addWidget(self.log_text, 1)
 
-        return right_panel
+        return center_panel
+
+    def _create_visualization_controls(self):
+        """Создает панель управления визуализацией."""
+        controls = QWidget()
+        layout = QHBoxLayout(controls)
+        layout.setContentsMargins(0, 5, 0, 5)
+        
+
+        self.btn_fit_view = QPushButton("🔍 Подогнать вид")
+        self.btn_fit_view.clicked.connect(self._fit_to_content)
+        self.btn_fit_view.setToolTip("Подогнать масштаб к содержимому")
+        
+        self.btn_center = QPushButton("🎯 Центрировать")
+        self.btn_center.clicked.connect(self._center_view)
+        self.btn_center.setToolTip("Центрировать вид")
+        
+        # Стили кнопок
+        button_style = """
+            QPushButton {
+                background-color: #5A9BD5;
+                color: white;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4B89C6;
+            }
+            QPushButton:pressed {
+                background-color: #3A6FA3;
+            }
+        """
+        
+        for btn in [self.btn_fit_view, self.btn_center]:
+            btn.setStyleSheet(button_style)
+            layout.addWidget(btn)
+        
+        layout.addStretch()
+        return controls
+
+    def _create_interactive_panel(self):
+        """Создает панель интерактивных операций для деревьев."""
+        panel = QFrame()
+        panel.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff;
+                border: 2px solid #4ECDC4;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+        
+        # Заголовок
+        title = QLabel("🌳 Интерактивные операции с деревом")
+        title.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding-bottom: 5px;
+                border-bottom: 2px solid #4ECDC4;
+            }
+        """)
+        layout.addWidget(title)
+        
+        # Поле ввода значения
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(QLabel("Значение:"))
+        self.val_input = QLineEdit()
+        self.val_input.setPlaceholderText("Введите число...")
+        self.val_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        self.val_input.returnPressed.connect(self._on_operation_execute)
+        input_layout.addWidget(self.val_input)
+        layout.addLayout(input_layout)
+        
+        # Выбор операции
+        ops_layout = QHBoxLayout()
+        ops_layout.addWidget(QLabel("Операция:"))
+        self.tree_ops_combo = QComboBox()
+        self.tree_ops_combo.addItems([
+            "Вставить узел", 
+            "Удалить узел", 
+            "Найти узел",
+            "Прямой обход (Pre-order)",
+            "Центральный обход (In-order)",
+            "Обратный обход (Post-order)",
+            "Обход в ширину (BFS)"
+        ])
+        self.tree_ops_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        ops_layout.addWidget(self.tree_ops_combo)
+        layout.addLayout(ops_layout)
+        
+        # Кнопка выполнения
+        self.execute_btn = QPushButton("Выполнить операцию")
+        self.execute_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4ECDC4;
+                color: white;
+                border-radius: 6px;
+                padding: 12px;
+                font-weight: bold;
+                font-size: 14px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #3dbcb3;
+            }
+            QPushButton:pressed {
+                background-color: #2eaba2;
+            }
+            QPushButton:disabled {
+                background-color: #b0b0b0;
+            }
+        """)
+        self.execute_btn.clicked.connect(self._on_operation_execute)
+        layout.addWidget(self.execute_btn)
+        
+        # Панель быстрых действий
+        quick_actions = QGroupBox("Быстрые действий")
+        quick_actions.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        
+        quick_layout = QGridLayout()
+        
+        # Кнопки быстрых действий
+        self.btn_min = QPushButton("Найти мин.")
+        self.btn_min.clicked.connect(lambda: self._find_min_max("min"))
+        self.btn_min.setToolTip("Найти минимальный элемент")
+        
+        self.btn_max = QPushButton("Найти макс.")
+        self.btn_max.clicked.connect(lambda: self._find_min_max("max"))
+        self.btn_max.setToolTip("Найти максимальный элемент")
+        
+        self.btn_height = QPushButton("Высота")
+        self.btn_height.clicked.connect(self._get_tree_height)
+        self.btn_height.setToolTip("Вычислить высоту дерева")
+        
+        self.btn_balance = QPushButton("Балансировка")
+        self.btn_balance.clicked.connect(self._check_balance)
+        self.btn_balance.setToolTip("Проверить балансировку дерева")
+        
+        self.btn_clear = QPushButton("Очистить")
+        self.btn_clear.clicked.connect(self._clear_tree)
+        self.btn_clear.setToolTip("Удалить все узлы дерева")
+        
+        self.btn_random = QPushButton("Добавить 5 случайных")
+        self.btn_random.clicked.connect(self._add_random_nodes)
+        self.btn_random.setToolTip("Добавить 5 случайных значений")
+        
+        # Стили кнопок быстрых действий
+        quick_button_style = """
+            QPushButton {
+                background-color: #5A9BD5;
+                color: white;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4B89C6;
+            }
+            QPushButton:pressed {
+                background-color: #3A6FA3;
+            }
+        """
+        
+        for btn in [self.btn_min, self.btn_max, self.btn_height, self.btn_balance, self.btn_clear, self.btn_random]:
+            btn.setStyleSheet(quick_button_style)
+            btn.setMinimumHeight(35)
+        
+        # Добавление кнопок в layout
+        quick_layout.addWidget(self.btn_min, 0, 0)
+        quick_layout.addWidget(self.btn_max, 0, 1)
+        quick_layout.addWidget(self.btn_height, 1, 0)
+        quick_layout.addWidget(self.btn_balance, 1, 1)
+        quick_layout.addWidget(self.btn_clear, 2, 0)
+        quick_layout.addWidget(self.btn_random, 2, 1)
+        
+        quick_actions.setLayout(quick_layout)
+        layout.addWidget(quick_actions)
+        
+        # Информационная панель
+        info_label = QLabel("ℹ️ Интерактивные операции доступны только для деревьев")
+        info_label.setStyleSheet("""
+            QLabel {
+                color: #666;
+                font-size: 11px;
+                font-style: italic;
+                padding: 5px;
+                background-color: #f0f8ff;
+                border-radius: 4px;
+                border: 1px solid #d0e0ff;
+            }
+        """)
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        layout.addStretch()
+        
+        # Изначально скрываем панель
+        panel.hide()
+        
+        return panel
 
     def _connect_signals(self):
         """Подключение сигналов к слотам."""
@@ -1219,6 +1475,7 @@ class MainWindow(QMainWindow):
         self.table_size_slider.valueChanged.connect(
             lambda v: self.table_size_value.setText(str(v))
         )
+        self.directed_checkbox.stateChanged.connect(self._on_directed_changed)
 
     def _on_directed_changed(self, state):
         """Обработка изменения направленности графа."""
@@ -1268,7 +1525,9 @@ class MainWindow(QMainWindow):
             self.directed_checkbox.show()
             self.graph_layout_label.show()
             self.graph_layout_combo.show()
-            self.view_chains_btn.hide()  # Скрываем кнопку цепочек для графов
+            self.view_chains_btn.hide()
+            if self.interactive_widget:
+                self.interactive_widget.hide()
         else:
             self.graph_settings_label.hide()
             self.directed_label.hide()
@@ -1286,7 +1545,9 @@ class MainWindow(QMainWindow):
             self.table_size_label.show()
             self.table_size_slider.show()
             self.table_size_value.show()
-            self.view_chains_btn.show()  # Показываем кнопку цепочек
+            self.view_chains_btn.show()
+            if self.interactive_widget:
+                self.interactive_widget.hide()
         else:
             self.hashtable_settings_label.hide()
             self.hash_function_label.hide()
@@ -1296,7 +1557,16 @@ class MainWindow(QMainWindow):
             self.table_size_label.hide()
             self.table_size_slider.hide()
             self.table_size_value.hide()
-            self.view_chains_btn.hide()  # Скрываем кнопку цепочек
+            self.view_chains_btn.hide()
+            
+        # Показываем/скрываем интерактивную панель
+        if category == "Деревья":
+            if self.interactive_widget:
+                self.interactive_widget.show()
+                self._log("🌳 Интерактивный режим для деревьев включен")
+        else:
+            if self.interactive_widget:
+                self.interactive_widget.hide()
             
         # Сбрасываем алгоритм при смене категории
         self._reset_algorithm()
@@ -1345,6 +1615,10 @@ class MainWindow(QMainWindow):
             self.engine.pause()
             self.engine.generator = None
             
+            # Останавливаем интерактивный поиск
+            self._search_generator = None
+            self._search_value = None
+            
             if hasattr(self, 'graph_visualizer'):
                 self.graph_visualizer.clear()
             
@@ -1385,7 +1659,7 @@ class MainWindow(QMainWindow):
             self.pause_btn.hide()
             self.start_btn.setEnabled(True)
             
-            # ВОССТАНОВЛЕНИЕ НАЧАЛЬНОГО ВИДА
+            # Восстанавливаем начальный вид
             text = self.data_input.text()
             try:
                 arr = [int(x.strip()) for x in text.split(",") if x.strip()]
@@ -1951,12 +2225,11 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(400 + i * 80, lambda c=circle: setattr(c, "is_spawning", False))
 
     def _render_tree(self, tree_data):
+        """Рендеринг дерева."""
         if self._is_rendering_tree:
-            self._is_rendering_tree = False
-            print("DEBUG: Already rendering tree, skipping")
             return
         self._is_rendering_tree = True
-        """Рендеринг дерева вместо массива."""
+        
         try:
             self.scene.clear()
             self.visual_items.clear()
@@ -1970,9 +2243,11 @@ class MainWindow(QMainWindow):
                 self._log("ℹ️ Дерево пустое - начните выполнение алгоритма")
                 return
             
-            root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=True)
+            # Используем прямое отображение без анимации для скорости
+            root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
             
             if root:
+                # Сразу центрируем без дополнительных задержек
                 self._center_on_tree()
                 self._log("🌳 Дерево построено и отображено")
             else:
@@ -1981,21 +2256,18 @@ class MainWindow(QMainWindow):
             self._log(f"❌ Ошибка при визуализации дерева: {str(e)}")
             import traceback
             traceback.print_exc()
-            if hasattr(self, 'current_data'):
-                self._render_array(self.current_data)
+        finally:
+            self._is_rendering_tree = False
 
     def _center_on_tree(self):
         """Центрирует вид на содержимом сцены с масштабированием."""
         if self.scene.items():
             if hasattr(self, 'view') and self.view:
-                if hasattr(self.view, 'fit_to_content'):
-                    self.view.fit_to_content(150)
-                else:
-                    rect = self.scene.itemsBoundingRect()
-                    if rect.isValid():
-                        rect.adjust(-150, -150, 150, 150)
-                        self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
-                self._log("🔍 Дерево отмасштабировано для обзора")
+                rect = self.scene.itemsBoundingRect()
+                if rect.isValid():
+                    rect.adjust(-100, -100, 100, 100)
+                    self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                    self.view.centerOn(rect.center())
 
     def _process_action(self, action):
         """Обработка действия с анимацией."""
@@ -2198,6 +2470,29 @@ class MainWindow(QMainWindow):
             self._log(action.get("description", ""))
             self._schedule_next_action(int(500 * speed_factor))
             
+        elif t == "info":
+            self._log(f"ℹ️ {action.get('description', '')}")
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "compare":
+            i, j = action["indices"]
+            self._highlight_items([i, j], "#FFD700", 
+                                f"🔍 Сравнение: элемент[{i}] = {self.array_data[i]} vs элемент[{j}] = {self.array_data[j]}")
+            self._schedule_next_action(int(base_delay * speed_factor))
+            
+        elif t == "swap":
+            i, j = action["indices"]
+            self._swap_items(i, j)
+            self._log(f"🔄 Обмен элементов {i} и {j}")
+            self._schedule_next_action(int(1000 * speed_factor))
+            
+        elif t == "insert":
+            arr = action.get("array")
+            if arr:
+                self._render_array(arr)
+            self._log("📥 Вставка элемента")
+            self._schedule_next_action(int(600 * speed_factor))
+            
         # === ОБРАБОТЧИКИ ДЛЯ ХЭШ-ТАБЛИЦЫ ===
         elif t == "info" and "hash_index" in action:
             key = action.get("key", 0)
@@ -2323,12 +2618,6 @@ class MainWindow(QMainWindow):
             
             self._schedule_next_action(int(700 * speed_factor))
             
-        elif t == "compare":
-            i, j = action["indices"]
-            self._highlight_items([i, j], "#FFD700", 
-                                f"🔍 Сравнение: элемент[{i}] = {self.array_data[i]} vs элемент[{j}] = {self.array_data[j]}")
-            self._schedule_next_action(int(base_delay * speed_factor))
-            
         elif t == "complete":
             if self.algorithm_combo.currentText() == "HashTable":
                 # Сохраняем статистику
@@ -2383,6 +2672,10 @@ class MainWindow(QMainWindow):
                 self._pause_auto_mode()
             
             self.inspector.update_info(action)
+            return
+            
+        # Обновление инспектора с расширенной информацией
+        self.inspector.update_info(action)
 
     def _draw_split_line(self, mid, left, right):
         """Рисует линию разделения между подмассивами."""
@@ -2610,6 +2903,654 @@ class MainWindow(QMainWindow):
             )
             import traceback
             traceback.print_exc()
+
+    # === ИНТЕРАКТИВНЫЕ ОПЕРАЦИИ С ДЕРЕВЬЯМИ ===
+    
+    def _on_operation_execute(self):
+        """Выполнение выбранной операции с деревом."""
+        if not self.current_algorithm or not hasattr(self.current_algorithm, '__class__'):
+            self._log("❌ Нет активного дерева для операций")
+            return
+        
+        operation = self.tree_ops_combo.currentText()
+        value_text = self.val_input.text().strip()
+        
+        try:
+            if operation in ["Вставить узел", "Удалить узел", "Найти узел"]:
+                if not value_text:
+                    QMessageBox.warning(self, "Ошибка", "Введите значение для операции")
+                    return
+                
+                value = int(value_text)
+                
+                if operation == "Вставить узел":
+                    self._insert_node(value)
+                elif operation == "Удалить узел":
+                    self._delete_node(value)
+                elif operation == "Найти узел":
+                    self._search_node(value)
+                    
+            elif operation == "Прямой обход (Pre-order)":
+                self._perform_traversal("preorder")
+            elif operation == "Центральный обход (In-order)":
+                self._perform_traversal("inorder")
+            elif operation == "Обратный обход (Post-order)":
+                self._perform_traversal("postorder")
+            elif operation == "Обход в ширину (BFS)":
+                self._perform_traversal("bfs")
+                
+        except ValueError:
+            QMessageBox.warning(self, "Ошибка", "Введите корректное число")
+        except Exception as e:
+            self._log(f"❌ Ошибка при выполнении операции: {str(e)}")
+    
+    def _insert_node(self, value):
+        """Вставка узла в дерево."""
+        try:
+            tree = self.current_algorithm
+            
+            if not tree:
+                self._log("❌ Нет активного дерева для операций")
+                return
+            
+            # Проверяем тип дерева и используем соответствующий метод
+            if hasattr(tree, 'insert') or hasattr(tree, 'insert_value'):
+                # Для B-дерева используем insert_value
+                if isinstance(tree, BTree):
+                    tree.insert_value(value)
+                    self._log(f"✅ Значение {value} добавлено в B-дерево")
+                    
+                    # Специальная обработка для B-дерева - полное перестроение
+                    tree_data = tree._get_tree_structure_list()
+                    if tree_data:
+                        # Используем анимацию перестроения
+                        self._update_btree_visualization(tree_data, animate=True)
+                    else:
+                        self._log("⚠️ Не удалось получить данные B-дерева для визуализации")
+                else:
+                    # Для обычных деревьев
+                    tree.insert(value)
+                    self._log(f"✅ Узел {value} вставлен в дерево")
+                    self._update_tree_visualization(f"Вставлен узел: {value}")
+                    
+        except ValueError as e:
+            QMessageBox.warning(self, "Ошибка", f"Некорректное значение: {str(e)}")
+        except Exception as e:
+            self._log(f"❌ Ошибка при вставке: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _delete_node(self, value):
+        """Удаление узла из дерева."""
+        try:
+            tree = self.current_algorithm
+            
+            if not hasattr(tree, 'delete'):
+                self._log("❌ Этот тип дерева не поддерживает удаление")
+                return
+            
+            tree.delete(value)
+            self._log(f"✅ Узел {value} удален из дерева")
+            
+            # Обновляем визуализацию
+            self._update_tree_visualization(f"Удален узел: {value}")
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при удалении: {str(e)}")
+    
+    def _search_node(self, value):
+        """Поиск узла в дереве."""
+        try:
+            if not self.current_algorithm:
+                self._log("❌ Нет активного дерева для операций")
+                return
+            
+            tree = self.current_algorithm
+            
+            # Проверяем поддержку поиска
+            if not hasattr(tree, 'search'):
+                self._log("❌ Этот тип дерева не поддерживает поиск")
+                return
+            
+            # Останавливаем текущие анимации
+            if self.is_auto_mode:
+                self._pause_auto_mode()
+            
+            # Получаем текущую структуру дерева
+            if hasattr(tree, '_get_tree_structure_list'):
+                tree_data = tree._get_tree_structure_list()
+                if tree_data:
+                    self._update_btree_visualization(tree_data, animate=False)
+            elif hasattr(tree, '_get_tree_structure'):
+                tree_data = tree._get_tree_structure(tree.root)
+                if tree_data:
+                    self._render_tree(tree_data)
+            
+            # Выполняем поиск
+            result = tree.search(value)
+            
+            if result:
+                # Для разных типов деревьев разный формат результата
+                if isinstance(result, tuple) and len(result) == 2:  # B-дерево
+                    node, idx = result
+                    self._log(f"✅ Найден узел со значением {value} в позиции {idx}")
+                    self._highlight_found_node_in_btree(node, value, idx)
+                else:  # Обычное дерево
+                    self._log(f"✅ Найден узел {value}")
+                    self._highlight_found_node(value)
+            else:
+                self._log(f"❌ Узел {value} не найден в дереве")
+                QMessageBox.information(self, "Поиск", f"Узел {value} не найден")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при поиске: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _highlight_found_node(self, value):
+        """Подсвечивает найденный узел."""
+        try:
+            if hasattr(self, 'tree_visualizer'):
+                # Пробуем разные способы поиска узла
+                node_found = False
+                
+                # 1. Ищем в value_to_node
+                if hasattr(self.tree_visualizer, 'value_to_node'):
+                    if value in self.tree_visualizer.value_to_node:
+                        node = self.tree_visualizer.value_to_node[value]
+                        if hasattr(node, 'highlight'):
+                            original_color = getattr(node, 'circleColor', getattr(node, 'bg_color', None))
+                            node.highlight(QColor("#FFD700"))
+                            node_found = True
+                            
+                            # Возвращаем цвет через 2 секунды
+                            QTimer.singleShot(2000, lambda: self._reset_node_color(node, original_color))
+                
+                # 2. Ищем во всех узлах сцены
+                if not node_found:
+                    for item in self.scene.items():
+                        if isinstance(item, TreeNodeItem) and str(item.value) == str(value):
+                            item.highlight(QColor("#FFD700"))
+                            node_found = True
+                            
+                            # Возвращаем цвет через 2 секунды
+                            original_color = getattr(item, 'circleColor', None)
+                            QTimer.singleShot(2000, lambda: self._reset_node_color(item, original_color))
+                            break
+                        
+                        elif isinstance(item, BTreeNodeItem):
+                            # Для B-дерева проверяем ключи
+                            if hasattr(item, 'keys') and value in item.keys:
+                                original_color = item.bg_color
+                                item.bg_color = QColor("#FFD700")
+                                item.update()
+                                node_found = True
+                                
+                                # Возвращаем цвет через 2 секунды
+                                QTimer.singleShot(2000, lambda: self._reset_btree_node_color(item, original_color))
+                                break
+                
+                if not node_found:
+                    self._log(f"⚠️ Не удалось визуально выделить узел {value}")
+                    
+        except Exception as e:
+            self._log(f"❌ Ошибка при подсветке узла: {str(e)}")
+    
+    def _highlight_found_node_in_btree(self, btree_node, value, idx):
+        """Подсвечивает найденный узел в B-дереве."""
+        try:
+            if hasattr(self, 'tree_visualizer'):
+                # Ищем узел B-дерева по ключам
+                for item in self.scene.items():
+                    if isinstance(item, BTreeNodeItem):
+                        if hasattr(item, 'keys') and value in item.keys:
+                            # Сохраняем оригинальный цвет
+                            original_color = item.bg_color
+                            
+                            # Подсвечиваем весь узел
+                            item.bg_color = QColor("#FFD700")
+                            item.update()
+                            
+                            # Также можно подсветить конкретный ключ
+                            self._log(f"✅ Найден ключ {value} в B-дереве в позиции {idx}")
+                            
+                            # Возвращаем цвет через 2 секунды
+                            QTimer.singleShot(2000, lambda: self._reset_btree_node_color(item, original_color))
+                            break
+                            
+        except Exception as e:
+            self._log(f"❌ Ошибка при подсветке B-дерева узла: {str(e)}")
+    
+    def _reset_node_color(self, node, color):
+        """Сбрасывает цвет узла."""
+        try:
+            if node and hasattr(node, 'highlight') and color:
+                node.highlight(color)
+        except:
+            pass
+    
+    def _reset_btree_node_color(self, node, color):
+        """Сбрасывает цвет узла B-дерева."""
+        try:
+            if node and hasattr(node, 'bg_color') and color:
+                node.bg_color = color
+                if hasattr(node, 'update'):
+                    node.update()
+        except:
+            pass
+    
+    def _perform_traversal(self, traversal_type):
+        """Выполнение обхода дерева."""
+        try:
+            tree = self.current_algorithm
+            
+            if not tree:
+                self._log("❌ Нет активного дерева для операций")
+                return
+            
+            result = []
+            
+            if traversal_type == "preorder":
+                if hasattr(tree, 'get_preorder'):
+                    result = tree.get_preorder()
+                    traversal_name = "Прямой обход (Pre-order)"
+                else:
+                    self._log("❌ Этот тип обхода не поддерживается")
+                    return
+                    
+            elif traversal_type == "inorder":
+                if hasattr(tree, 'get_inorder'):
+                    result = tree.get_inorder()
+                    traversal_name = "Центральный обход (In-order)"
+                elif hasattr(tree, '_inorder_traversal'):
+                    result = tree._inorder_traversal(tree.root)
+                    traversal_name = "Центральный обход (In-order)"
+                else:
+                    self._log("❌ Этот тип обхода не поддерживается")
+                    return
+                    
+            elif traversal_type == "postorder":
+                if hasattr(tree, 'get_postorder'):
+                    result = tree.get_postorder()
+                    traversal_name = "Обратный обход (Post-order)"
+                else:
+                    self._log("❌ Этот тип обхода не поддерживается")
+                    return
+                    
+            elif traversal_type == "bfs":
+                if hasattr(tree, 'get_bfs'):
+                    result = tree.get_bfs()
+                    traversal_name = "Обход в ширину (BFS)"
+                elif isinstance(tree, BTree):
+                    # Специальная обработка для B-дерева
+                    result = self._bfs_btree_improved(tree)
+                    traversal_name = "Обход в ширину (BFS)"
+                else:
+                    self._log("❌ Этот тип обхода не поддерживается")
+                    return
+            
+            if result:
+                # Форматируем результат в зависимости от типа дерева
+                if isinstance(tree, BTree):
+                    # Для B-дерева результат должен быть правильно структурирован
+                    if traversal_type == "bfs":
+                        # BFS уже возвращает правильный формат
+                        result_str = ""
+                        for i, level_nodes in enumerate(result):
+                            if isinstance(level_nodes, list):
+                                level_str = ", ".join(f"{keys}" for keys in level_nodes)
+                                result_str += f"Уровень {i}: [{level_str}]\n"
+                            else:
+                                result_str += f"Уровень {i}: [{level_nodes}]\n"
+                    else:
+                        # Для других обходов
+                        result_str = "\n".join(f"Узел: {keys}" for keys in result)
+                    
+                    self._log(f"📊 {traversal_name}:\n{result_str}")
+                    
+                    # Визуализируем обход
+                    tree_data = tree._get_tree_structure_list()
+                    if tree_data:
+                        self._update_btree_visualization(tree_data, animate=False)
+                        
+                        # Для BFS показываем обход по уровням
+                        if traversal_type == "bfs":
+                            self._highlight_btree_traversal(result)
+                        else:
+                            # Для других обходов - просто показываем дерево
+                            self._log(f"🌳 B-дерево отображено для обхода {traversal_name}")
+                else:
+                    # Для обычных деревьев
+                    result_str = " → ".join(map(str, result))
+                    self._log(f"📊 {traversal_name}: {result_str}")
+                    
+                    # Визуализируем обход
+                    if hasattr(tree, '_get_tree_structure'):
+                        tree_data = tree._get_tree_structure(tree.root)
+                        if tree_data:
+                            self._render_tree(tree_data)
+                            # Подсвечиваем узлы в порядке обхода
+                            self._highlight_traversal(result)
+            else:
+                self._log("📊 Дерево пустое")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при обходе: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _bfs_btree_improved(self, btree):
+        """Улучшенный BFS для B-дерева."""
+        from collections import deque
+        
+        result = []
+        if not btree.root:
+            return result
+        
+        queue = deque([btree.root])
+        
+        while queue:
+            level_size = len(queue)
+            level_nodes = []
+            
+            for _ in range(level_size):
+                node = queue.popleft()
+                # Сохраняем ключи узла
+                level_nodes.append(node.keys.copy())
+                
+                # Добавляем детей в очередь
+                for child in node.children:
+                    queue.append(child)
+            
+            result.append(level_nodes)
+        
+        return result
+    
+    def _highlight_btree_traversal(self, levels):
+        """Подсвечивает обход B-дерева по уровням."""
+        # Проверяем и нормализуем формат данных
+        normalized_levels = []
+        for level in levels:
+            if isinstance(level, list):
+                normalized_levels.append(level)
+            else:
+                # Если это просто список ключей (не список списков)
+                normalized_levels.append([level])
+        
+        # Проверяем, что у нас есть данные
+        if not normalized_levels:
+            return
+        
+        # Подсвечиваем узлы с задержкой
+        for level_idx, level_nodes in enumerate(normalized_levels):
+            for node_idx, keys in enumerate(level_nodes):
+                # Задержка для анимации
+                delay = (level_idx * len(normalized_levels[0]) + node_idx) * 300
+                
+                QTimer.singleShot(delay, lambda l=level_idx, k=keys: 
+                                self._highlight_btree_level(l, k))
+        
+        # Сбрасываем подсветку через время
+        total_delay = len(normalized_levels) * len(normalized_levels[0]) * 300 + 2000
+        QTimer.singleShot(total_delay, self._reset_all_highlight)
+    
+    def _highlight_btree_level(self, level_idx, keys):
+        """Подсвечивает уровень B-дерева."""
+        try:
+            # Ищем узлы с такими ключами
+            for item in self.scene.items():
+                if isinstance(item, BTreeNodeItem):
+                    if hasattr(item, 'keys') and item.keys == keys:
+                        # Сохраняем оригинальный цвет
+                        if not hasattr(item, '_original_color'):
+                            item._original_color = item.bg_color
+                        
+                        # Подсвечиваем цветом в зависимости от уровня
+                        colors = ["#FF6B6B", "#4ECDC4", "#FFD166", "#06D6A0", "#118AB2"]
+                        color_idx = level_idx % len(colors)
+                        item.bg_color = QColor(colors[color_idx])
+                        item.update()
+                        break
+        except Exception as e:
+            print(f"Error highlighting B-tree level: {e}")
+    
+    def _reset_all_highlight(self):
+        """Сбрасывает всю подсветку."""
+        for item in self.scene.items():
+            if isinstance(item, (TreeNodeItem, BTreeNodeItem)):
+                if hasattr(item, '_original_color'):
+                    if isinstance(item, BTreeNodeItem):
+                        item.bg_color = item._original_color
+                        item.update()
+                    elif hasattr(item, 'highlight'):
+                        item.highlight(item._original_color)
+                    delattr(item, '_original_color')
+    
+    def _find_min_max(self, mode):
+        """Находит минимальный или максимальный элемент."""
+        try:
+            tree = self.current_algorithm
+            
+            if mode == "min":
+                if hasattr(tree, 'get_min'):
+                    min_value = tree.get_min()
+                    if min_value is not None:
+                        self._log(f"📊 Минимальный элемент: {min_value}")
+                        self.val_input.setText(str(min_value))
+                        self._highlight_found_node(min_value)
+                    else:
+                        self._log("📊 Дерево пустое")
+                else:
+                    self._log("❌ Эта операция не поддерживается для данного дерева")
+            else:
+                if hasattr(tree, 'get_max'):
+                    max_value = tree.get_max()
+                    if max_value is not None:
+                        self._log(f"📊 Максимальный элемент: {max_value}")
+                        self.val_input.setText(str(max_value))
+                        self._highlight_found_node(max_value)
+                    else:
+                        self._log("📊 Дерево пустое")
+                else:
+                    self._log("❌ Эта операция не поддерживается для данного дерева")
+                    
+        except Exception as e:
+            self._log(f"❌ Ошибка при поиске мин/макс: {str(e)}")
+    
+    def _get_tree_height(self):
+        """Вычисляет высоту дерева."""
+        try:
+            tree = self.current_algorithm
+            
+            if hasattr(tree, 'get_height'):
+                height = tree.get_height()
+                self._log(f"📊 Высота дерева: {height}")
+            elif hasattr(tree, 'get_tree_height'):
+                height = tree.get_tree_height()
+                self._log(f"📊 Высота дерева: {height}")
+            elif hasattr(tree, 'root'):
+                # Простой расчет высоты для бинарных деревьев
+                def calc_height(node):
+                    if not node:
+                        return 0
+                    return 1 + max(calc_height(node.left), calc_height(node.right))
+                
+                height = calc_height(tree.root)
+                self._log(f"📊 Высота дерева: {height}")
+            else:
+                self._log("❌ Не удалось вычислить высоту дерева")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при вычислении высоты: {str(e)}")
+    
+    def _check_balance(self):
+        """Проверяет балансировку дерева."""
+        try:
+            tree = self.current_algorithm
+            
+            if hasattr(tree, 'is_balanced'):
+                balanced = tree.is_balanced()
+                if balanced:
+                    self._log("✅ Дерево сбалансировано")
+                else:
+                    self._log("⚠️ Дерево несбалансировано")
+            elif hasattr(tree, '_get_balance'):
+                # Для AVL деревьев
+                balance = tree._get_balance(tree.root)
+                self._log(f"📊 Баланс корня: {balance}")
+                
+                if abs(balance) <= 1:
+                    self._log("✅ Дерево сбалансировано")
+                else:
+                    self._log("⚠️ Дерево несбалансировано")
+                    
+                # Подсвечиваем корень
+                if hasattr(tree, '_get_tree_structure'):
+                    tree_data = tree._get_tree_structure(tree.root)
+                    if tree_data:
+                        self._render_tree(tree_data)
+                        self._highlight_root()
+            else:
+                self._log("ℹ️ Эта операция доступна только для AVL деревьев")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при проверке баланса: {str(e)}")
+    
+    def _clear_tree(self):
+        """Очищает дерево."""
+        reply = QMessageBox.question(
+            self, "Подтверждение", 
+            "Вы уверены, что хотите очистить дерево?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                tree = self.current_algorithm
+                
+                if hasattr(tree, 'root'):
+                    tree.root = None
+                    if hasattr(tree, 'data'):
+                        tree.data = []
+                    
+                    self._log("🗑️ Дерево очищено")
+                    self._update_tree_visualization("Дерево очищено")
+                    
+            except Exception as e:
+                self._log(f"❌ Ошибка при очистке дерева: {str(e)}")
+    
+    def _add_random_nodes(self):
+        """Добавляет случайные узлы в дерево."""
+        try:
+            values = [random.randint(1, 100) for _ in range(5)]
+            
+            for value in values:
+                if hasattr(self.current_algorithm, 'insert'):
+                    self.current_algorithm.insert(value)
+                elif hasattr(self.current_algorithm, 'insert_value'):
+                    self.current_algorithm.insert_value(value)
+            
+            self._log(f"🎲 Добавлены случайные значения: {values}")
+            self._update_tree_visualization(f"Добавлены случайные узлы: {values}")
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при добавлении случайных узлов: {str(e)}")
+    
+    def _update_tree_visualization(self, message=""):
+        """Обновляет визуализацию дерева."""
+        try:
+            tree = self.current_algorithm
+            
+            if hasattr(tree, '_get_tree_structure_list'):
+                # Для B-дерева используем специальный метод
+                tree_data = tree._get_tree_structure_list()
+                
+                # Обновляем визуализацию с анимацией
+                self._update_btree_visualization(tree_data, animate=True)
+                
+                if message:
+                    self._log(f"📈 {message}")
+                    
+                # Короткая задержка для подгонки вида
+                QTimer.singleShot(10, self._fit_to_content)
+                
+            elif hasattr(tree, '_get_tree_structure'):
+                # Для обычных деревьев
+                tree_data = tree._get_tree_structure(tree.root)
+                if tree_data:
+                    # Используем прямое отображение без анимации для интерактивных операций
+                    self._render_tree(tree_data)
+                    
+                    if message:
+                        self._log(f"📈 {message}")
+                        
+                    # Короткая задержка для подгонки вида
+                    QTimer.singleShot(10, self._fit_to_content)
+                        
+        except Exception as e:
+            self._log(f"❌ Ошибка при обновлении визуализации: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _update_btree_visualization(self, tree_data, animate=False):
+        """Обновляет визуализацию B-дерева с перестроением."""
+        try:
+            # Очищаем сцену
+            self.scene.clear()
+            self.visual_items.clear()
+            
+            # Устанавливаем большой размер сцены для B-дерева
+            extended_scene_rect = QRectF(-3000, -3000, 6000, 6000)
+            self.scene.setSceneRect(extended_scene_rect)
+            
+            if not tree_data:
+                text_item = self.scene.addText("B-дерево пустое")
+                text_item.setPos(0, 0)
+                return
+            
+            # Используем визуализатор для B-дерева
+            if hasattr(self, 'tree_visualizer'):
+                # Для интерактивных операций НЕ используем анимацию построения
+                # Используем только анимацию перестроения
+                root = self.tree_visualizer.update_btree_visualization(tree_data, animate=animate)
+                
+                if root:
+                    # Центрируем вид
+                    self._center_on_tree()
+                    # Подгоняем масштаб
+                    self._schedule_zoom_reset()
+                    return True
+                else:
+                    self._log("❌ Ошибка при обновлении B-дерева")
+                    return False
+                    
+        except Exception as e:
+            self._log(f"❌ Ошибка при обновлении B-дерева: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _highlight_traversal(self, nodes):
+        """Подсвечивает узлы в порядке обхода."""
+        if hasattr(self, 'tree_visualizer'):
+            self.tree_visualizer.highlight_traversal(nodes)
+    
+    def _highlight_root(self):
+        """Подсвечивает корень дерева."""
+        if hasattr(self, 'tree_visualizer'):
+            self.tree_visualizer.highlight_node_by_value(self.current_algorithm.root.value, "#FFA500", 2000)
+    
+    def _fit_to_content(self):
+        """Подгоняет масштаб к содержимому."""
+        self._schedule_zoom_reset()
+    
+    def _center_view(self):
+        """Центрирует вид."""
+        if self.scene and self.scene.items():
+            rect = self.scene.itemsBoundingRect()
+            if rect.isValid():
+                self.view.centerOn(rect.center())
+                self._log("🎯 Вид отцентрирован")
 
     def closeEvent(self, event):
         """Обработка закрытия приложения."""

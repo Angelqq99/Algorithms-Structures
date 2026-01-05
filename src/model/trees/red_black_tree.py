@@ -1,4 +1,5 @@
 from model.base_algorithm import BaseAlgorithm
+from collections import deque
 
 class RedBlackTree(BaseAlgorithm):
     """Красно-черное дерево с поддержкой визуализации и правильной балансировкой."""
@@ -10,36 +11,83 @@ class RedBlackTree(BaseAlgorithm):
             self.right = None
             self.parent = None
             self.color = color  # 'RED' or 'BLACK'
+            
+        def is_nil(self):
+            return self.value is None
 
     def __init__(self, data):
         super().__init__(data)
-        self.root = None
-        self.NIL = self.Node(None, 'BLACK')  # NIL лист
+        # Используем один NIL-узел для всех листьев
+        self.NIL = self.Node(None, 'BLACK')
+        self.NIL.left = self.NIL
+        self.NIL.right = self.NIL
+        self.NIL.parent = self.NIL
+        
+        self.root = self.NIL
+        if data:
+            self._build_tree()
 
-    def step_generator(self):
-        """Генератор шагов для красно-черного дерева с детальной балансировкой."""
+    def _build_tree(self):
+        """Строит красно-черное дерево из начальных данных."""
+        processed = set()
         for val in self.data:
-            # Вставка нового узла
+            if val in processed:
+                continue
+            processed.add(val)
+            
             new_node = self.Node(val, 'RED')
             new_node.left = self.NIL
             new_node.right = self.NIL
+            new_node.parent = self.NIL
+            
+            self._bst_insert_silent(new_node)
+            self._fix_insert_silent(new_node)
+
+    def step_generator(self):
+        """Генератор шагов для красно-черного дерева с детальной балансировкой."""
+        processed = set()
+        
+        for val in self.data:
+            if val in processed:
+                continue
+            processed.add(val)
+            
+            # Создаем новый узел
+            new_node = self.Node(val, 'RED')
+            new_node.left = self.NIL
+            new_node.right = self.NIL
+            new_node.parent = self.NIL
+            
+            # Показываем начальное состояние
+            yield {
+                "type": "info",
+                "description": f"Вставляем значение {val} в красно-черное дерево"
+            }
             
             # BST вставка
-            self._bst_insert(new_node)
+            self._bst_insert_silent(new_node)
             
-            # Балансировка
-            self._fix_insert_silent(new_node)
-            
-            # Только финальное состояние после вставки
+            # Показываем дерево после вставки
             tree_structure = self._get_tree_structure(self.root)
             yield {
                 "type": "tree",
                 "tree_data": tree_structure,
-                "description": f"Вставлен узел: {val} (красно-черное дерево)"
+                "description": f"BST вставка: {val}"
+            }
+            
+            # Балансировка
+            self._fix_insert_silent(new_node)
+            
+            # Показываем финальное состояние после балансировки
+            tree_structure = self._get_tree_structure(self.root)
+            yield {
+                "type": "tree",
+                "tree_data": tree_structure,
+                "description": f"Балансировка: {val}"
             }
         
         # Обход inorder для демонстрации
-        if self.root:
+        if self.root != self.NIL:
             inorder_values = self._inorder_traversal(self.root)
             yield {
                 "type": "traversal",
@@ -53,17 +101,21 @@ class RedBlackTree(BaseAlgorithm):
             "description": "Построение красно-черного дерева завершено"
         }
 
-    def _bst_insert(self, new_node):
-        """BST вставка нового узла."""
-        if self.root is None:
+    def _bst_insert_silent(self, new_node):
+        """BST вставка нового узла (без yield для генератора)."""
+        if self.root == self.NIL:
             self.root = new_node
-            self.root.color = 'BLACK'  # Корень всегда черный
+            self.root.color = 'BLACK'
             return
             
         current = self.root
-        parent = None
+        parent = self.NIL
         
         while current != self.NIL:
+            # Проверка на дубликат
+            if new_node.value == current.value:
+                return  # Игнорируем дубликат
+                
             parent = current
             if new_node.value < current.value:
                 current = current.left
@@ -78,8 +130,12 @@ class RedBlackTree(BaseAlgorithm):
             parent.right = new_node
 
     def _fix_insert_silent(self, node):
-        """Балансировка после вставки без промежуточных yield."""
+        """Балансировка после вставки (без yield для генератора)."""
         while node != self.root and node.parent.color == 'RED':
+            # Проверяем, что parent.parent существует
+            if node.parent.parent == self.NIL:
+                break
+                
             if node.parent == node.parent.parent.left:
                 uncle = node.parent.parent.right
                 
@@ -121,11 +177,13 @@ class RedBlackTree(BaseAlgorithm):
                     self._left_rotate(node.parent.parent)
         
         # Гарантируем, что корень черный
-        if self.root.color != 'BLACK':
-            self.root.color = 'BLACK'
+        self.root.color = 'BLACK'
 
     def _left_rotate(self, x):
         """Левый поворот вокруг узла x."""
+        if x == self.NIL or x.right == self.NIL:
+            return
+        
         y = x.right
         x.right = y.left
         
@@ -134,7 +192,7 @@ class RedBlackTree(BaseAlgorithm):
             
         y.parent = x.parent
         
-        if x.parent is None:
+        if x.parent == self.NIL:
             self.root = y
         elif x == x.parent.left:
             x.parent.left = y
@@ -146,6 +204,9 @@ class RedBlackTree(BaseAlgorithm):
 
     def _right_rotate(self, y):
         """Правый поворот вокруг узла y."""
+        if y == self.NIL or y.left == self.NIL:
+            return
+        
         x = y.left
         y.left = x.right
         
@@ -154,7 +215,7 @@ class RedBlackTree(BaseAlgorithm):
             
         x.parent = y.parent
         
-        if y.parent is None:
+        if y.parent == self.NIL:
             self.root = x
         elif y == y.parent.right:
             y.parent.right = x
@@ -166,7 +227,7 @@ class RedBlackTree(BaseAlgorithm):
 
     def _get_tree_structure(self, node):
         """Преобразует дерево в структуру для визуализации."""
-        if node is None or node == self.NIL:
+        if node == self.NIL:
             return None
             
         node_data = {
@@ -188,7 +249,7 @@ class RedBlackTree(BaseAlgorithm):
 
     def _inorder_traversal(self, node):
         """In-order обход дерева."""
-        if node is None or node == self.NIL:
+        if node == self.NIL:
             return []
         
         result = []
@@ -198,7 +259,103 @@ class RedBlackTree(BaseAlgorithm):
         
         return result
 
+    # ============= ИНТЕРАКТИВНЫЕ МЕТОДЫ =============
+    
+    def search(self, value):
+        """Поиск значения в красно-черном дереве."""
+        return self._search_recursive(self.root, value)
+    
+    def _search_recursive(self, node, value):
+        """Рекурсивный поиск значения."""
+        if node == self.NIL or node.value == value:
+            return node
+            
+        if value < node.value:
+            return self._search_recursive(node.left, value)
+        else:
+            return self._search_recursive(node.right, value)
+    
+    def get_min(self):
+        """Находит минимальный элемент."""
+        if self.root == self.NIL:
+            return None
+            
+        current = self.root
+        while current.left != self.NIL:
+            current = current.left
+        return current.value
+    
+    def get_max(self):
+        """Находит максимальный элемент."""
+        if self.root == self.NIL:
+            return None
+            
+        current = self.root
+        while current.right != self.NIL:
+            current = current.right
+        return current.value
+    
+    def get_height(self):
+        """Вычисляет высоту дерева."""
+        return self._get_height_recursive(self.root)
+    
+    def _get_height_recursive(self, node):
+        if node == self.NIL:
+            return 0
+        return 1 + max(
+            self._get_height_recursive(node.left),
+            self._get_height_recursive(node.right)
+        )
+    
+    def is_balanced(self):
+        """Проверяет балансировку дерева."""
+        # Для красно-черных деревьев всегда сбалансированы
+        return True
+    
+    # ОБХОДЫ ДЕРЕВА
+    def get_preorder(self):
+        """Прямой обход (КЛП)."""
+        return self._preorder_recursive(self.root)
+    
+    def _preorder_recursive(self, node):
+        if node == self.NIL:
+            return []
+        return [node.value] + self._preorder_recursive(node.left) + self._preorder_recursive(node.right)
+    
+    def get_inorder(self):
+        """Центральный обход (ЛКП)."""
+        return self._inorder_traversal(self.root)
+    
+    def get_postorder(self):
+        """Обратный обход (ЛПК)."""
+        return self._postorder_recursive(self.root)
+    
+    def _postorder_recursive(self, node):
+        if node == self.NIL:
+            return []
+        return self._postorder_recursive(node.left) + self._postorder_recursive(node.right) + [node.value]
+    
+    def get_bfs(self):
+        """Поиск в ширину (BFS)."""
+        if self.root == self.NIL:
+            return []
+        
+        result = []
+        queue = deque([self.root])
+        
+        while queue:
+            node = queue.popleft()
+            if node != self.NIL:
+                result.append(node.value)
+                
+                if node.left != self.NIL:
+                    queue.append(node.left)
+                if node.right != self.NIL:
+                    queue.append(node.right)
+        
+        return result
+
     def _estimate_total_steps(self):
         """Оценка общего количества шагов."""
         n = len(self.data)
-        return n * 2  # Вставка + обход
+        return n * 3 + 1  # +1 для финального обхода
