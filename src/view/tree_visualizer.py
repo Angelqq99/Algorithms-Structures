@@ -746,11 +746,13 @@ class TreeVisualizer:
         # Ищем во всех узлах
         for node in self.nodes:
             if isinstance(node, TreeNodeItem):
-                if str(node.value) == str(value) and self._is_node_valid(node):
-                    return node
-            elif isinstance(node, BTreeNodeItem):
-                if hasattr(node, 'keys') and value in node.keys and self._is_node_valid(node):
-                    return node
+                # Для красно-черного дерева проверяем значение с учетом цвета
+                node_value_str = str(node.value)
+                # Проверяем разные форматы: "10", "10(R)", "10(B)"
+                if (node_value_str == str(value) or 
+                    node_value_str.startswith(f"{value}(")):
+                    if self._is_node_valid(node):
+                        return node
         
         return None
     

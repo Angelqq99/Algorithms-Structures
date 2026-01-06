@@ -12,83 +12,53 @@ class RedBlackTree(BaseAlgorithm):
             self.parent = None
             self.color = color  # 'RED' or 'BLACK'
             
-        def is_nil(self):
-            return self.value is None
+        def __str__(self):
+            return f"{self.value}({self.color[0]})"
+            
+        def __repr__(self):
+            return self.__str__()
 
     def __init__(self, data):
         super().__init__(data)
-        # Используем один NIL-узел для всех листьев
-        self.NIL = self.Node(None, 'BLACK')
-        self.NIL.left = self.NIL
-        self.NIL.right = self.NIL
-        self.NIL.parent = self.NIL
-        
-        self.root = self.NIL
-        if data:
-            self._build_tree()
+        self.root = None
+
 
     def _build_tree(self):
-        """Строит красно-черное дерево из начальных данных."""
+        """Построение дерева из начальных данных."""
         processed = set()
         for val in self.data:
-            if val in processed:
-                continue
-            processed.add(val)
-            
-            new_node = self.Node(val, 'RED')
-            new_node.left = self.NIL
-            new_node.right = self.NIL
-            new_node.parent = self.NIL
-            
-            self._bst_insert_silent(new_node)
-            self._fix_insert_silent(new_node)
+            if val not in processed:
+                processed.add(val)
+                self.insert(val)
 
     def step_generator(self):
-        """Генератор шагов для красно-черного дерева с детальной балансировкой."""
+        """Генератор шагов для визуализации."""
         processed = set()
         
-        for val in self.data:
+        for i, val in enumerate(self.data):
             if val in processed:
                 continue
             processed.add(val)
             
-            # Создаем новый узел
-            new_node = self.Node(val, 'RED')
-            new_node.left = self.NIL
-            new_node.right = self.NIL
-            new_node.parent = self.NIL
-            
-            # Показываем начальное состояние
             yield {
                 "type": "info",
                 "description": f"Вставляем значение {val} в красно-черное дерево"
             }
             
-            # BST вставка
-            self._bst_insert_silent(new_node)
+            # Вставляем узел с балансировкой
+            self.insert(val)
             
-            # Показываем дерево после вставки
-            tree_structure = self._get_tree_structure(self.root)
+            # Показываем состояние после вставки
+            tree_structure = self._get_tree_structure()
             yield {
                 "type": "tree",
                 "tree_data": tree_structure,
-                "description": f"BST вставка: {val}"
-            }
-            
-            # Балансировка
-            self._fix_insert_silent(new_node)
-            
-            # Показываем финальное состояние после балансировки
-            tree_structure = self._get_tree_structure(self.root)
-            yield {
-                "type": "tree",
-                "tree_data": tree_structure,
-                "description": f"Балансировка: {val}"
+                "description": f"Вставлен узел: {val} (шаг {i+1}/{len(self.data)})"
             }
         
         # Обход inorder для демонстрации
-        if self.root != self.NIL:
-            inorder_values = self._inorder_traversal(self.root)
+        if self.root:
+            inorder_values = self.get_inorder()
             yield {
                 "type": "traversal",
                 "nodes": inorder_values,
@@ -101,21 +71,36 @@ class RedBlackTree(BaseAlgorithm):
             "description": "Построение красно-черного дерева завершено"
         }
 
-    def _bst_insert_silent(self, new_node):
-        """BST вставка нового узла (без yield для генератора)."""
-        if self.root == self.NIL:
+    # ============= ОСНОВНЫЕ ОПЕРАЦИИ =============
+    
+    def insert(self, value):
+        """Публичный метод для вставки значения с балансировкой."""
+        # Проверяем, существует ли уже такое значение
+        if self.search(value) is not None:
+            raise ValueError(f"Значение {value} уже существует в дереве")
+        
+        # Создаем новый узел
+        new_node = self.Node(value, 'RED')
+        
+        # BST вставка
+        self._bst_insert(new_node)
+        
+        # Балансировка
+        self._fix_insert(new_node)
+        
+        return new_node
+    
+    def _bst_insert(self, new_node):
+        """BST вставка нового узла."""
+        if self.root is None:
             self.root = new_node
             self.root.color = 'BLACK'
             return
             
         current = self.root
-        parent = self.NIL
+        parent = None
         
-        while current != self.NIL:
-            # Проверка на дубликат
-            if new_node.value == current.value:
-                return  # Игнорируем дубликат
-                
+        while current is not None:
             parent = current
             if new_node.value < current.value:
                 current = current.left
@@ -129,18 +114,17 @@ class RedBlackTree(BaseAlgorithm):
         else:
             parent.right = new_node
 
-    def _fix_insert_silent(self, node):
-        """Балансировка после вставки (без yield для генератора)."""
-        while node != self.root and node.parent.color == 'RED':
-            # Проверяем, что parent.parent существует
-            if node.parent.parent == self.NIL:
+    def _fix_insert(self, node):
+        """Балансировка после вставки (основные случаи)."""
+        while node != self.root and node.parent is not None and node.parent.color == 'RED':
+            if node.parent.parent is None:
                 break
                 
             if node.parent == node.parent.parent.left:
                 uncle = node.parent.parent.right
                 
                 # Случай 1: дядя красный
-                if uncle.color == 'RED':
+                if uncle is not None and uncle.color == 'RED':
                     node.parent.color = 'BLACK'
                     uncle.color = 'BLACK'
                     node.parent.parent.color = 'RED'
@@ -152,15 +136,16 @@ class RedBlackTree(BaseAlgorithm):
                         self._left_rotate(node)
                     
                     # Случай 3: узел - левый ребенок
-                    node.parent.color = 'BLACK'
-                    node.parent.parent.color = 'RED'
-                    self._right_rotate(node.parent.parent)
+                    if node.parent is not None and node.parent.parent is not None:
+                        node.parent.color = 'BLACK'
+                        node.parent.parent.color = 'RED'
+                        self._right_rotate(node.parent.parent)
             else:
                 # Симметричный случай для правого поддерева
                 uncle = node.parent.parent.left
                 
                 # Случай 1: дядя красный
-                if uncle.color == 'RED':
+                if uncle is not None and uncle.color == 'RED':
                     node.parent.color = 'BLACK'
                     uncle.color = 'BLACK'
                     node.parent.parent.color = 'RED'
@@ -172,27 +157,35 @@ class RedBlackTree(BaseAlgorithm):
                         self._right_rotate(node)
                     
                     # Случай 3: узел - правый ребенок
-                    node.parent.color = 'BLACK'
-                    node.parent.parent.color = 'RED'
-                    self._left_rotate(node.parent.parent)
+                    if node.parent is not None and node.parent.parent is not None:
+                        node.parent.color = 'BLACK'
+                        node.parent.parent.color = 'RED'
+                        self._left_rotate(node.parent.parent)
+            
+            # Защита от зацикливания
+            if node.parent is None:
+                break
         
         # Гарантируем, что корень черный
-        self.root.color = 'BLACK'
+        if self.root is not None:
+            self.root.color = 'BLACK'
 
+    # ============= ПОВОРОТЫ =============
+    
     def _left_rotate(self, x):
         """Левый поворот вокруг узла x."""
-        if x == self.NIL or x.right == self.NIL:
+        if x is None or x.right is None:
             return
-        
+            
         y = x.right
         x.right = y.left
         
-        if y.left != self.NIL:
+        if y.left is not None:
             y.left.parent = x
             
         y.parent = x.parent
         
-        if x.parent == self.NIL:
+        if x.parent is None:
             self.root = y
         elif x == x.parent.left:
             x.parent.left = y
@@ -204,18 +197,18 @@ class RedBlackTree(BaseAlgorithm):
 
     def _right_rotate(self, y):
         """Правый поворот вокруг узла y."""
-        if y == self.NIL or y.left == self.NIL:
+        if y is None or y.left is None:
             return
-        
+            
         x = y.left
         y.left = x.right
         
-        if x.right != self.NIL:
+        if x.right is not None:
             x.right.parent = y
             
         x.parent = y.parent
         
-        if y.parent == self.NIL:
+        if y.parent is None:
             self.root = x
         elif y == y.parent.right:
             y.parent.right = x
@@ -225,73 +218,192 @@ class RedBlackTree(BaseAlgorithm):
         x.right = y
         y.parent = x
 
-    def _get_tree_structure(self, node):
-        """Преобразует дерево в структуру для визуализации."""
-        if node == self.NIL:
-            return None
+    # ============= УДАЛЕНИЕ УЗЛА =============
+    
+    def delete(self, value):
+        """Удаление значения из красно-черного дерева."""
+        # Находим узел для удаления
+        node = self._find_node(value)
+        if node is None:
+            raise ValueError(f"Значение {value} не найдено в дереве")
+        
+        # Находим узел для удаления и его замену
+        y = node
+        y_original_color = y.color
+        
+        if node.left is None:
+            x = node.right
+            self._transplant(node, node.right)
+        elif node.right is None:
+            x = node.left
+            self._transplant(node, node.left)
+        else:
+            y = self._minimum(node.right)
+            y_original_color = y.color
+            x = y.right
             
-        node_data = {
-            'value': f"{node.value}({node.color[0]})",  # Показываем значение и первую букву цвета
-            'children': []
-        }
+            if y.parent == node:
+                if x is not None:
+                    x.parent = y
+            else:
+                self._transplant(y, y.right)
+                y.right = node.right
+                if y.right is not None:
+                    y.right.parent = y
+            
+            self._transplant(node, y)
+            y.left = node.left
+            if y.left is not None:
+                y.left.parent = y
+            y.color = node.color
         
-        if node.left != self.NIL:
-            left_data = self._get_tree_structure(node.left)
-            if left_data:
-                node_data['children'].append(left_data)
+        # Если удаленный узел был черным, нужно восстановить свойства
+        if y_original_color == 'BLACK':
+            self._fix_delete(x)
+        
+        return True
+    
+    def _find_node(self, value):
+        """Находит узел по значению."""
+        current = self.root
+        while current is not None:
+            if value == current.value:
+                return current
+            elif value < current.value:
+                current = current.left
+            else:
+                current = current.right
+        return None
+    
+    def _transplant(self, u, v):
+        """Заменяет поддерево с корнем u на поддерево с корнем v."""
+        if u.parent is None:
+            self.root = v
+        elif u == u.parent.left:
+            u.parent.left = v
+        else:
+            u.parent.right = v
+        
+        if v is not None:
+            v.parent = u.parent
+    
+    def _minimum(self, node):
+        """Находит минимальный узел в поддереве."""
+        while node.left is not None:
+            node = node.left
+        return node
+    
+    def _fix_delete(self, x):
+        """Восстанавливает свойства красно-черного дерева после удаления."""
+        while x != self.root and x is not None and x.color == 'BLACK':
+            if x == x.parent.left:
+                sibling = x.parent.right
                 
-        if node.right != self.NIL:
-            right_data = self._get_tree_structure(node.right)
-            if right_data:
-                node_data['children'].append(right_data)
+                # Случай 1: брат красный
+                if sibling is not None and sibling.color == 'RED':
+                    sibling.color = 'BLACK'
+                    x.parent.color = 'RED'
+                    self._left_rotate(x.parent)
+                    sibling = x.parent.right
                 
-        return node_data
-
-    def _inorder_traversal(self, node):
-        """In-order обход дерева."""
-        if node == self.NIL:
-            return []
+                # Случай 2: оба ребенка брата черные
+                if (sibling is not None and 
+                    (sibling.left is None or sibling.left.color == 'BLACK') and 
+                    (sibling.right is None or sibling.right.color == 'BLACK')):
+                    if sibling is not None:
+                        sibling.color = 'RED'
+                    x = x.parent
+                else:
+                    # Случай 3: правый ребенок брата черный
+                    if sibling is not None and sibling.right is not None and sibling.right.color == 'BLACK':
+                        if sibling.left is not None:
+                            sibling.left.color = 'BLACK'
+                        sibling.color = 'RED'
+                        self._right_rotate(sibling)
+                        sibling = x.parent.right
+                    
+                    # Случай 4
+                    if sibling is not None:
+                        sibling.color = x.parent.color
+                    x.parent.color = 'BLACK'
+                    if sibling is not None and sibling.right is not None:
+                        sibling.right.color = 'BLACK'
+                    self._left_rotate(x.parent)
+                    x = self.root
+            else:
+                # Симметричный случай для правого поддерева
+                sibling = x.parent.left
+                
+                # Случай 1: брат красный
+                if sibling is not None and sibling.color == 'RED':
+                    sibling.color = 'BLACK'
+                    x.parent.color = 'RED'
+                    self._right_rotate(x.parent)
+                    sibling = x.parent.left
+                
+                # Случай 2: оба ребенка брата черные
+                if (sibling is not None and 
+                    (sibling.right is None or sibling.right.color == 'BLACK') and 
+                    (sibling.left is None or sibling.left.color == 'BLACK')):
+                    if sibling is not None:
+                        sibling.color = 'RED'
+                    x = x.parent
+                else:
+                    # Случай 3: левый ребенок брата черный
+                    if sibling is not None and sibling.left is not None and sibling.left.color == 'BLACK':
+                        if sibling.right is not None:
+                            sibling.right.color = 'BLACK'
+                        sibling.color = 'RED'
+                        self._left_rotate(sibling)
+                        sibling = x.parent.left
+                    
+                    # Случай 4
+                    if sibling is not None:
+                        sibling.color = x.parent.color
+                    x.parent.color = 'BLACK'
+                    if sibling is not None and sibling.left is not None:
+                        sibling.left.color = 'BLACK'
+                    self._right_rotate(x.parent)
+                    x = self.root
+            
+            # Защита от зацикливания
+            if x is None:
+                break
         
-        result = []
-        result.extend(self._inorder_traversal(node.left))
-        result.append(node.value)
-        result.extend(self._inorder_traversal(node.right))
-        
-        return result
+        if x is not None:
+            x.color = 'BLACK'
 
-    # ============= ИНТЕРАКТИВНЫЕ МЕТОДЫ =============
+    # ============= ПОИСК И ОБХОДЫ =============
     
     def search(self, value):
         """Поиск значения в красно-черном дереве."""
-        return self._search_recursive(self.root, value)
-    
-    def _search_recursive(self, node, value):
-        """Рекурсивный поиск значения."""
-        if node == self.NIL or node.value == value:
-            return node
-            
-        if value < node.value:
-            return self._search_recursive(node.left, value)
-        else:
-            return self._search_recursive(node.right, value)
+        current = self.root
+        while current is not None:
+            if value == current.value:
+                return current.value
+            elif value < current.value:
+                current = current.left
+            else:
+                current = current.right
+        return None
     
     def get_min(self):
         """Находит минимальный элемент."""
-        if self.root == self.NIL:
+        if self.root is None:
             return None
             
         current = self.root
-        while current.left != self.NIL:
+        while current.left is not None:
             current = current.left
         return current.value
     
     def get_max(self):
         """Находит максимальный элемент."""
-        if self.root == self.NIL:
+        if self.root is None:
             return None
             
         current = self.root
-        while current.right != self.NIL:
+        while current.right is not None:
             current = current.right
         return current.value
     
@@ -300,7 +412,7 @@ class RedBlackTree(BaseAlgorithm):
         return self._get_height_recursive(self.root)
     
     def _get_height_recursive(self, node):
-        if node == self.NIL:
+        if node is None:
             return 0
         return 1 + max(
             self._get_height_recursive(node.left),
@@ -312,32 +424,88 @@ class RedBlackTree(BaseAlgorithm):
         # Для красно-черных деревьев всегда сбалансированы
         return True
     
-    # ОБХОДЫ ДЕРЕВА
+    def get_balance_factor(self, node_value):
+        """Возвращает баланс-фактор для узла."""
+        node = self._find_node(node_value)
+        if node is None:
+            return None
+        
+        left_height = self._get_height_recursive(node.left)
+        right_height = self._get_height_recursive(node.right)
+        return right_height - left_height
+    
+    # ============= ОБХОДЫ ДЕРЕВА =============
+    
     def get_preorder(self):
         """Прямой обход (КЛП)."""
-        return self._preorder_recursive(self.root)
+        result = []
+        self._preorder_iterative(self.root, result)
+        return result
     
-    def _preorder_recursive(self, node):
-        if node == self.NIL:
-            return []
-        return [node.value] + self._preorder_recursive(node.left) + self._preorder_recursive(node.right)
+    def _preorder_iterative(self, node, result):
+        if node is None:
+            return
+            
+        stack = [node]
+        
+        while stack:
+            current = stack.pop()
+            if current is not None:
+                result.append(f"{current.value}({current.color[0]})")
+                stack.append(current.right)
+                stack.append(current.left)
     
     def get_inorder(self):
         """Центральный обход (ЛКП)."""
-        return self._inorder_traversal(self.root)
+        result = []
+        self._inorder_iterative(self.root, result)
+        return result
+    
+    def _inorder_iterative(self, node, result):
+        if node is None:
+            return
+            
+        stack = []
+        current = node
+        
+        while stack or current is not None:
+            while current is not None:
+                stack.append(current)
+                current = current.left
+            
+            current = stack.pop()
+            result.append(f"{current.value}({current.color[0]})")
+            current = current.right
     
     def get_postorder(self):
         """Обратный обход (ЛПК)."""
-        return self._postorder_recursive(self.root)
+        result = []
+        self._postorder_iterative(self.root, result)
+        return result
     
-    def _postorder_recursive(self, node):
-        if node == self.NIL:
-            return []
-        return self._postorder_recursive(node.left) + self._postorder_recursive(node.right) + [node.value]
+    def _postorder_iterative(self, node, result):
+        if node is None:
+            return
+            
+        stack1 = [node]
+        stack2 = []
+        
+        while stack1:
+            current = stack1.pop()
+            stack2.append(current)
+            
+            if current.left is not None:
+                stack1.append(current.left)
+            if current.right is not None:
+                stack1.append(current.right)
+        
+        while stack2:
+            current = stack2.pop()
+            result.append(f"{current.value}({current.color[0]})")
     
     def get_bfs(self):
         """Поиск в ширину (BFS)."""
-        if self.root == self.NIL:
+        if self.root is None:
             return []
         
         result = []
@@ -345,17 +513,52 @@ class RedBlackTree(BaseAlgorithm):
         
         while queue:
             node = queue.popleft()
-            if node != self.NIL:
-                result.append(node.value)
-                
-                if node.left != self.NIL:
+            if node is not None:
+                result.append(f"{node.value}({node.color[0]})")
+                if node.left is not None:
                     queue.append(node.left)
-                if node.right != self.NIL:
+                if node.right is not None:
                     queue.append(node.right)
         
         return result
 
+    # ============= ВИЗУАЛИЗАЦИЯ =============
+    
+    def _get_tree_structure(self, node=None, depth=0):
+        """Преобразует дерево в структуру для визуализации."""
+        if node is None:
+            node = self.root
+            
+        if node is None:
+            return None
+        
+        # Защита от слишком глубокой рекурсии
+        if depth > 100:
+            return {
+                'value': f"{node.value}({node.color[0]})",
+                'children': []
+            }
+        
+        node_data = {
+            'value': f"{node.value}({node.color[0]})",
+            'children': []
+        }
+        
+        # Обрабатываем левого ребенка
+        if node.left is not None:
+            left_data = self._get_tree_structure(node.left, depth + 1)
+            if left_data:
+                node_data['children'].append(left_data)
+        
+        # Обрабатываем правого ребенка
+        if node.right is not None:
+            right_data = self._get_tree_structure(node.right, depth + 1)
+            if right_data:
+                node_data['children'].append(right_data)
+        
+        return node_data
+
     def _estimate_total_steps(self):
         """Оценка общего количества шагов."""
         n = len(self.data)
-        return n * 3 + 1  # +1 для финального обхода
+        return n * 3 + 2  # Вставка + балансировка + обход

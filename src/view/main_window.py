@@ -2926,9 +2926,10 @@ class MainWindow(QMainWindow):
                 if operation == "Вставить узел":
                     self._insert_node(value)
                 elif operation == "Удалить узел":
-                    self._delete_node(value)
+                    self._delete_node(value)  # Используем новый метод
                 elif operation == "Найти узел":
                     self._search_node(value)
+                
                     
             elif operation == "Прямой обход (Pre-order)":
                 self._perform_traversal("preorder")
@@ -2981,7 +2982,7 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
     
     def _delete_node(self, value):
-        """Удаление узла из дерева."""
+        """Удаляет узел из дерева."""
         try:
             tree = self.current_algorithm
             
@@ -2989,14 +2990,28 @@ class MainWindow(QMainWindow):
                 self._log("❌ Этот тип дерева не поддерживает удаление")
                 return
             
-            tree.delete(value)
-            self._log(f"✅ Узел {value} удален из дерева")
+            # Подсвечиваем удаляемый узел
+            if hasattr(self, 'tree_visualizer'):
+                self.tree_visualizer.highlight_node_by_value(value, "#FF6B6B", 1000)
+            
+            # Удаляем узел
+            try:
+                tree.delete(value)
+                self._log(f"✅ Узел {value} удален из дерева")
+            except ValueError as e:
+                self._log(f"❌ {str(e)}")
+                return
             
             # Обновляем визуализацию
             self._update_tree_visualization(f"Удален узел: {value}")
             
+            # Добавляем небольшую задержку для отображения
+            QTimer.singleShot(500, lambda: self._center_on_tree())
+            
         except Exception as e:
             self._log(f"❌ Ошибка при удалении: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     def _search_node(self, value):
         """Поиск узла в дереве."""
@@ -3461,7 +3476,36 @@ class MainWindow(QMainWindow):
         try:
             tree = self.current_algorithm
             
-            if hasattr(tree, '_get_tree_structure_list'):
+            if isinstance(tree, RedBlackTree):
+                # Специальная обработка для красно-черного дерева
+                if hasattr(tree, '_get_tree_structure'):
+                    tree_data = tree._get_tree_structure(tree.root)
+                    if tree_data:
+                        # Устанавливаем тип дерева в визуализаторе
+                        self.tree_visualizer.set_tree_type("RedBlackTree")
+                        
+                        # Очищаем сцену
+                        self.scene.clear()
+                        self.visual_items.clear()
+                        
+                        # Устанавливаем большой размер сцены
+                        extended_scene_rect = QRectF(-3000, -3000, 6000, 6000)
+                        self.scene.setSceneRect(extended_scene_rect)
+                        
+                        # Создаем дерево без анимации для скорости
+                        root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
+                        
+                        if message:
+                            self._log(f"📈 {message}")
+                            
+                        # Короткая задержка для подгонки вида
+                        QTimer.singleShot(10, self._fit_to_content)
+                        return
+                else:
+                    self._log("⚠️ Не удалось получить структуру дерева")
+                    return
+                    
+            elif hasattr(tree, '_get_tree_structure_list'):
                 # Для B-дерева используем специальный метод
                 tree_data = tree._get_tree_structure_list()
                 
