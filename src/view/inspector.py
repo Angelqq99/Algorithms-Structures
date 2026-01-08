@@ -198,6 +198,44 @@ class Inspector(QTextEdit):
             table_size = data.get('table_size', 0)
             description = f"✅ Хэш-таблица построена! Коллизий: {collisions}, Заполнение: {load_factor:.2f}"
             
+        # Операции со стеком, очередью и деком
+        elif action_type == "push":
+            description = f"📥 В стек добавлен элемент: {data.get('value')}"
+        elif action_type == "pop":
+            value = data.get('value', '')
+            description = f"📤 Из стека извлечен элемент: {value}" if value else "📤 Попытка извлечь из пустого стека"
+        elif action_type == "peek":
+            value = data.get('value', '')
+            description = f"👁 Верхний элемент стека: {value}" if value else "👁 Стек пуст"
+        elif action_type == "enqueue":
+            description = f"📥 В очередь добавлен элемент: {data.get('value')}"
+        elif action_type == "dequeue":
+            value = data.get('value', '')
+            description = f"📤 Из очереди извлечен элемент: {value}" if value else "📤 Очередь пуста"
+        elif action_type == "front":
+            value = data.get('value', '')
+            description = f"👁 Передний элемент очереди: {value}" if value else "👁 Очередь пуста"
+        elif action_type == "back":
+            value = data.get('value', '')
+            description = f"👁 Задний элемент очереди: {value}" if value else "👁 Очередь пуста"
+        elif action_type == "push_front":
+            description = f"⬅️ В начало дека добавлен элемент: {data.get('value')}"
+        elif action_type == "push_back":
+            description = f"➡️ В конец дека добавлен элемент: {data.get('value')}"
+        elif action_type == "pop_front":
+            value = data.get('value', '')
+            description = f"⬅️ Из начала дека извлечен элемент: {value}" if value else "⬅️ Дек пуст"
+        elif action_type == "pop_back":
+            value = data.get('value', '')
+            description = f"➡️ Из конца дека извлечен элемент: {value}" if value else "➡️ Дек пуст"
+        elif action_type == "size":
+            size = data.get('size', 0)
+            description = f"📊 Размер контейнера: {size}"
+        elif action_type == "is_empty":
+            is_empty = data.get('empty', True)
+            status = "пуст" if is_empty else "не пуст"
+            description = f"📋 Контейнер {status}"
+            
         elif action_type == "complete":
             description = "✅ Алгоритм успешно завершён!"
             

@@ -32,6 +32,11 @@ from view.tree_layout import CenteredTreeLayout, CompactTreeLayout
 from view.scene_items import ArrayCircleItem, ZoomableGraphicsView, TreeNodeItem, BTreeNodeItem, TreeConnectionItem
 from view.inspector import Inspector
 
+from model.containers.stack import Stack
+from model.containers.queue import Queue
+from model.containers.deque import Deque
+from view.container_visualizer import ContainerVisualizer
+
 import random
 import json
 import math
@@ -875,7 +880,7 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Визуализатор алгоритмов")
+        self.setWindowTitle("Визуализатор алгоритмов и структур данных")
         self.setGeometry(100, 100, 1400, 850)
         self.setStyleSheet("background-color: #f4f4f9;")
 
@@ -901,6 +906,10 @@ class MainWindow(QMainWindow):
         self.hashtable_scroll_enabled = False
         self.current_hashtable_data = []  # Для хранения текущих данных таблицы
         
+        # Для структур данных (стек, очередь, дек)
+        self.container_visualizer = None
+        self.container_type = None
+        
         # Для отложенной отрисовки деревьев
         self._pending_tree_data = []
         self._last_tree_data = None
@@ -915,6 +924,7 @@ class MainWindow(QMainWindow):
         self.tree_visualizer = TreeVisualizer(self.scene)
         self._is_rendering_tree = False
         self.graph_visualizer = GraphVisualizer(self.scene, self.view)
+        self.container_visualizer = None
         self.inspector = Inspector()
         
         # Виджет временных массивов
@@ -990,14 +1000,14 @@ class MainWindow(QMainWindow):
         left_layout.setSpacing(8)
 
         # Заголовок
-        title = QLabel("Управление алгоритмами")
+        title = QLabel("Управление алгоритмами и структурами")
         title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
         left_layout.addWidget(title)
 
         # Категория и алгоритм
         left_layout.addWidget(QLabel("Категория:"))
         self.category_combo = QComboBox()
-        self.category_combo.addItems(["Сортировки", "Деревья", "Графы", "Хэш-таблицы"])
+        self.category_combo.addItems(["Сортировки", "Деревья", "Графы", "Хэш-таблицы", "Структуры данных"])
         
         left_layout.addWidget(QLabel("Алгоритм:"))
         self.algorithm_combo = QComboBox()
@@ -1039,7 +1049,7 @@ class MainWindow(QMainWindow):
         self.collision_method_label = QLabel("Метод разрешения коллизий:")
         self.collision_method_combo = QComboBox()
         self.collision_method_combo.addItems(["Линейное пробирование", "Квадратичное пробирование", 
-                                              "Двойное хеширование", "Метод цепочек"])
+                                            "Двойное хеширование", "Метод цепочек"])
         
         # Размер таблиции
         self.table_size_label = QLabel("Размер таблицы:")
@@ -1086,6 +1096,7 @@ class MainWindow(QMainWindow):
                 padding: 8px;
                 font-weight: bold;
                 border: none;
+                margin-top: 5px;
             }
             QPushButton:hover { 
                 background-color: #4B89C6; 
@@ -1233,7 +1244,6 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(controls)
         layout.setContentsMargins(0, 5, 0, 5)
         
-
         self.btn_fit_view = QPushButton("🔍 Подогнать вид")
         self.btn_fit_view.clicked.connect(self._fit_to_content)
         self.btn_fit_view.setToolTip("Подогнать масштаб к содержимому")
@@ -1268,12 +1278,12 @@ class MainWindow(QMainWindow):
         return controls
 
     def _create_interactive_panel(self):
-        """Создает панель интерактивных операций для деревьев."""
+        """Создает панель интерактивных операций для структур данных."""
         panel = QFrame()
         panel.setStyleSheet("""
             QFrame {
                 background-color: #ffffff;
-                border: 2px solid #4ECDC4;
+                border: 2px solid #5A9BD5;
                 border-radius: 8px;
                 padding: 10px;
             }
@@ -1284,24 +1294,58 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         
         # Заголовок
-        title = QLabel("🌳 Интерактивные операции с деревом")
+        title = QLabel("⚙️ Интерактивные операции")
         title.setStyleSheet("""
             QLabel {
                 font-size: 14px;
                 font-weight: bold;
                 color: #2c3e50;
                 padding-bottom: 5px;
-                border-bottom: 2px solid #4ECDC4;
+                border-bottom: 2px solid #5A9BD5;
             }
         """)
         layout.addWidget(title)
         
+        # Контейнер для операций в зависимости от типа
+        self.operations_container = QWidget()
+        self.operations_layout = QVBoxLayout(self.operations_container)
+        self.operations_layout.setSpacing(8)
+        layout.addWidget(self.operations_container)
+        
+        # Информационная панель
+        self.info_label = QLabel("ℹ️ Выберите структуру данных для интерактивных операций")
+        self.info_label.setStyleSheet("""
+            QLabel {
+                color: #666;
+                font-size: 11px;
+                font-style: italic;
+                padding: 5px;
+                background-color: #f0f8ff;
+                border-radius: 4px;
+                border: 1px solid #d0e0ff;
+            }
+        """)
+        self.info_label.setWordWrap(True)
+        layout.addWidget(self.info_label)
+        
+        layout.addStretch()
+        
+        return panel
+
+    def _create_container_interactive_panel(self, container_type):
+        """Создает панель интерактивных операций для контейнеров."""
+        # Очищаем контейнер полностью
+        self._clear_interactive_panel_children()
+        
+        # Обновляем информационную метку
+        self.info_label.setText(f"ℹ️ Выполняйте операции с {container_type} в реальном времени")
+        
         # Поле ввода значения
         input_layout = QHBoxLayout()
         input_layout.addWidget(QLabel("Значение:"))
-        self.val_input = QLineEdit()
-        self.val_input.setPlaceholderText("Введите число...")
-        self.val_input.setStyleSheet("""
+        self.container_val_input = QLineEdit()
+        self.container_val_input.setPlaceholderText("Введите число...")
+        self.container_val_input.setStyleSheet("""
             QLineEdit {
                 padding: 8px;
                 border: 2px solid #5A9BD5;
@@ -1309,24 +1353,46 @@ class MainWindow(QMainWindow):
                 font-size: 14px;
             }
         """)
-        self.val_input.returnPressed.connect(self._on_operation_execute)
-        input_layout.addWidget(self.val_input)
-        layout.addLayout(input_layout)
+        self.container_val_input.returnPressed.connect(self._on_container_operation_execute)
+        input_layout.addWidget(self.container_val_input)
+        self.operations_layout.addLayout(input_layout)
         
         # Выбор операции
         ops_layout = QHBoxLayout()
         ops_layout.addWidget(QLabel("Операция:"))
-        self.tree_ops_combo = QComboBox()
-        self.tree_ops_combo.addItems([
-            "Вставить узел", 
-            "Удалить узел", 
-            "Найти узел",
-            "Прямой обход (Pre-order)",
-            "Центральный обход (In-order)",
-            "Обратный обход (Post-order)",
-            "Обход в ширину (BFS)"
-        ])
-        self.tree_ops_combo.setStyleSheet("""
+        self.container_ops_combo = QComboBox()
+        
+        # Операции в зависимости от типа контейнера
+        if container_type == "stack":
+            self.container_ops_combo.addItems([
+                "push (добавить)",
+                "pop (удалить верхний)",
+                "peek (посмотреть верхний)",
+                "size (размер)",
+                "is_empty (пусто?)"
+            ])
+        elif container_type == "queue":
+            self.container_ops_combo.addItems([
+                "enqueue (добавить)",
+                "dequeue (удалить первый)",
+                "front (посмотреть первый)",
+                "back (посмотреть последний)",
+                "size (размер)",
+                "is_empty (пусто?)"
+            ])
+        elif container_type == "deque":
+            self.container_ops_combo.addItems([
+                "push_front (добавить в начало)",
+                "push_back (добавить в конец)",
+                "pop_front (удалить из начала)",
+                "pop_back (удалить из конца)",
+                "front (посмотреть первый)",
+                "back (посмотреть последний)",
+                "size (размер)",
+                "is_empty (пусто?)"
+            ])
+        
+        self.container_ops_combo.setStyleSheet("""
             QComboBox {
                 padding: 8px;
                 border: 2px solid #5A9BD5;
@@ -1334,12 +1400,12 @@ class MainWindow(QMainWindow):
                 font-size: 14px;
             }
         """)
-        ops_layout.addWidget(self.tree_ops_combo)
-        layout.addLayout(ops_layout)
+        ops_layout.addWidget(self.container_ops_combo)
+        self.operations_layout.addLayout(ops_layout)
         
         # Кнопка выполнения
-        self.execute_btn = QPushButton("Выполнить операцию")
-        self.execute_btn.setStyleSheet("""
+        self.container_execute_btn = QPushButton("Выполнить операцию")
+        self.container_execute_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4ECDC4;
                 color: white;
@@ -1355,15 +1421,12 @@ class MainWindow(QMainWindow):
             QPushButton:pressed {
                 background-color: #2eaba2;
             }
-            QPushButton:disabled {
-                background-color: #b0b0b0;
-            }
         """)
-        self.execute_btn.clicked.connect(self._on_operation_execute)
-        layout.addWidget(self.execute_btn)
+        self.container_execute_btn.clicked.connect(self._on_container_operation_execute)
+        self.operations_layout.addWidget(self.container_execute_btn)
         
         # Панель быстрых действий
-        quick_actions = QGroupBox("Быстрые действий")
+        quick_actions = QGroupBox("Быстрые действия")
         quick_actions.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -1379,32 +1442,16 @@ class MainWindow(QMainWindow):
             }
         """)
         
-        quick_layout = QGridLayout()
+        quick_layout = QHBoxLayout()
         
         # Кнопки быстрых действий
-        self.btn_min = QPushButton("Найти мин.")
-        self.btn_min.clicked.connect(lambda: self._find_min_max("min"))
-        self.btn_min.setToolTip("Найти минимальный элемент")
+        self.container_clear_btn = QPushButton("🗑️ Очистить")
+        self.container_clear_btn.clicked.connect(self._clear_container)
+        self.container_clear_btn.setToolTip("Очистить структуру")
         
-        self.btn_max = QPushButton("Найти макс.")
-        self.btn_max.clicked.connect(lambda: self._find_min_max("max"))
-        self.btn_max.setToolTip("Найти максимальный элемент")
-        
-        self.btn_height = QPushButton("Высота")
-        self.btn_height.clicked.connect(self._get_tree_height)
-        self.btn_height.setToolTip("Вычислить высоту дерева")
-        
-        self.btn_balance = QPushButton("Балансировка")
-        self.btn_balance.clicked.connect(self._check_balance)
-        self.btn_balance.setToolTip("Проверить балансировку дерева")
-        
-        self.btn_clear = QPushButton("Очистить")
-        self.btn_clear.clicked.connect(self._clear_tree)
-        self.btn_clear.setToolTip("Удалить все узлы дерева")
-        
-        self.btn_random = QPushButton("Добавить 5 случайных")
-        self.btn_random.clicked.connect(self._add_random_nodes)
-        self.btn_random.setToolTip("Добавить 5 случайных значений")
+        self.container_random_btn = QPushButton("🎲 Добавить 3 случайных")
+        self.container_random_btn.clicked.connect(self._add_random_to_container)
+        self.container_random_btn.setToolTip("Добавить 3 случайных значения")
         
         # Стили кнопок быстрых действий
         quick_button_style = """
@@ -1424,11 +1471,176 @@ class MainWindow(QMainWindow):
             }
         """
         
-        for btn in [self.btn_min, self.btn_max, self.btn_height, self.btn_balance, self.btn_clear, self.btn_random]:
+        for btn in [self.container_clear_btn, self.container_random_btn]:
+            btn.setStyleSheet(quick_button_style)
+            btn.setMinimumHeight(35)
+            quick_layout.addWidget(btn)
+        
+        quick_actions.setLayout(quick_layout)
+        self.operations_layout.addWidget(quick_actions)
+
+    def _clear_interactive_panel_children(self):
+        """Очищает все дочерние элементы интерактивной панели."""
+        # Удаляем все виджеты из operations_layout
+        while self.operations_layout.count():
+            item = self.operations_layout.takeAt(0)
+            if item.widget():
+                widget = item.widget()
+                widget.setParent(None)
+                widget.deleteLater()
+            elif item.layout():
+                # Рекурсивно очищаем вложенные layout
+                self._clear_layout_recursive(item.layout())
+        
+        # Сбрасываем ссылки на виджеты
+        self.container_val_input = None
+        self.container_ops_combo = None
+        self.container_execute_btn = None
+        self.container_clear_btn = None
+        self.container_random_btn = None
+
+    def _clear_layout_recursive(self, layout):
+        """Рекурсивно очищает layout и все его дочерние элементы."""
+        if layout:
+            for i in reversed(range(layout.count())):
+                item = layout.takeAt(i)
+                if item.widget():
+                    widget = item.widget()
+                    widget.setParent(None)
+                    widget.deleteLater()
+                elif item.layout():
+                    self._clear_layout_recursive(item.layout())
+
+    def _create_tree_interactive_panel(self):
+        """Создает панель интерактивных операций для деревьев."""
+        # Очищаем контейнер
+        self._clear_interactive_panel_children()
+        
+        # Обновляем информационную метку
+        self.info_label.setText("ℹ️ Выполняйте операции с деревом в реальном времени")
+        
+        # Поле ввода значения
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(QLabel("Значение:"))
+        self.val_input = QLineEdit()
+        self.val_input.setPlaceholderText("Введите число...")
+        self.val_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        self.val_input.returnPressed.connect(self._on_operation_execute)
+        input_layout.addWidget(self.val_input)
+        self.operations_layout.addLayout(input_layout)
+        
+        # Выбор операции
+        ops_layout = QHBoxLayout()
+        ops_layout.addWidget(QLabel("Операция:"))
+        self.tree_ops_combo = QComboBox()
+        self.tree_ops_combo.addItems([
+            "Вставить узел",
+            "Удалить узел",
+            "Найти узел",
+            "Прямой обход (Pre-order)",
+            "Центральный обход (In-order)",
+            "Обратный обход (Post-order)",
+            "Обход в ширину (BFS)"
+        ])
+        self.tree_ops_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        ops_layout.addWidget(self.tree_ops_combo)
+        self.operations_layout.addLayout(ops_layout)
+        
+        # Кнопка выполнения
+        self.execute_btn = QPushButton("Выполнить операцию")
+        self.execute_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4ECDC4;
+                color: white;
+                border-radius: 6px;
+                padding: 12px;
+                font-weight: bold;
+                font-size: 14px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #3dbcb3;
+            }
+            QPushButton:pressed {
+                background-color: #2eaba2;
+            }
+        """)
+        self.execute_btn.clicked.connect(self._on_operation_execute)
+        self.operations_layout.addWidget(self.execute_btn)
+        
+        # Панель быстрых действий
+        quick_actions = QGroupBox("Быстрые действия")
+        quick_actions.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        
+        quick_layout = QGridLayout()
+        
+        # Кнопки быстрых действий
+        self.btn_min = QPushButton("Найти min")
+        self.btn_max = QPushButton("Найти max")
+        self.btn_height = QPushButton("Высота")
+        self.btn_balance = QPushButton("Баланс")
+        self.btn_clear = QPushButton("🗑️ Очистить")
+        self.btn_random = QPushButton("🎲 Случайные")
+        
+        # Подключаем сигналы
+        self.btn_min.clicked.connect(lambda: self._find_min_max("min"))
+        self.btn_max.clicked.connect(lambda: self._find_min_max("max"))
+        self.btn_height.clicked.connect(self._get_tree_height)
+        self.btn_balance.clicked.connect(self._check_balance)
+        self.btn_clear.clicked.connect(self._clear_tree)
+        self.btn_random.clicked.connect(self._add_random_nodes)
+        
+        # Стили кнопок быстрых действий
+        quick_button_style = """
+            QPushButton {
+                background-color: #5A9BD5;
+                color: white;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4B89C6;
+            }
+            QPushButton:pressed {
+                background-color: #3A6FA3;
+            }
+        """
+        
+        for btn in [self.btn_min, self.btn_max, self.btn_height, self.btn_balance, 
+                   self.btn_clear, self.btn_random]:
             btn.setStyleSheet(quick_button_style)
             btn.setMinimumHeight(35)
         
-        # Добавление кнопок в layout
+        # Размещаем кнопки в сетке
         quick_layout.addWidget(self.btn_min, 0, 0)
         quick_layout.addWidget(self.btn_max, 0, 1)
         quick_layout.addWidget(self.btn_height, 1, 0)
@@ -1437,30 +1649,15 @@ class MainWindow(QMainWindow):
         quick_layout.addWidget(self.btn_random, 2, 1)
         
         quick_actions.setLayout(quick_layout)
-        layout.addWidget(quick_actions)
+        self.operations_layout.addWidget(quick_actions)
+
+    def _clear_interactive_panel(self):
+        """Очищает панель интерактивных операций."""
+        # Очищаем контейнер
+        self._clear_interactive_panel_children()
         
-        # Информационная панель
-        info_label = QLabel("ℹ️ Интерактивные операции доступны только для деревьев")
-        info_label.setStyleSheet("""
-            QLabel {
-                color: #666;
-                font-size: 11px;
-                font-style: italic;
-                padding: 5px;
-                background-color: #f0f8ff;
-                border-radius: 4px;
-                border: 1px solid #d0e0ff;
-            }
-        """)
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-        
-        layout.addStretch()
-        
-        # Изначально скрываем панель
-        panel.hide()
-        
-        return panel
+        # Возвращаем информационную метку
+        self.info_label.setText("ℹ️ Выберите структуру данных для интерактивных операций")
 
     def _connect_signals(self):
         """Подключение сигналов к слотам."""
@@ -1491,9 +1688,24 @@ class MainWindow(QMainWindow):
 
     def _on_algorithm_changed(self, algorithm_name):
         """Обработка изменения алгоритма."""
+        # Очищаем интерактивную панель при смене алгоритма
+        self._clear_interactive_panel()
+        
         # При изменении алгоритма сбрасываем состояние
         if self.current_algorithm:
             self._reset_algorithm()
+        
+        # Обновляем интерактивную панель
+        category = self.category_combo.currentText()
+        if category == "Структуры данных":
+            # Для структур данных создаем соответствующую панель и инициализируем контейнер
+            self._create_container_panel_for_current_algo()
+        elif category == "Деревья":
+            # Для деревьев создаем соответствующую панель
+            self._create_tree_interactive_panel()
+        else:
+            # Для других категорий очищаем панель
+            self._clear_interactive_panel()
 
     def _initialize_algorithm_combo(self):
         """Инициализация выпадающего списка алгоритмов."""
@@ -1507,6 +1719,8 @@ class MainWindow(QMainWindow):
             self.algorithm_combo.addItems(["BFS", "DFS", "Dijkstra"])
         elif category == "Хэш-таблицы":
             self.algorithm_combo.addItems(["HashTable"])
+        elif category == "Структуры данных":
+            self.algorithm_combo.addItems(["Stack", "Queue", "Deque"])
 
     def _update_speed(self, value):
         """Изменение скорости во время работы."""
@@ -1516,6 +1730,9 @@ class MainWindow(QMainWindow):
 
     def _on_category_changed(self, category):
         """Обработка изменения категории алгоритма."""
+        # Очищаем интерактивную панель при смене категории
+        self._clear_interactive_panel()
+        
         self._initialize_algorithm_combo()
         
         # Показываем/скрываем настройки графа
@@ -1526,17 +1743,7 @@ class MainWindow(QMainWindow):
             self.graph_layout_label.show()
             self.graph_layout_combo.show()
             self.view_chains_btn.hide()
-            if self.interactive_widget:
-                self.interactive_widget.hide()
-        else:
-            self.graph_settings_label.hide()
-            self.directed_label.hide()
-            self.directed_checkbox.hide()
-            self.graph_layout_label.hide()
-            self.graph_layout_combo.hide()
-        
-        # Показываем/скрываем настройки хэш-таблицы
-        if category == "Хэш-таблицы":
+        elif category == "Хэш-таблицы":
             self.hashtable_settings_label.show()
             self.hash_function_label.show()
             self.hash_function_combo.show()
@@ -1546,9 +1753,12 @@ class MainWindow(QMainWindow):
             self.table_size_slider.show()
             self.table_size_value.show()
             self.view_chains_btn.show()
-            if self.interactive_widget:
-                self.interactive_widget.hide()
         else:
+            self.graph_settings_label.hide()
+            self.directed_label.hide()
+            self.directed_checkbox.hide()
+            self.graph_layout_label.hide()
+            self.graph_layout_combo.hide()
             self.hashtable_settings_label.hide()
             self.hash_function_label.hide()
             self.hash_function_combo.hide()
@@ -1559,20 +1769,62 @@ class MainWindow(QMainWindow):
             self.table_size_value.hide()
             self.view_chains_btn.hide()
             
-        # Показываем/скрываем интерактивную панель
+        # Обновляем интерактивную панель
         if category == "Деревья":
-            if self.interactive_widget:
-                self.interactive_widget.show()
-                self._log("🌳 Интерактивный режим для деревьев включен")
+            self._create_tree_interactive_panel()
+        elif category == "Структуры данных":
+            # Создаем панель для первого алгоритма в списке
+            self._create_container_panel_for_current_algo()
         else:
-            if self.interactive_widget:
-                self.interactive_widget.hide()
+            self._clear_interactive_panel()
             
         # Сбрасываем алгоритм при смене категории
         self._reset_algorithm()
+        
+        # Для структур данных также очищаем сцену
+        if category == "Структуры данных":
+            self.scene.clear()
+            self._log("📦 Выберите структуру данных для интерактивных операций")
+
+    def _create_container_panel_for_current_algo(self):
+        """Создает панель для текущего алгоритма контейнера."""
+        algo_name = self.algorithm_combo.currentText()
+        if algo_name == "Stack":
+            self._create_container_interactive_panel("stack")
+            # Инициализируем контейнер сразу
+            self.current_algorithm = Stack([])
+            self.container_type = "stack"
+            self.container_visualizer = ContainerVisualizer(self.scene, "stack")
+            # Очищаем сцену и создаем интерфейс
+            self.scene.clear()
+            self.container_visualizer._create_interface()
+            self._log("📚 Стек создан. Используйте интерактивные операции справа.")
+        elif algo_name == "Queue":
+            self._create_container_interactive_panel("queue")
+            self.current_algorithm = Queue([])
+            self.container_type = "queue"
+            self.container_visualizer = ContainerVisualizer(self.scene, "queue")
+            self.scene.clear()
+            self.container_visualizer._create_interface()
+            self._log("📥 Очередь создана. Используйте интерактивные операции справа.")
+        elif algo_name == "Deque":
+            self._create_container_interactive_panel("deque")
+            self.current_algorithm = Deque([])
+            self.container_type = "deque"
+            self.container_visualizer = ContainerVisualizer(self.scene, "deque")
+            self.scene.clear()
+            self.container_visualizer._create_interface()
+            self._log("🔄 Дек создан. Используйте интерактивные операции справа.")
 
     def _start_auto_mode(self):
         """Запуск автоматического режима."""
+        category = self.category_combo.currentText()
+        
+        # Для структур данных отключаем автоматический режим
+        if category == "Структуры данных":
+            self._log("ℹ️ Для структур данных используйте интерактивные операции справа")
+            return
+        
         if self.algorithm_completed or not self.current_algorithm:
             if not self._start_algorithm():
                 return
@@ -1599,6 +1851,13 @@ class MainWindow(QMainWindow):
 
     def _step_algorithm(self):
         """Шаг в ручном режиме."""
+        category = self.category_combo.currentText()
+        
+        # Для структур данных отключаем запуск через Engine
+        if category == "Структуры данных":
+            self._log("ℹ️ Для структур данных используйте интерактивные операции справа")
+            return
+        
         if self.algorithm_completed or not self.current_algorithm:
             if not self._start_algorithm():
                 return
@@ -1621,6 +1880,11 @@ class MainWindow(QMainWindow):
             
             if hasattr(self, 'graph_visualizer'):
                 self.graph_visualizer.clear()
+            
+            if hasattr(self, 'container_visualizer') and self.container_visualizer:
+                self.container_visualizer.clear()
+                self.container_visualizer = None
+                self.container_type = None
             
             self.scene.clear()
             
@@ -1660,27 +1924,28 @@ class MainWindow(QMainWindow):
             self.start_btn.setEnabled(True)
             
             # Восстанавливаем начальный вид
-            text = self.data_input.text()
-            try:
-                arr = [int(x.strip()) for x in text.split(",") if x.strip()]
-                
-                # В зависимости от текущего алгоритма показываем соответствующий вид
-                current_algo = self.algorithm_combo.currentText()
-                current_category = self.category_combo.currentText()
-                
-                if current_category == "Хэш-таблицы":
-                    # Для хэш-таблицы показываем начальный вид
+            category = self.category_combo.currentText()
+            if category == "Структуры данных":
+                # Для структур данных показываем пустую сцену
+                self.scene.clear()
+                self._log("📦 Контейнер сброшен")
+            elif category == "Хэш-таблицы":
+                # Для хэш-таблицы показываем начальный вид
+                text = self.data_input.text()
+                try:
+                    arr = [int(x.strip()) for x in text.split(",") if x.strip()]
                     self._render_hashtable_initial_view(arr)
-                elif current_algo in ["BFS", "DFS", "Dijkstra"]:
-                    # Для графов - ничего не показываем, они строятся при запуске
+                except ValueError:
                     pass
-                else:
-                    # Для всех остальных - массив
+            else:
+                # Для всех остальных - массив
+                text = self.data_input.text()
+                try:
+                    arr = [int(x.strip()) for x in text.split(",") if x.strip()]
                     self._render_array(arr)
-                    
-            except ValueError:
-                if hasattr(self, 'current_data'):
-                    self._render_array(self.current_data)
+                except ValueError:
+                    if hasattr(self, 'current_data'):
+                        self._render_array(self.current_data)
             
             self.scene.update()
             if hasattr(self, 'view'):
@@ -1697,22 +1962,30 @@ class MainWindow(QMainWindow):
 
     def _generate_random_data(self):
         """Генерация случайных данных с анимацией."""
-        count = random.randint(6, 12)
-        data = [random.randint(10, 99) for _ in range(count)]
-        self.data_input.setText(",".join(map(str, data)))
-        
-        self.current_data = data.copy()
-        
-        # Рендерим в зависимости от выбранной категории
         category = self.category_combo.currentText()
-        if category == "Хэш-таблицы":
-            self._render_hashtable_initial_view(data)
+        
+        if category == "Структуры данных":
+            # Для структур данных просто очищаем
+            self._log("🎲 Для структур данных используйте интерактивные операции справа")
+            
         else:
-            self._render_array(data)
+            # Для остальных категорий - случайные числа
+            count = random.randint(6, 12)
+            data = [random.randint(10, 99) for _ in range(count)]
+            self.data_input.setText(",".join(map(str, data)))
+            
+            self.current_data = data.copy()
+            
+            # Рендерим в зависимости от выбранной категории
+            category = self.category_combo.currentText()
+            if category == "Хэш-таблицы":
+                self._render_hashtable_initial_view(data)
+            else:
+                self._render_array(data)
+            
+            self._log(f"🎲 Сгенерированы {count} случайных чисел")
         
         self._reset_algorithm()
-        self._log(f"🎲 Сгенерированы {count} случайных чисел")
-        
         self._schedule_zoom_reset()
 
     def _schedule_zoom_reset(self):
@@ -1747,101 +2020,136 @@ class MainWindow(QMainWindow):
         """Запуск выбранного алгоритма."""
         self._reset_algorithm()
         
-        text = self.data_input.text()
-        try:
-            arr = [int(x.strip()) for x in text.split(",") if x.strip()]
-            if len(arr) < 1:
-                QMessageBox.warning(self, "Ошибка", "Введите хотя бы 1 число")
-                return False
-            
-            self.current_data = arr.copy()
-            
-            algo_name = self.algorithm_combo.currentText()
-            
-            if algo_name in ["BFS", "DFS", "Dijkstra"]:
-                graph_data = self._create_tree_graph(arr, directed=self.graph_directed)
-            else:
-                graph_data = None
-            
-            algorithms = {
-                "QuickSort": lambda: QuickSort(arr.copy()),
-                "MergeSort": lambda: MergeSort(arr.copy()),
-                "BubbleSort": lambda: BubbleSort(arr.copy()),
-                "BST": lambda: BST(arr.copy()),
-                "AVL": lambda: AVLTree(arr.copy()),
-                "RedBlackTree": lambda: RedBlackTree(arr.copy()),
-                "SplayTree": lambda: SplayTree(arr.copy()),
-                "Treap": lambda: Treap(arr.copy()),
-                "BTree": lambda: BTree(arr.copy()),
-                "BFS": lambda: GraphBFS(graph_data, arr[0] if arr else 0),
-                "DFS": lambda: GraphDFS(graph_data, arr[0] if arr else 0),
-                "Dijkstra": lambda: Dijkstra(graph_data, arr[0] if arr else 0),
-                "HashTable": lambda: self._create_hashtable(arr.copy())
-            }
-
-            if algo_name in algorithms:
-                try:
-                    self.current_algorithm = algorithms[algo_name]()
-                    self.engine.load_algorithm(self.current_algorithm)
-                    
-                    # Показываем виджет временных массивов только для MergeSort
-                    if algo_name == "MergeSort":
-                        self.temp_arrays_widget.show()
-                    else:
-                        self.temp_arrays_widget.hide()
-                    
-                    # Обработка для разных типов алгоритмов
-                    if algo_name in ["BFS", "DFS", "Dijkstra"]:
-                        self.scene.clear()
-                        
-                        self.graph_visualizer.node_values = {val: val for val in arr}
-                        
-                        if self.graph_layout_combo:
-                            layout_name = self.graph_layout_combo.currentText()
-                            layout_map = {
-                                "Пружинная": "Spring", 
-                                "Круговая": "Circular",
-                                "Древовидная": "Tree"
-                            }
-                            
-                            if layout_name in layout_map:
-                                selected_layout = layout_map[layout_name]
-                                success = self.graph_visualizer.set_layout_algorithm(selected_layout)
-                                if success:
-                                    self._log(f"📐 Установлена компоновка: {layout_name}")
-                        
-                        self.graph_visualizer.set_directed(self.graph_directed)
-                        
-                        direction_text = "ориентированный" if self.graph_directed else "неориентированный"
-                        self._log(f"🕸️ Подготовка {direction_text} графа для алгоритма {algo_name}...")
-                    
-                    elif algo_name == "HashTable":
-                        # Для хэш-таблицы отображаем начальный вид
-                        self._render_hashtable_initial_view(arr)
-                        self._log(f"🔑 Подготовка хэш-таблицы с параметрами: " +
-                                 f"размер={self.table_size_slider.value()}, " +
-                                 f"функция={self.hash_function_combo.currentText()}, " +
-                                 f"метод={self.collision_method_combo.currentText()}")
-                        
-                        # Включаем кнопку просмотра цепочек после завершения
-                        self.view_chains_btn.setEnabled(True)
-                    else:
-                        self._render_array(arr)
-                        
-                    self._log(f"🔧 Алгоритм '{algo_name}' загружен. Готов к выполнению.")
-                    return True
-                except Exception as e:
-                    self._log(f"❌ Ошибка при создании алгоритма: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-                    return False
+        algo_name = self.algorithm_combo.currentText()
+        category = self.category_combo.currentText()
+        
+        if category == "Структуры данных":
+            # Для структур данных создаем пустую структуру
+            if algo_name == "Stack":
+                self.current_algorithm = Stack([])
+                self.container_type = "stack"
+            elif algo_name == "Queue":
+                self.current_algorithm = Queue([])
+                self.container_type = "queue"
+            elif algo_name == "Deque":
+                self.current_algorithm = Deque([])
+                self.container_type = "deque"
             else:
                 self._log(f"❌ Алгоритм '{algo_name}' не найден")
                 return False
+            
+            # Инициализируем визуализатор
+            self.container_visualizer = ContainerVisualizer(self.scene, self.container_type)
+            
+            # Загружаем в движок (но не запускаем генератор)
+            # Для структур данных НЕ используем Engine
+            self.engine.pause()
+            self.engine.generator = None
+            
+            # Показываем начальный вид
+            self._render_container_initial_view()
+            
+            # Включаем интерактивную панель
+            self._create_container_interactive_panel(self.container_type)
+            
+            self._log(f"📦 {algo_name} создан. Используйте интерактивные операции справа.")
+            return False  # Возвращаем False, так как для контейнеров не нужен запуск через Engine
+            
+        else:
+            # Оригинальная логика для других категорий
+            text = self.data_input.text()
+            try:
+                arr = [int(x.strip()) for x in text.split(",") if x.strip()]
+                if len(arr) < 1:
+                    QMessageBox.warning(self, "Ошибка", "Введите хотя бы 1 число")
+                    return False
                 
-        except ValueError:
-            QMessageBox.warning(self, "Ошибка", "Вводите только числа через запятую")
-            return False
+                self.current_data = arr.copy()
+                
+                if algo_name in ["BFS", "DFS", "Dijkstra"]:
+                    graph_data = self._create_tree_graph(arr, directed=self.graph_directed)
+                else:
+                    graph_data = None
+                
+                algorithms = {
+                    "QuickSort": lambda: QuickSort(arr.copy()),
+                    "MergeSort": lambda: MergeSort(arr.copy()),
+                    "BubbleSort": lambda: BubbleSort(arr.copy()),
+                    "BST": lambda: BST(arr.copy()),
+                    "AVL": lambda: AVLTree(arr.copy()),
+                    "RedBlackTree": lambda: RedBlackTree(arr.copy()),
+                    "SplayTree": lambda: SplayTree(arr.copy()),
+                    "Treap": lambda: Treap(arr.copy()),
+                    "BTree": lambda: BTree(arr.copy()),
+                    "BFS": lambda: GraphBFS(graph_data, arr[0] if arr else 0),
+                    "DFS": lambda: GraphDFS(graph_data, arr[0] if arr else 0),
+                    "Dijkstra": lambda: Dijkstra(graph_data, arr[0] if arr else 0),
+                    "HashTable": lambda: self._create_hashtable(arr.copy())
+                }
+
+                if algo_name in algorithms:
+                    try:
+                        self.current_algorithm = algorithms[algo_name]()
+                        self.engine.load_algorithm(self.current_algorithm)
+                        
+                        # Показываем виджет временных массивов только для MergeSort
+                        if algo_name == "MergeSort":
+                            self.temp_arrays_widget.show()
+                        else:
+                            self.temp_arrays_widget.hide()
+                        
+                        # Обработка для разных типов алгоритмов
+                        if algo_name in ["BFS", "DFS", "Dijkstra"]:
+                            self.scene.clear()
+                            
+                            self.graph_visualizer.node_values = {val: val for val in arr}
+                            
+                            if self.graph_layout_combo:
+                                layout_name = self.graph_layout_combo.currentText()
+                                layout_map = {
+                                    "Пружинная": "Spring", 
+                                    "Круговая": "Circular",
+                                    "Древовидная": "Tree"
+                                }
+                                
+                                if layout_name in layout_map:
+                                    selected_layout = layout_map[layout_name]
+                                    success = self.graph_visualizer.set_layout_algorithm(selected_layout)
+                                    if success:
+                                        self._log(f"📐 Установлена компоновка: {layout_name}")
+                            
+                            self.graph_visualizer.set_directed(self.graph_directed)
+                            
+                            direction_text = "ориентированный" if self.graph_directed else "неориентированный"
+                            self._log(f"🕸️ Подготовка {direction_text} графа для алгоритма {algo_name}...")
+                        
+                        elif algo_name == "HashTable":
+                            # Для хэш-таблицы отображаем начальный вид
+                            self._render_hashtable_initial_view(arr)
+                            self._log(f"🔑 Подготовка хэш-таблицы с параметрами: " +
+                                    f"размер={self.table_size_slider.value()}, " +
+                                    f"функция={self.hash_function_combo.currentText()}, " +
+                                    f"метод={self.collision_method_combo.currentText()}")
+                            
+                            # Включаем кнопку просмотра цепочек после завершения
+                            self.view_chains_btn.setEnabled(True)
+                        else:
+                            self._render_array(arr)
+                            
+                        self._log(f"🔧 Алгоритм '{algo_name}' загружен. Готов к выполнению.")
+                        return True
+                    except Exception as e:
+                        self._log(f"❌ Ошибка при создании алгоритма: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        return False
+                else:
+                    self._log(f"❌ Алгоритм '{algo_name}' не найден")
+                    return False
+                    
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Вводите только числа через запятую")
+                return False
 
     def _create_hashtable(self, data):
         """Создает хэш-таблицу с выбранными параметрами"""
@@ -2242,7 +2550,6 @@ class MainWindow(QMainWindow):
                 text_item.setPos(0, 0)
                 self._log("ℹ️ Дерево пустое - начните выполнение алгоритма")
                 return
-            
             # Используем прямое отображение без анимации для скорости
             root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
             
@@ -2485,7 +2792,46 @@ class MainWindow(QMainWindow):
             self._swap_items(i, j)
             self._log(f"🔄 Обмен элементов {i} и {j}")
             self._schedule_next_action(int(1000 * speed_factor))
+        elif t == "insert" and "table" in action:
+            table_data = action.get("table", [])
+            collisions = action.get("collisions", 0)
+            max_chain_length = action.get("max_chain_length", 0)
+            key_index = action.get("key_index", 0)
+            total_keys = action.get("total_keys", 0)
+            probed_index = action.get("probed_index")
+            original_index = action.get("original_index")
+            probing_steps_count = action.get("probing_steps_count", 0)
             
+            # Обновляем отображение таблицы
+            self.hashtable_display_mode = "building"
+            self._render_hashtable_content(table_data, collisions, max_chain_length)
+            
+            # Анимируем вставку
+            insert_idx = probed_index if probed_index is not None else action.get("index", 0)
+            if insert_idx < len(self.hashtable_cells):
+                self.animation_queue.append({
+                    "type": "insert_cell",
+                    "index": insert_idx,
+                    "value": action.get("key", 0),
+                    "original_index": original_index,
+                    "duration": 500
+                })
+                
+                if not self.hashtable_animation_timer.isActive():
+                    self.hashtable_animation_timer.start(50)
+            
+            # Логируем информацию о вставке
+            desc = action.get("description", "")
+            if probing_steps_count > 0:
+                desc += f" (шагов пробирования: {probing_steps_count})"
+            
+            self._log(f"📥 {desc}")
+            
+            # Показываем прогресс
+            progress = f"[{key_index + 1}/{total_keys}]" if total_keys > 0 else ""
+            self._log(f"📊 Прогресс: {progress} Коллизий: {collisions}")
+            
+            self._schedule_next_action(int(700 * speed_factor))            
         elif t == "insert":
             arr = action.get("array")
             if arr:
@@ -2576,47 +2922,28 @@ class MainWindow(QMainWindow):
         elif t == "full":
             self._log(f"❌ Таблица полна, невозможно вставить элемент")
             self._schedule_next_action(int(400 * speed_factor))
+
+        elif t in ["push", "pop", "peek", "enqueue", "dequeue", "front", "back", 
+                "push_front", "push_back", "pop_front", "pop_back", "size", "is_empty"]:
             
-        elif t == "insert" and "table" in action:
-            table_data = action.get("table", [])
-            collisions = action.get("collisions", 0)
-            max_chain_length = action.get("max_chain_length", 0)
-            key_index = action.get("key_index", 0)
-            total_keys = action.get("total_keys", 0)
-            probed_index = action.get("probed_index")
-            original_index = action.get("original_index")
-            probing_steps_count = action.get("probing_steps_count", 0)
-            
-            # Обновляем отображение таблицы
-            self.hashtable_display_mode = "building"
-            self._render_hashtable_content(table_data, collisions, max_chain_length)
-            
-            # Анимируем вставку
-            insert_idx = probed_index if probed_index is not None else action.get("index", 0)
-            if insert_idx < len(self.hashtable_cells):
-                self.animation_queue.append({
-                    "type": "insert_cell",
-                    "index": insert_idx,
-                    "value": action.get("key", 0),
-                    "original_index": original_index,
-                    "duration": 500
-                })
-                
-                if not self.hashtable_animation_timer.isActive():
-                    self.hashtable_animation_timer.start(50)
-            
-            # Логируем информацию о вставке
-            desc = action.get("description", "")
-            if probing_steps_count > 0:
-                desc += f" (шагов пробирования: {probing_steps_count})"
-            
-            self._log(f"📥 {desc}")
-            
-            # Показываем прогресс
-            progress = f"[{key_index + 1}/{total_keys}]" if total_keys > 0 else ""
-            self._log(f"📊 Прогресс: {progress} Коллизий: {collisions}")
+            if self.container_visualizer:
+                self.container_visualizer.process_action(action)
+                self._log(action.get("description", ""))
             
             self._schedule_next_action(int(700 * speed_factor))
+            
+        elif t == "complete" and self.container_visualizer:
+            self.container_visualizer.process_action(action)
+            self._log("✅ Все операции с контейнером выполнены")
+            self.is_animating = False
+            self.algorithm_completed = True
+            
+            if self.is_auto_mode:
+                self._pause_auto_mode()
+            
+            self.inspector.update_info(action)
+            return           
+
             
         elif t == "complete":
             if self.algorithm_combo.currentText() == "HashTable":
@@ -3584,6 +3911,404 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'tree_visualizer'):
             self.tree_visualizer.highlight_node_by_value(self.current_algorithm.root.value, "#FFA500", 2000)
     
+    def _on_container_operation_execute(self):
+        """Выполнение интерактивной операции с контейнером."""
+        try:
+            # Проверяем, что контейнер инициализирован
+            if self.container_type is None or self.container_visualizer is None:
+                # Если нет, создаем его на основе выбранного алгоритма
+                algo_name = self.algorithm_combo.currentText()
+                if algo_name == "Stack":
+                    self.current_algorithm = Stack([])
+                    self.container_type = "stack"
+                    self.container_visualizer = ContainerVisualizer(self.scene, "stack")
+                    # Очищаем сцену и показываем интерфейс контейнера
+                    self.scene.clear()
+                    self.container_visualizer._create_interface()
+                elif algo_name == "Queue":
+                    self.current_algorithm = Queue([])
+                    self.container_type = "queue"
+                    self.container_visualizer = ContainerVisualizer(self.scene, "queue")
+                    self.scene.clear()
+                    self.container_visualizer._create_interface()
+                elif algo_name == "Deque":
+                    self.current_algorithm = Deque([])
+                    self.container_type = "deque"
+                    self.container_visualizer = ContainerVisualizer(self.scene, "deque")
+                    self.scene.clear()
+                    self.container_visualizer._create_interface()
+                else:
+                    self._log("❌ Неизвестный тип контейнера")
+                    return
+            
+            if not self.current_algorithm:
+                self._log("❌ Контейнер не инициализирован")
+                return
+            
+            operation_text = self.container_ops_combo.currentText()
+            value_text = self.container_val_input.text().strip()
+            
+            # Определяем тип операции
+            if "push" in operation_text and "front" in operation_text:
+                operation = "push_front"
+            elif "push" in operation_text and "back" in operation_text:
+                operation = "push_back"
+            elif "push" in operation_text:
+                operation = "push" if self.container_type == "stack" else "enqueue"
+            elif "pop" in operation_text and "front" in operation_text:
+                operation = "pop_front"
+            elif "pop" in operation_text and "back" in operation_text:
+                operation = "pop_back"
+            elif "pop" in operation_text:
+                operation = "pop" if self.container_type == "stack" else "dequeue"
+            elif "peek" in operation_text:
+                operation = "peek" if self.container_type == "stack" else "front"
+            elif "front" in operation_text:
+                operation = "front"
+            elif "back" in operation_text:
+                operation = "back"
+            elif "size" in operation_text:
+                operation = "size"
+            elif "is_empty" in operation_text:
+                operation = "is_empty"
+            else:
+                self._log(f"❌ Неизвестная операция: {operation_text}")
+                return
+            
+            # Выполняем операцию
+            result = None
+            if operation in ["push", "enqueue", "push_front", "push_back"]:
+                if not value_text:
+                    QMessageBox.warning(self, "Ошибка", "Введите значение для операции добавления")
+                    return
+                
+                try:
+                    value = int(value_text)
+                except ValueError:
+                    QMessageBox.warning(self, "Ошибка", "Введите корректное число")
+                    return
+                
+                if self.container_type == "stack":
+                    success = self.current_algorithm.push(value)
+                    if success:
+                        self._log(f"✅ Добавлено в стек: {value}")
+                        # Визуализируем с анимацией
+                        if self.container_visualizer:
+                            element = self.container_visualizer.push(value)
+                            if element:
+                                # Немедленное обновление сцены
+                                self.scene.update()
+                                self.view.viewport().update()
+                    else:
+                        self._log(f"❌ Стек переполнен!")
+                elif self.container_type == "queue":
+                    success = self.current_algorithm.enqueue(value)
+                    if success:
+                        self._log(f"✅ Добавлено в очередь: {value}")
+                        if self.container_visualizer:
+                            element = self.container_visualizer.push(value)
+                            if element:
+                                self.scene.update()
+                                self.view.viewport().update()
+                    else:
+                        self._log(f"❌ Очередь переполнена!")
+                elif self.container_type == "deque":
+                    if operation == "push_front":
+                        success = self.current_algorithm.push_front(value)
+                        if success:
+                            self._log(f"✅ Добавлено в начало дека: {value}")
+                            if self.container_visualizer:
+                                element = self.container_visualizer.push(value, "front")
+                                if element:
+                                    self.scene.update()
+                                    self.view.viewport().update()
+                        else:
+                            self._log(f"❌ Дек переполнен!")
+                    else:  # push_back
+                        success = self.current_algorithm.push_back(value)
+                        if success:
+                            self._log(f"✅ Добавлено в конец дека: {value}")
+                            if self.container_visualizer:
+                                element = self.container_visualizer.push(value, "back")
+                                if element:
+                                    self.scene.update()
+                                    self.view.viewport().update()
+                        else:
+                            self._log(f"❌ Дек переполнен!")
+                
+            elif operation in ["pop", "dequeue", "pop_front", "pop_back"]:
+                if self.container_type == "stack":
+                    # Подсвечиваем перед удалением
+                    if self.container_visualizer:
+                        self.container_visualizer.highlight_operation("pop")
+                    
+                    result = self.current_algorithm.pop()
+                    if result is not None:
+                        self._log(f"✅ Извлечено из стека: {result}")
+                        if self.container_visualizer:
+                            # Ждем немного для анимации подсветки, затем удаляем
+                            QTimer.singleShot(300, lambda: (
+                                self.container_visualizer.pop(),
+                                self.scene.update(),
+                                self.view.viewport().update()
+                            ))
+                    else:
+                        self._log(f"❌ Стек пуст!")
+                elif self.container_type == "queue":
+                    # Подсвечиваем перед удалением
+                    if self.container_visualizer:
+                        self.container_visualizer.highlight_operation("dequeue")
+                    
+                    result = self.current_algorithm.dequeue()
+                    if result is not None:
+                        self._log(f"✅ Извлечено из очереди: {result}")
+                        if self.container_visualizer:
+                            QTimer.singleShot(300, lambda: (
+                                self.container_visualizer.pop("front"),
+                                self.scene.update(),
+                                self.view.viewport().update()
+                            ))
+                    else:
+                        self._log(f"❌ Очередь пуста!")
+                elif self.container_type == "deque":
+                    if operation == "pop_front":
+                        # Подсвечиваем перед удалением
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("pop", position="front")
+                        
+                        result = self.current_algorithm.pop_front()
+                        if result is not None:
+                            self._log(f"✅ Извлечено из начала дека: {result}")
+                            if self.container_visualizer:
+                                QTimer.singleShot(300, lambda: (
+                                    self.container_visualizer.pop("front"),
+                                    self.scene.update(),
+                                    self.view.viewport().update()
+                                ))
+                        else:
+                            self._log(f"❌ Дек пуст!")
+                    else:  # pop_back
+                        # Подсвечиваем перед удалением
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("pop", position="back")
+                        
+                        result = self.current_algorithm.pop_back()
+                        if result is not None:
+                            self._log(f"✅ Извлечено из конца дека: {result}")
+                            if self.container_visualizer:
+                                QTimer.singleShot(300, lambda: (
+                                    self.container_visualizer.pop("back"),
+                                    self.scene.update(),
+                                    self.view.viewport().update()
+                                ))
+                        else:
+                            self._log(f"❌ Дек пуст!")
+                
+            elif operation in ["peek", "front", "back"]:
+                if self.container_type == "stack":
+                    # Подсвечиваем элемент
+                    if self.container_visualizer:
+                        self.container_visualizer.highlight_operation("peek")
+                    
+                    result = self.current_algorithm.peek()
+                    if result is not None:
+                        self._log(f"👁 Верхний элемент стека: {result}")
+                    else:
+                        self._log(f"❌ Стек пуст!")
+                elif self.container_type == "queue":
+                    if operation == "front":
+                        # Подсвечиваем элемент
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("front")
+                        
+                        result = self.current_algorithm.front()
+                        if result is not None:
+                            self._log(f"👁 Первый элемент очереди: {result}")
+                        else:
+                            self._log(f"❌ Очередь пуста!")
+                    else:  # back
+                        # Подсвечиваем элемент
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("back")
+                        
+                        result = self.current_algorithm.back()
+                        if result is not None:
+                            self._log(f"👁 Последний элемент очереди: {result}")
+                        else:
+                            self._log(f"❌ Очередь пуста!")
+                elif self.container_type == "deque":
+                    if operation == "front":
+                        # Подсвечиваем элемент
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("front", position="front")
+                        
+                        result = self.current_algorithm.front()
+                        if result is not None:
+                            self._log(f"👁 Первый элемент дека: {result}")
+                        else:
+                            self._log(f"❌ Дек пуст!")
+                    else:  # back
+                        # Подсвечиваем элемент
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("back", position="back")
+                        
+                        result = self.current_algorithm.back()
+                        if result is not None:
+                            self._log(f"👁 Последний элемент дека: {result}")
+                        else:
+                            self._log(f"❌ Дек пуст!")
+                
+            elif operation == "size":
+                if self.container_type == "stack":
+                    result = self.current_algorithm.size()
+                elif self.container_type == "queue":
+                    result = self.current_algorithm.size()
+                elif self.container_type == "deque":
+                    result = self.current_algorithm.size()
+                
+                self._log(f"📊 Размер {self.container_type}: {result}")
+                if self.container_visualizer:
+                    # Анимация подсветки всех элементов
+                    for elem in self.container_visualizer.elements:
+                        elem.bounce_animation()
+                
+            elif operation == "is_empty":
+                if self.container_type == "stack":
+                    result = self.current_algorithm.is_empty()
+                elif self.container_type == "queue":
+                    result = self.current_algorithm.is_empty()
+                elif self.container_type == "deque":
+                    result = self.current_algorithm.is_empty()
+                
+                status = "пуст(а)" if result else "не пуст(а)"
+                self._log(f"📋 {self.container_type.capitalize()} {status}")
+                if self.container_visualizer and result:
+                    # Если пусто, анимируем заголовок
+                    if hasattr(self.container_visualizer, 'title_text'):
+                        anim = QPropertyAnimation(self.container_visualizer.title_text, b"scale")
+                        anim.setDuration(500)
+                        anim.setStartValue(1.0)
+                        anim.setEndValue(1.1)
+                        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+                        anim.start()
+            
+            # Очищаем поле ввода
+            self.container_val_input.clear()
+            
+            # Немедленно обновляем сцену
+            self.scene.update()
+            self.view.viewport().update()
+            
+            # Подгоняем масштаб к содержимому
+            self._fit_to_content()
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при выполнении операции: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _clear_container(self):
+        """Очищает текущий контейнер."""
+        reply = QMessageBox.question(
+            self, "Подтверждение", 
+            "Вы уверены, что хотите очистить контейнер?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                if self.container_type == "stack":
+                    self.current_algorithm.clear()
+                elif self.container_type == "queue":
+                    self.current_algorithm.clear()
+                elif self.container_type == "deque":
+                    self.current_algorithm.clear()
+                
+                self._log("🗑️ Контейнер очищен")
+                
+                # Очищаем визуализацию и создаем заново
+                if self.container_visualizer:
+                    self.container_visualizer.clear()
+                    # Очищаем сцену и создаем интерфейс заново
+                    self.scene.clear()
+                    self.container_visualizer._create_interface()
+                    
+            except Exception as e:
+                self._log(f"❌ Ошибка при очистке контейнера: {str(e)}")
+
+    def _add_random_to_container(self):
+        """Добавляет случайные значения в контейнер с анимацией."""
+        try:
+            values = [random.randint(10, 99) for _ in range(3)]
+            
+            for i, value in enumerate(values):
+                if self.container_type == "stack":
+                    self.current_algorithm.push(value)
+                    if self.container_visualizer:
+                        # Задержка для последовательной анимации
+                        delay = i * 500
+                        QTimer.singleShot(delay, lambda v=value: (
+                            self.container_visualizer.push(v),
+                            self.scene.update(),
+                            self.view.viewport().update(),
+                            self._log(f"🎲 Добавлено: {v}")
+                        ))
+                elif self.container_type == "queue":
+                    self.current_algorithm.enqueue(value)
+                    if self.container_visualizer:
+                        delay = i * 500
+                        QTimer.singleShot(delay, lambda v=value: (
+                            self.container_visualizer.push(v),
+                            self.scene.update(),
+                            self.view.viewport().update(),
+                            self._log(f"🎲 Добавлено: {v}")
+                        ))
+                elif self.container_type == "deque":
+                    # Чередуем добавление в начало и конец
+                    if i % 2 == 0:
+                        self.current_algorithm.push_front(value)
+                        if self.container_visualizer:
+                            delay = i * 500
+                            QTimer.singleShot(delay, lambda v=value: (
+                                self.container_visualizer.push(v, "front"),
+                                self.scene.update(),
+                                self.view.viewport().update(),
+                                self._log(f"🎲 Добавлено в начало: {v}")
+                            ))
+                    else:
+                        self.current_algorithm.push_back(value)
+                        if self.container_visualizer:
+                            delay = i * 500
+                            QTimer.singleShot(delay, lambda v=value: (
+                                self.container_visualizer.push(v, "back"),
+                                self.scene.update(),
+                                self.view.viewport().update(),
+                                self._log(f"🎲 Добавлено в конец: {v}")
+                            ))
+            
+            # Обновляем сцену после всех анимаций
+            QTimer.singleShot(2000, lambda: (
+                self.scene.update(),
+                self.view.viewport().update(),
+                self._fit_to_content()
+            ))
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при добавлении случайных значений: {str(e)}")
+
+    def _render_container_initial_view(self):
+        """Отображает начальный вид для контейнера."""
+        self.scene.clear()
+        
+        if self.container_visualizer:
+            # Визуализатор сам создает интерфейс
+            self.container_visualizer._create_interface()
+        
+        self._log(f"📦 Инициализирован {self.container_type}")
+        # Немедленно обновляем отображение
+        self.scene.update()
+        self.view.viewport().update()
+
     def _fit_to_content(self):
         """Подгоняет масштаб к содержимому."""
         self._schedule_zoom_reset()
