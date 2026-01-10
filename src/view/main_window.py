@@ -3948,22 +3948,12 @@ class MainWindow(QMainWindow):
             operation_text = self.container_ops_combo.currentText()
             value_text = self.container_val_input.text().strip()
             
-            # Определяем тип операции
-            if "push" in operation_text and "front" in operation_text:
-                operation = "push_front"
-            elif "push" in operation_text and "back" in operation_text:
-                operation = "push_back"
-            elif "push" in operation_text:
-                operation = "push" if self.container_type == "stack" else "enqueue"
-            elif "pop" in operation_text and "front" in operation_text:
-                operation = "pop_front"
-            elif "pop" in operation_text and "back" in operation_text:
-                operation = "pop_back"
-            elif "pop" in operation_text:
-                operation = "pop" if self.container_type == "stack" else "dequeue"
-            elif "peek" in operation_text:
-                operation = "peek" if self.container_type == "stack" else "front"
-            elif "front" in operation_text:
+            # Определяем тип операции на основе всего текста
+            if "enqueue" in operation_text:
+                operation = "enqueue"
+            elif "dequeue" in operation_text:
+                operation = "dequeue"
+            elif "front" in operation_text and "peek" not in operation_text:
                 operation = "front"
             elif "back" in operation_text:
                 operation = "back"
@@ -3972,8 +3962,25 @@ class MainWindow(QMainWindow):
             elif "is_empty" in operation_text:
                 operation = "is_empty"
             else:
-                self._log(f"❌ Неизвестная операция: {operation_text}")
-                return
+                # Для стека
+                if "push" in operation_text:
+                    operation = "push"
+                elif "pop" in operation_text:
+                    operation = "pop"
+                elif "peek" in operation_text:
+                    operation = "peek"
+                # Для дека
+                elif "push_front" in operation_text:
+                    operation = "push_front"
+                elif "push_back" in operation_text:
+                    operation = "push_back"
+                elif "pop_front" in operation_text:
+                    operation = "pop_front"
+                elif "pop_back" in operation_text:
+                    operation = "pop_back"
+                else:
+                    self._log(f"❌ Неизвестная операция: {operation_text}")
+                    return
             
             # Выполняем операцию
             result = None
