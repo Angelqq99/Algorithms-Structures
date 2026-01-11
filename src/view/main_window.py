@@ -84,7 +84,7 @@ class TempArraysWidget(QFrame):
         
         # === ЛЕВЫЙ МАССИВ ===
         left_widget = QWidget()
-        left_widget.setFixedWidth(250)
+        left_widget.setFixedWidth(200)
         
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -146,7 +146,7 @@ class TempArraysWidget(QFrame):
         
         # === ПРАВЫЙ МАССИВ ===
         right_widget = QWidget()
-        right_widget.setFixedWidth(250)
+        right_widget.setFixedWidth(200)
         
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -1728,21 +1728,47 @@ class MainWindow(QMainWindow):
         self.engine.set_speed(value)
         self._log(f"⚡ Скорость изменена: x{value}")
 
+    
     def _on_category_changed(self, category):
         """Обработка изменения категории алгоритма."""
-        # Очищаем интерактивную панель при смене категории
+        # 1. Скрываем ВСЕ специфичные виджеты
+        self.temp_arrays_widget.hide()
+        self.temp_arrays_widget.clear()
+        
+        # Скрываем настройки графов
+        self.graph_settings_label.hide()
+        self.directed_label.hide()
+        self.directed_checkbox.hide()
+        self.graph_layout_label.hide()
+        self.graph_layout_combo.hide()
+        
+        # Скрываем настройки хэш-таблицы
+        self.hashtable_settings_label.hide()
+        self.hash_function_label.hide()
+        self.hash_function_combo.hide()
+        self.collision_method_label.hide()
+        self.collision_method_combo.hide()
+        self.table_size_label.hide()
+        self.table_size_slider.hide()
+        self.table_size_value.hide()
+        self.view_chains_btn.hide()
+        
+        # 2. Очищаем сцену
+        self.scene.clear()
+        
+        # 3. Очищаем интерактивную панель
         self._clear_interactive_panel()
         
+        # 4. Инициализируем список алгоритмов
         self._initialize_algorithm_combo()
         
-        # Показываем/скрываем настройки графа
+        # 5. Показываем только нужные виджеты для текущей категории
         if category == "Графы":
             self.graph_settings_label.show()
             self.directed_label.show()
             self.directed_checkbox.show()
             self.graph_layout_label.show()
             self.graph_layout_combo.show()
-            self.view_chains_btn.hide()
         elif category == "Хэш-таблицы":
             self.hashtable_settings_label.show()
             self.hash_function_label.show()
@@ -1753,23 +1779,8 @@ class MainWindow(QMainWindow):
             self.table_size_slider.show()
             self.table_size_value.show()
             self.view_chains_btn.show()
-        else:
-            self.graph_settings_label.hide()
-            self.directed_label.hide()
-            self.directed_checkbox.hide()
-            self.graph_layout_label.hide()
-            self.graph_layout_combo.hide()
-            self.hashtable_settings_label.hide()
-            self.hash_function_label.hide()
-            self.hash_function_combo.hide()
-            self.collision_method_label.hide()
-            self.collision_method_combo.hide()
-            self.table_size_label.hide()
-            self.table_size_slider.hide()
-            self.table_size_value.hide()
-            self.view_chains_btn.hide()
-            
-        # Обновляем интерактивную панель
+        
+        # 6. Обновляем интерактивную панель
         if category == "Деревья":
             self._create_tree_interactive_panel()
         elif category == "Структуры данных":
@@ -1778,12 +1789,11 @@ class MainWindow(QMainWindow):
         else:
             self._clear_interactive_panel()
             
-        # Сбрасываем алгоритм при смене категории
+        # 7. Сбрасываем алгоритм при смене категории
         self._reset_algorithm()
         
-        # Для структур данных также очищаем сцену
+        # 8. Для структур данных показываем сообщение
         if category == "Структуры данных":
-            self.scene.clear()
             self._log("📦 Выберите структуру данных для интерактивных операций")
 
     def _create_container_panel_for_current_algo(self):
@@ -1871,6 +1881,14 @@ class MainWindow(QMainWindow):
     def _reset_algorithm(self):
         """Сброс текущего алгоритма и интерфейса."""
         try:
+            # Скрываем специфичные виджеты
+            self.temp_arrays_widget.hide()
+            self.temp_arrays_widget.clear()
+            
+            # Очищаем сцену
+            self.scene.clear()
+            
+            # Останавливаем движок
             self.engine.pause()
             self.engine.generator = None
             
@@ -1878,15 +1896,15 @@ class MainWindow(QMainWindow):
             self._search_generator = None
             self._search_value = None
             
+            # Очищаем визуализаторы графов
             if hasattr(self, 'graph_visualizer'):
                 self.graph_visualizer.clear()
             
+            # Очищаем контейнеры
             if hasattr(self, 'container_visualizer') and self.container_visualizer:
                 self.container_visualizer.clear()
                 self.container_visualizer = None
                 self.container_type = None
-            
-            self.scene.clear()
             
             # Сброс состояния хэш-таблицы
             self.hashtable_cells = []
@@ -3948,39 +3966,41 @@ class MainWindow(QMainWindow):
             operation_text = self.container_ops_combo.currentText()
             value_text = self.container_val_input.text().strip()
             
-            # Определяем тип операции на основе всего текста
-            if "enqueue" in operation_text:
-                operation = "enqueue"
-            elif "dequeue" in operation_text:
-                operation = "dequeue"
-            elif "front" in operation_text and "peek" not in operation_text:
+            # ИСПРАВЛЕННЫЙ БЛОК ОПРЕДЕЛЕНИЯ ОПЕРАЦИИ
+            operation = ""
+            
+            # Сначала проверяем полные названия операций
+            if operation_text == "push_front (добавить в начало)":
+                operation = "push_front"
+            elif operation_text == "push_back (добавить в конец)":
+                operation = "push_back"
+            elif operation_text == "pop_front (удалить из начала)":
+                operation = "pop_front"
+            elif operation_text == "pop_back (удалить из конца)":
+                operation = "pop_back"
+            elif operation_text == "front (посмотреть первый)":
                 operation = "front"
-            elif "back" in operation_text:
+            elif operation_text == "back (посмотреть последний)":
                 operation = "back"
-            elif "size" in operation_text:
+            elif operation_text == "size (размер)":
                 operation = "size"
-            elif "is_empty" in operation_text:
+            elif operation_text == "is_empty (пусто?)":
                 operation = "is_empty"
+            # Для стека
+            elif operation_text == "push (добавить)":
+                operation = "push"
+            elif operation_text == "pop (удалить верхний)":
+                operation = "pop"
+            elif operation_text == "peek (посмотреть верхний)":
+                operation = "peek"
+            # Для очереди
+            elif operation_text == "enqueue (добавить)":
+                operation = "enqueue"
+            elif operation_text == "dequeue (удалить первый)":
+                operation = "dequeue"
             else:
-                # Для стека
-                if "push" in operation_text:
-                    operation = "push"
-                elif "pop" in operation_text:
-                    operation = "pop"
-                elif "peek" in operation_text:
-                    operation = "peek"
-                # Для дека
-                elif "push_front" in operation_text:
-                    operation = "push_front"
-                elif "push_back" in operation_text:
-                    operation = "push_back"
-                elif "pop_front" in operation_text:
-                    operation = "pop_front"
-                elif "pop_back" in operation_text:
-                    operation = "pop_back"
-                else:
-                    self._log(f"❌ Неизвестная операция: {operation_text}")
-                    return
+                self._log(f"❌ Неизвестная операция: {operation_text}")
+                return
             
             # Выполняем операцию
             result = None
@@ -4031,7 +4051,7 @@ class MainWindow(QMainWindow):
                                     self.view.viewport().update()
                         else:
                             self._log(f"❌ Дек переполнен!")
-                    else:  # push_back
+                    elif operation == "push_back":  # push_back
                         success = self.current_algorithm.push_back(value)
                         if success:
                             self._log(f"✅ Добавлено в конец дека: {value}")
@@ -4094,7 +4114,7 @@ class MainWindow(QMainWindow):
                                 ))
                         else:
                             self._log(f"❌ Дек пуст!")
-                    else:  # pop_back
+                    elif operation == "pop_back":  # pop_back
                         # Подсвечиваем перед удалением
                         if self.container_visualizer:
                             self.container_visualizer.highlight_operation("pop", position="back")
@@ -4133,7 +4153,7 @@ class MainWindow(QMainWindow):
                             self._log(f"👁 Первый элемент очереди: {result}")
                         else:
                             self._log(f"❌ Очередь пуста!")
-                    else:  # back
+                    elif operation == "back":  # back
                         # Подсвечиваем элемент
                         if self.container_visualizer:
                             self.container_visualizer.highlight_operation("back")
@@ -4154,7 +4174,7 @@ class MainWindow(QMainWindow):
                             self._log(f"👁 Первый элемент дека: {result}")
                         else:
                             self._log(f"❌ Дек пуст!")
-                    else:  # back
+                    elif operation == "back":  # back
                         # Подсвечиваем элемент
                         if self.container_visualizer:
                             self.container_visualizer.highlight_operation("back", position="back")
