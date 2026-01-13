@@ -1513,11 +1513,24 @@ class MainWindow(QMainWindow):
 
     def _create_tree_interactive_panel(self):
         """Создает панель интерактивных операций для деревьев."""
-        # Очищаем контейнер
+        # Двойная проверка категории
+        if self.category_combo.currentText() != "Деревья":
+            return
+        
+        # Полностью очищаем предыдущие виджеты
         self._clear_interactive_panel_children()
+        
+        # Ждем завершения очистки
+        QApplication.processEvents()
         
         # Обновляем информационную метку
         self.info_label.setText("ℹ️ Выполняйте операции с деревом в реальном времени")
+        
+        # Скрываем панель операций перед созданием новых виджетов
+        self.operations_container.hide()
+        
+        # Вместо создания отдельного виджета, создаем элементы напрямую в operations_layout
+        # чтобы избежать временного появления отдельного окна
         
         # Поле ввода значения
         input_layout = QHBoxLayout()
@@ -1532,13 +1545,11 @@ class MainWindow(QMainWindow):
                 font-size: 14px;
             }
         """)
-        self.val_input.returnPressed.connect(self._on_operation_execute)
         input_layout.addWidget(self.val_input)
         self.operations_layout.addLayout(input_layout)
         
         # Выбор операции
-        ops_layout = QHBoxLayout()
-        ops_layout.addWidget(QLabel("Операция:"))
+        self.operations_layout.addWidget(QLabel("Операция:"))
         self.tree_ops_combo = QComboBox()
         self.tree_ops_combo.addItems([
             "Вставить узел",
@@ -1557,8 +1568,7 @@ class MainWindow(QMainWindow):
                 font-size: 14px;
             }
         """)
-        ops_layout.addWidget(self.tree_ops_combo)
-        self.operations_layout.addLayout(ops_layout)
+        self.operations_layout.addWidget(self.tree_ops_combo)
         
         # Кнопка выполнения
         self.execute_btn = QPushButton("Выполнить операцию")
@@ -1579,7 +1589,6 @@ class MainWindow(QMainWindow):
                 background-color: #2eaba2;
             }
         """)
-        self.execute_btn.clicked.connect(self._on_operation_execute)
         self.operations_layout.addWidget(self.execute_btn)
         
         # Панель быстрых действий
@@ -1609,14 +1618,6 @@ class MainWindow(QMainWindow):
         self.btn_clear = QPushButton("🗑️ Очистить")
         self.btn_random = QPushButton("🎲 Случайные")
         
-        # Подключаем сигналы
-        self.btn_min.clicked.connect(lambda: self._find_min_max("min"))
-        self.btn_max.clicked.connect(lambda: self._find_min_max("max"))
-        self.btn_height.clicked.connect(self._get_tree_height)
-        self.btn_balance.clicked.connect(self._check_balance)
-        self.btn_clear.clicked.connect(self._clear_tree)
-        self.btn_random.clicked.connect(self._add_random_nodes)
-        
         # Стили кнопок быстрых действий
         quick_button_style = """
             QPushButton {
@@ -1636,7 +1637,7 @@ class MainWindow(QMainWindow):
         """
         
         for btn in [self.btn_min, self.btn_max, self.btn_height, self.btn_balance, 
-                   self.btn_clear, self.btn_random]:
+                    self.btn_clear, self.btn_random]:
             btn.setStyleSheet(quick_button_style)
             btn.setMinimumHeight(35)
         
@@ -1650,6 +1651,24 @@ class MainWindow(QMainWindow):
         
         quick_actions.setLayout(quick_layout)
         self.operations_layout.addWidget(quick_actions)
+        
+        # Подключаем сигналы
+        self.val_input.returnPressed.connect(self._on_operation_execute)
+        self.execute_btn.clicked.connect(self._on_operation_execute)
+        self.btn_min.clicked.connect(lambda: self._find_min_max("min"))
+        self.btn_max.clicked.connect(lambda: self._find_min_max("max"))
+        self.btn_height.clicked.connect(self._get_tree_height)
+        self.btn_balance.clicked.connect(self._check_balance)
+        self.btn_clear.clicked.connect(self._clear_tree)
+        self.btn_random.clicked.connect(self._add_random_nodes)
+        
+        # Показываем панель операций
+        self.operations_container.show()
+        
+        # Принудительное обновление
+        self.operations_container.update()
+        self.interactive_widget.update()
+        QApplication.processEvents()
 
     def _clear_interactive_panel(self):
         """Очищает панель интерактивных операций."""
@@ -1731,18 +1750,21 @@ class MainWindow(QMainWindow):
     
     def _on_category_changed(self, category):
         """Обработка изменения категории алгоритма."""
-        # 1. Скрываем ВСЕ специфичные виджеты
+        # 1. Приостанавливаем все операции
+        self.engine.pause()
+        
+        # 2. Скрываем ВСЕ специфичные виджеты
         self.temp_arrays_widget.hide()
         self.temp_arrays_widget.clear()
         
-        # Скрываем настройки графов
+        # 3. Скрываем настройки графов
         self.graph_settings_label.hide()
         self.directed_label.hide()
         self.directed_checkbox.hide()
         self.graph_layout_label.hide()
         self.graph_layout_combo.hide()
         
-        # Скрываем настройки хэш-таблицы
+        # 4. Скрываем настройки хэш-таблицы
         self.hashtable_settings_label.hide()
         self.hash_function_label.hide()
         self.hash_function_combo.hide()
@@ -1753,16 +1775,19 @@ class MainWindow(QMainWindow):
         self.table_size_value.hide()
         self.view_chains_btn.hide()
         
-        # 2. Очищаем сцену
+        # 5. Очищаем сцену
         self.scene.clear()
         
-        # 3. Очищаем интерактивную панель
+        # 6. Даем время на очистку
+        QApplication.processEvents()
+        
+        # 7. Очищаем интерактивную панель
         self._clear_interactive_panel()
         
-        # 4. Инициализируем список алгоритмов
+        # 8. Инициализируем список алгоритмов
         self._initialize_algorithm_combo()
         
-        # 5. Показываем только нужные виджеты для текущей категории
+        # 9. Показываем только нужные виджеты для текущей категории
         if category == "Графы":
             self.graph_settings_label.show()
             self.directed_label.show()
@@ -1780,19 +1805,18 @@ class MainWindow(QMainWindow):
             self.table_size_value.show()
             self.view_chains_btn.show()
         
-        # 6. Обновляем интерактивную панель
+        # 10. Обновляем интерактивную панель
         if category == "Деревья":
-            self._create_tree_interactive_panel()
+            QTimer.singleShot(100, self._create_tree_interactive_panel)
         elif category == "Структуры данных":
-            # Создаем панель для первого алгоритма в списке
-            self._create_container_panel_for_current_algo()
+            QTimer.singleShot(100, self._create_container_panel_for_current_algo)
         else:
             self._clear_interactive_panel()
-            
-        # 7. Сбрасываем алгоритм при смене категории
+        
+        # 11. Сбрасываем алгоритм при смене категории
         self._reset_algorithm()
         
-        # 8. Для структур данных показываем сообщение
+        # 12. Для структур данных показываем сообщение
         if category == "Структуры данных":
             self._log("📦 Выберите структуру данных для интерактивных операций")
 
@@ -1881,14 +1905,7 @@ class MainWindow(QMainWindow):
     def _reset_algorithm(self):
         """Сброс текущего алгоритма и интерфейса."""
         try:
-            # Скрываем специфичные виджеты
-            self.temp_arrays_widget.hide()
-            self.temp_arrays_widget.clear()
-            
-            # Очищаем сцену
-            self.scene.clear()
-            
-            # Останавливаем движок
+            # 1. Останавливаем движок и таймеры
             self.engine.pause()
             self.engine.generator = None
             
@@ -1896,23 +1913,43 @@ class MainWindow(QMainWindow):
             self._search_generator = None
             self._search_value = None
             
-            # Очищаем визуализаторы графов
-            if hasattr(self, 'graph_visualizer'):
-                self.graph_visualizer.clear()
+            # Останавливаем таймеры анимации
+            self.hashtable_animation_timer.stop()
+            if self.zoom_reset_timer.isActive():
+                self.zoom_reset_timer.stop()
             
-            # Очищаем контейнеры
+            # 2. Очищаем контейнеры ПЕРЕД очисткой сцены
             if hasattr(self, 'container_visualizer') and self.container_visualizer:
-                self.container_visualizer.clear()
+                try:
+                    self.container_visualizer.clear()
+                except Exception as e:
+                    print(f"Warning clearing container visualizer: {e}")
                 self.container_visualizer = None
                 self.container_type = None
             
-            # Сброс состояния хэш-таблицы
+            # 3. Очищаем визуализаторы графов ПЕРЕД очисткой сцены
+            if hasattr(self, 'graph_visualizer'):
+                try:
+                    self.graph_visualizer.clear()
+                except Exception as e:
+                    print(f"Warning clearing graph visualizer: {e}")
+            
+            # 4. Теперь очищаем сцену
+            if hasattr(self, 'scene'):
+                self.scene.clear()
+            
+            # 5. Скрываем специфичные виджеты
+            self.temp_arrays_widget.hide()
+            self.temp_arrays_widget.clear()
+            
+            # 6. Сброс состояния хэш-таблицы
             self.hashtable_cells = []
             self.hashtable_stats = {}
             self.hashtable_display_mode = "initial"
             self.hashtable_scroll_enabled = False
             self.current_hashtable_data = []
             
+            # 7. Сброс других состояний
             self.current_algorithm = None
             self.is_auto_mode = False
             self.is_animating = False
@@ -1927,25 +1964,18 @@ class MainWindow(QMainWindow):
             self._split_lines = []
             self.animation_queue = []
             
-            # Отключаем кнопку просмотра цепочек
+            # 8. Отключаем кнопку просмотра цепочек
             self.view_chains_btn.setEnabled(False)
             
-            # Остановка таймеров анимации
-            self.hashtable_animation_timer.stop()
-            
-            # Скрываем виджет временных массивов
-            self.temp_arrays_widget.hide()
-            self.temp_arrays_widget.clear()
-
+            # 9. Восстанавливаем кнопки
             self.auto_btn.show()
             self.pause_btn.hide()
             self.start_btn.setEnabled(True)
             
-            # Восстанавливаем начальный вид
+            # 10. Восстанавливаем начальный вид
             category = self.category_combo.currentText()
             if category == "Структуры данных":
-                # Для структур данных показываем пустую сцену
-                self.scene.clear()
+                # Для структур данных просто очищаем сцену
                 self._log("📦 Контейнер сброшен")
             elif category == "Хэш-таблицы":
                 # Для хэш-таблицы показываем начальный вид
@@ -1965,12 +1995,15 @@ class MainWindow(QMainWindow):
                     if hasattr(self, 'current_data'):
                         self._render_array(self.current_data)
             
-            self.scene.update()
+            # 11. Обновляем сцену и вид
+            if hasattr(self, 'scene'):
+                self.scene.update()
             if hasattr(self, 'view'):
                 self.view.update()
             
             self._log("♻ Алгоритм сброшен. Можно запустить заново.")
             
+            # 12. Планируем сброс зума
             self._schedule_zoom_reset()
             
         except Exception as e:
@@ -3794,7 +3827,29 @@ class MainWindow(QMainWindow):
                         tree.data = []
                     
                     self._log("🗑️ Дерево очищено")
-                    self._update_tree_visualization("Дерево очищено")
+                    
+                    # Визуально очищаем сцену
+                    self.scene.clear()
+                    self.visual_items.clear()
+                    
+                    # Очищаем визуализатор деревьев
+                    if hasattr(self, 'tree_visualizer'):
+                        self.tree_visualizer.clear()
+                    
+                    # Сбрасываем последние данные дерева
+                    self._last_tree_data = None
+                    
+                    # Показываем сообщение о пустом дереве
+                    text_item = self.scene.addText("Дерево очищено")
+                    text_item.setDefaultTextColor(QColor("#666"))
+                    text_item.setFont(QFont("Arial", 16))
+                    text_item.setPos(-50, -20)
+                    
+                    # Подгоняем масштаб
+                    self._schedule_zoom_reset()
+                    
+                    # Обновляем инспектор
+                    self.inspector.update_info({"type": "tree_cleared", "description": "Дерево очищено"})
                     
             except Exception as e:
                 self._log(f"❌ Ошибка при очистке дерева: {str(e)}")

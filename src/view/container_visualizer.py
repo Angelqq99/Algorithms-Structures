@@ -300,24 +300,43 @@ class ContainerVisualizer:
         self.scene.addItem(text_val)
     
     def clear(self):
-        """Очищает визуализацию"""
-        # Останавливаем анимации
-        for anim in self.animations:
-            try:
-                anim.stop()
-            except:
-                pass
-        self.animations.clear()
-        
-        # Удаляем элементы
-        for elem in self.elements:
-            try:
-                self.scene.removeItem(elem)
-            except:
-                pass
-        self.elements.clear()
-        
-        self._update_status("Структура очищена")
+        """Очищает визуализатор контейнера."""
+        try:
+            # Удаляем все элементы
+            for element in self.elements:
+                if element and element in self.scene.items():
+                    self.scene.removeItem(element)
+            self.elements.clear()
+            
+            # Очищаем текстовые элементы если они еще существуют
+            if hasattr(self, 'title_text') and self.title_text:
+                try:
+                    if self.title_text in self.scene.items():
+                        self.scene.removeItem(self.title_text)
+                except:
+                    pass
+            
+            if hasattr(self, 'status_text') and self.status_text:
+                try:
+                    if self.status_text in self.scene.items():
+                        self.scene.removeItem(self.status_text)
+                except:
+                    pass
+            
+            if hasattr(self, 'info_text') and self.info_text:
+                try:
+                    if self.info_text in self.scene.items():
+                        self.scene.removeItem(self.info_text)
+                except:
+                    pass
+            
+            # Обнуляем ссылки
+            self.title_text = None
+            self.status_text = None
+            self.info_text = None
+            
+        except Exception as e:
+            print(f"Warning in container visualizer clear: {e}")
     
     def _update_status(self, message, is_error=False):
         """Обновляет статусную строку"""
