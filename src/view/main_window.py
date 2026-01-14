@@ -15,6 +15,9 @@ from controller.engine import Engine
 from model.sorting.quicksort import QuickSort
 from model.sorting.mergesort import MergeSort
 from model.sorting.bubblesort import BubbleSort
+from model.sorting.insertionsort import InsertionSort
+from model.sorting.selectionsort import SelectionSort
+from model.sorting.shellsort import ShellSort
 from model.trees.bst import BST
 from model.trees.avl import AVLTree
 from model.trees.red_black_tree import RedBlackTree
@@ -832,7 +835,7 @@ class ChainsViewerDialog(QDialog):
             self.table.setSpan(0, 0, 1, 3)
     
     def _copy_all_chains(self):
-        """Копирует все цепочки в текстовом формате."""
+        """Копирует все цепочки в текстовном формате."""
         try:
             text = "Все цепочки в хэш-таблице:\n\n"
             
@@ -956,8 +959,42 @@ class MainWindow(QMainWindow):
         self._search_generator = None
         self._search_value = None
 
+        # Система цветов
+        self._setup_color_system()
+
         self._setup_ui()
         self._connect_signals()
+
+    def _setup_color_system(self):
+        """Инициализация системы цветов для визуализации."""
+        # Цветовая палитра для сортировок
+        self.color_palette = {
+            # Основные состояния
+            "default": "#5A9BD5",        # Синий - обычное состояние
+            "sorted": "#7EE081",         # Зеленый - отсортированное положение
+            "current": "#FFD700",        # Желтый - текущий элемент
+            "comparing": "#FFA500",      # Оранжевый - сравнение
+            "swapping": "#FF6B6B",       # Красный - обмен
+            "pivot": "#9B59B6",         # Фиолетовый - опорный элемент
+            "key": "#3498DB",           # Голубой - ключевой элемент (для InsertionSort)
+            "shifted": "#E67E22",       # Оранжевый темный - сдвинутый элемент
+            "selected": "#1ABC9C",      # Бирюзовый - выбранный (для SelectionSort)
+            "group": "#4ECDC4",         # Бирюзовый светлый - группа (ShellSort)
+            "merging": "#2ECC71",       # Зеленый - слияние
+            "merge_left": "#4ECDC4",    # Бирюзовый - левый массив MergeSort
+            "merge_right": "#FF6B6B",   # Красный - правый массив MergeSort
+            "merge_target": "#7EE081",  # Светло-зеленый - целевая позиция MergeSort
+            
+            # Вспомогательные
+            "highlight": "#FFD700",     # Желтый - временная подсветка
+            "info": "#3498DB",          # Синий - информационный
+            "warning": "#E74C3C",       # Красный - предупреждение
+            "success": "#2ECC71",       # Зеленый - успех
+        }
+        
+        # Сброс кэша цветов
+        self.current_highlight = set()
+        self.last_operation = None
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -1731,7 +1768,14 @@ class MainWindow(QMainWindow):
         category = self.category_combo.currentText()
         self.algorithm_combo.clear()
         if category == "Сортировки":
-            self.algorithm_combo.addItems(["QuickSort", "MergeSort", "BubbleSort"])
+            self.algorithm_combo.addItems([
+                "QuickSort", 
+                "MergeSort", 
+                "BubbleSort",
+                "InsertionSort",  
+                "SelectionSort",  
+                "ShellSort"       
+            ])
         elif category == "Деревья":
             self.algorithm_combo.addItems(["BST", "AVL", "RedBlackTree", "SplayTree", "Treap", "BTree"])
         elif category == "Графы":
@@ -1958,6 +2002,10 @@ class MainWindow(QMainWindow):
             self.current_step = 0
             self.total_steps = 0
             
+            # Сброс системы цветов
+            self.current_highlight.clear()
+            self.last_operation = None
+            
             self._pending_tree_data = []
             self._last_tree_data = None
             self._temp_array_items = []
@@ -2126,6 +2174,9 @@ class MainWindow(QMainWindow):
                     "QuickSort": lambda: QuickSort(arr.copy()),
                     "MergeSort": lambda: MergeSort(arr.copy()),
                     "BubbleSort": lambda: BubbleSort(arr.copy()),
+                    "InsertionSort": lambda: InsertionSort(arr.copy()),  
+                    "SelectionSort": lambda: SelectionSort(arr.copy()),  
+                    "ShellSort": lambda: ShellSort(arr.copy()),   
                     "BST": lambda: BST(arr.copy()),
                     "AVL": lambda: AVLTree(arr.copy()),
                     "RedBlackTree": lambda: RedBlackTree(arr.copy()),
@@ -2627,8 +2678,69 @@ class MainWindow(QMainWindow):
                     self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
                     self.view.centerOn(rect.center())
 
+    def _reset_all_colors(self, keep_sorted=False):
+        """Сбрасывает все цвета к стандартному состоянию."""
+        if not keep_sorted:
+            # Полный сброс всех элементов
+            for item in self.visual_items:
+                item.reset_color()
+            self.current_highlight.clear()
+        else:
+            # Сброс только не-отсортированных элементов
+            for item in self.visual_items:
+                if not hasattr(item, 'is_sorted') or not item.is_sorted:
+                    item.reset_color()
+                    
+    def _highlight_items(self, indices, color_name, description="", keep_others=False):
+        """Улучшенная подсветка элементов с управлением состояниями."""
+        if not keep_others:
+            # Сбрасываем предыдущую подсветку
+            self._reset_all_colors(keep_sorted=True)
+        
+        # Получаем цвет из палитры
+        color = self.color_palette.get(color_name, color_name)
+        
+        # Запоминаем текущую подсветку
+        self.current_highlight = set(indices)
+        self.last_operation = description
+        
+        # Подсвечиваем элементы
+        for i in range(len(self.visual_items)):
+            if i in indices:
+                self.visual_items[i].highlight(color)
+                
+                # Добавляем анимацию для 1-3 элементов
+                if len(indices) <= 3:
+                    self.visual_items[i].bounce_animation()
+            elif not keep_others:
+                # Сбрасываем только если явно не требуется сохранить
+                if hasattr(self.visual_items[i], 'is_sorted') and self.visual_items[i].is_sorted:
+                    # Оставляем отсортированные элементы зелеными
+                    self.visual_items[i].highlight(self.color_palette["sorted"])
+                else:
+                    self.visual_items[i].reset_color()
+        
+        # Логируем описание
+        if description:
+            self._log(description)
+            
+    def _mark_as_sorted(self, indices):
+        """Помечает элементы как отсортированные."""
+        for i in indices:
+            if i < len(self.visual_items):
+                self.visual_items[i].highlight(self.color_palette["sorted"])
+                self.visual_items[i].is_sorted = True
+                # Небольшая анимация для подтверждения
+                self.visual_items[i].bounce_animation(scale_factor=1.1)
+                
+    def _mark_as_current(self, index):
+        """Помечает элемент как текущий."""
+        if index < len(self.visual_items):
+            self.visual_items[index].highlight(self.color_palette["current"])
+            self.visual_items[index].bounce_animation()
+
     def _process_action(self, action):
-        """Обработка действия с анимацией."""
+        """Обработка действия с улучшенной системой цветов."""
         self.is_animating = True
         self.current_step += 1
         self.start_btn.setEnabled(False)
@@ -2674,8 +2786,7 @@ class MainWindow(QMainWindow):
                         action["connections"] = self.graph_visualizer.adjacency_list[node_index]
                     self._log(f"📍 Посещен узел: {node_index}")
             elif node_index < len(self.visual_items):
-                self.visual_items[node_index].highlight("#4ECDC4")
-                self.visual_items[node_index].bounce_animation()
+                self._mark_as_current(node_index)
                 self._log(f"📍 Посещен элемент: {node_index}")
             self._schedule_next_action(int(600 * speed_factor))
             
@@ -2709,7 +2820,7 @@ class MainWindow(QMainWindow):
             mid = action.get("mid", 0)
             
             indices = list(range(left, right + 1))
-            self._highlight_items(indices, "#FFA500", action.get("description", ""))
+            self._highlight_items(indices, "comparing", action.get("description", ""))
             
             self._draw_split_line(mid, left, right)
             
@@ -2722,11 +2833,11 @@ class MainWindow(QMainWindow):
             
             for i in range(left, mid + 1):
                 if i < len(self.visual_items):
-                    self.visual_items[i].highlight("#4ECDC4")
+                    self.visual_items[i].highlight(self.color_palette["merge_left"])
             
             for i in range(mid + 1, right + 1):
                 if i < len(self.visual_items):
-                    self.visual_items[i].highlight("#FF6B6B")
+                    self.visual_items[i].highlight(self.color_palette["merge_right"])
             
             self._log(action.get("description", ""))
             self._schedule_next_action(int(800 * speed_factor))
@@ -2746,15 +2857,15 @@ class MainWindow(QMainWindow):
             target_index = action.get("target_index", 0)
             
             if i < len(self.visual_items):
-                self.visual_items[i].highlight("#FFD700")
+                self.visual_items[i].highlight(self.color_palette["comparing"])
                 self.visual_items[i].bounce_animation()
             
             if j < len(self.visual_items):
-                self.visual_items[j].highlight("#FFD700")
+                self.visual_items[j].highlight(self.color_palette["comparing"])
                 self.visual_items[j].bounce_animation()
             
             if target_index < len(self.visual_items):
-                self.visual_items[target_index].highlight("#7EE081")
+                self.visual_items[target_index].highlight(self.color_palette["merge_target"])
             
             desc = action.get("description", "")
             left_val = action.get("left_value", 0)
@@ -2772,8 +2883,9 @@ class MainWindow(QMainWindow):
             is_from_left = "from_left" in t or "left" in t
             
             if from_idx < len(self.visual_items) and to_idx < len(self.visual_items):
-                self.visual_items[from_idx].highlight("#FF6B6B" if is_from_left else "#4ECDC4")
-                self.visual_items[to_idx].highlight("#7EE081")
+                color = self.color_palette["merge_left"] if is_from_left else self.color_palette["merge_right"]
+                self.visual_items[from_idx].highlight(color)
+                self.visual_items[to_idx].highlight(self.color_palette["merge_target"])
                 self.visual_items[to_idx].bounce_animation()
                 self.visual_items[to_idx].update_value(value)
                 
@@ -2791,7 +2903,7 @@ class MainWindow(QMainWindow):
             value = action.get("value", 0)
             
             if to_idx < len(self.visual_items):
-                self.visual_items[to_idx].highlight("#FFA500")
+                self.visual_items[to_idx].highlight(self.color_palette["merge_target"])
                 self.visual_items[to_idx].bounce_animation()
                 self.visual_items[to_idx].update_value(value)
                 
@@ -2809,7 +2921,7 @@ class MainWindow(QMainWindow):
             
             for i in range(left, right + 1):
                 if i < len(self.visual_items):
-                    self.visual_items[i].highlight("#7EE081")
+                    self.visual_items[i].highlight(self.color_palette["sorted"])
                     if i == left or i == right:
                         self.visual_items[i].bounce_animation()
             
@@ -2822,19 +2934,331 @@ class MainWindow(QMainWindow):
         elif t == "base_case":
             index = action.get("index", 0)
             if index < len(self.visual_items):
-                self.visual_items[index].highlight("#7EE081")
+                self.visual_items[index].highlight(self.color_palette["sorted"])
                 self.visual_items[index].bounce_animation()
             
             self._log(action.get("description", ""))
             self._schedule_next_action(int(500 * speed_factor))
             
+        # === ОБРАБОТЧИКИ ДЛЯ INSERTION SORT ===
+        elif t == "insertion_sorted_init":
+            index = action.get("sorted_index", 0)
+            if index < len(self.visual_items):
+                self._mark_as_sorted([index])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "insertion_start":
+            key_index = action.get("key_index", 0)
+            if key_index < len(self.visual_items):
+                self.visual_items[key_index].highlight(self.color_palette["key"])
+                self.visual_items[key_index].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "insertion_comparing_range":
+            start_index = action.get("start_index", 0)
+            key_index = action.get("key_index", 0)
+            
+            # Подсвечиваем диапазон для сравнения
+            for i in range(start_index + 1):
+                if i < len(self.visual_items):
+                    self.visual_items[i].highlight(self.color_palette["current"])
+            
+            if key_index < len(self.visual_items):
+                self.visual_items[key_index].highlight(self.color_palette["key"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "insertion_compare":
+            current_idx = action.get("current_index", 0)
+            key_idx = action.get("key_index", 0)
+            
+            if current_idx < len(self.visual_items):
+                self.visual_items[current_idx].highlight(self.color_palette["comparing"])
+                self.visual_items[current_idx].bounce_animation()
+            
+            if key_idx < len(self.visual_items):
+                self.visual_items[key_idx].highlight(self.color_palette["key"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "insertion_shift":
+            from_idx = action.get("from_index", 0)
+            to_idx = action.get("to_index", 0)
+            
+            if from_idx < len(self.visual_items) and to_idx < len(self.visual_items):
+                self.visual_items[to_idx].highlight(self.color_palette["shifted"])
+                self.visual_items[to_idx].bounce_animation()
+                self.visual_items[to_idx].update_value(action.get("shifted_value", 0))
+                
+                # Обновляем данные массива
+                if to_idx < len(self.array_data):
+                    self.array_data[to_idx] = action.get("shifted_value", 0)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "insertion_next_comparison":
+            next_idx = action.get("next_index", 0)
+            
+            if next_idx >= 0 and next_idx < len(self.visual_items):
+                self.visual_items[next_idx].highlight(self.color_palette["current"])
+                self.visual_items[next_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "insertion_insert":
+            from_idx = action.get("from_index", 0)
+            to_idx = action.get("to_index", 0)
+            value = action.get("value", 0)
+            
+            if to_idx < len(self.visual_items):
+                self._mark_as_sorted([to_idx])
+                self.visual_items[to_idx].update_value(value)
+                
+                # Обновляем данные массива
+                if to_idx < len(self.array_data):
+                    self.array_data[to_idx] = value
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "insertion_already_sorted":
+            index = action.get("index", 0)
+            
+            if index < len(self.visual_items):
+                self._mark_as_sorted([index])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "insertion_sorted_part":
+            sorted_indices = action.get("sorted_indices", [])
+            new_idx = action.get("newly_sorted_index", 0)
+            
+            # Помечаем все отсортированные элементы
+            self._mark_as_sorted(sorted_indices)
+            
+            if new_idx < len(self.visual_items):
+                self.visual_items[new_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+        
+        # === ОБРАБОТЧИКИ ДЛЯ SELECTION SORT ===
+        elif t == "selection_current":
+            index = action.get("current_index", 0)
+            
+            if index < len(self.visual_items):
+                self._mark_as_current(index)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "selection_compare":
+            indices = action.get("indices", (0, 0))
+            min_idx = action.get("current_min_index", 0)
+            compare_idx = indices[1]
+            
+            # Текущий минимум - бирюзовый
+            if min_idx < len(self.visual_items):
+                self.visual_items[min_idx].highlight(self.color_palette["selected"])
+            
+            # Сравниваемый элемент - оранжевый
+            if compare_idx < len(self.visual_items):
+                self.visual_items[compare_idx].highlight(self.color_palette["comparing"])
+                self.visual_items[compare_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "selection_new_min":
+            new_idx = action.get("new_min_index", 0)
+            
+            if new_idx < len(self.visual_items):
+                self.visual_items[new_idx].highlight(self.color_palette["selected"])
+                self.visual_items[new_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "selection_not_min":
+            index = action.get("compared_index", 0)
+            
+            if index < len(self.visual_items):
+                self.visual_items[index].highlight(self.color_palette["default"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(300 * speed_factor))
+            
+        elif t == "selection_pre_swap":
+            indices = action.get("indices", (0, 0))
+            
+            for i in indices:
+                if i < len(self.visual_items):
+                    self.visual_items[i].highlight(self.color_palette["swapping"])
+                    self.visual_items[i].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "selection_swap":
+            indices = action.get("indices", (0, 0))
+            
+            # Подсвечиваем обмен
+            self._highlight_items(list(indices), "swapping", "🔄 Обмен минимального элемента")
+            
+            # Выполняем обмен
+            if len(indices) == 2:
+                i, j = indices
+                self._swap_items(i, j)
+            
+            # После обмена помечаем элемент как отсортированный
+            if indices[0] < len(self.visual_items):
+                self.visual_items[indices[0]].is_sorted = True
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(800 * speed_factor))
+            
+        elif t == "selection_already_sorted":
+            index = action.get("index", 0)
+            
+            if index < len(self.visual_items):
+                self._mark_as_sorted([index])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "selection_sorted_part":
+            sorted_indices = action.get("sorted_indices", [])
+            
+            # Помечаем все отсортированные элементы
+            self._mark_as_sorted(sorted_indices)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+        
+        # === ОБРАБОТЧИКИ ДЛЯ SHELL SORT ===
+        elif t == "shell_gap_start":
+            gap = action.get("gap", 1)
+            gap_idx = action.get("gap_index", 0)
+            total_gaps = action.get("total_gaps", 1)
+            
+            # Подсвечиваем все элементы, чтобы показать начало нового этапа
+            for i in range(len(self.visual_items)):
+                self.visual_items[i].highlight(self.color_palette["default"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "shell_group_start":
+            group_indices = action.get("group_indices", [])
+            
+            for idx in group_indices:
+                if idx < len(self.visual_items):
+                    self.visual_items[idx].highlight(self.color_palette["group"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_current_element":
+            element_idx = action.get("element_index", 0)
+            
+            if element_idx < len(self.visual_items):
+                self.visual_items[element_idx].highlight(self.color_palette["key"])
+                self.visual_items[element_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "shell_compare":
+            current_idx = action.get("current_index", 0)
+            key_idx = action.get("key_index", 0)
+            
+            if current_idx < len(self.visual_items):
+                self.visual_items[current_idx].highlight(self.color_palette["comparing"])
+                self.visual_items[current_idx].bounce_animation()
+            
+            if key_idx < len(self.visual_items):
+                self.visual_items[key_idx].highlight(self.color_palette["key"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_shift":
+            from_idx = action.get("from_index", 0)
+            to_idx = action.get("to_index", 0)
+            
+            if to_idx < len(self.visual_items):
+                self.visual_items[to_idx].highlight(self.color_palette["shifted"])
+                self.visual_items[to_idx].bounce_animation()
+                self.visual_items[to_idx].update_value(action.get("shifted_value", 0))
+                
+                # Обновляем данные массива
+                if to_idx < len(self.array_data):
+                    self.array_data[to_idx] = action.get("shifted_value", 0)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "shell_insert":
+            new_idx = action.get("new_index", 0)
+            value = action.get("value", 0)
+            
+            if new_idx < len(self.visual_items):
+                self._mark_as_sorted([new_idx])
+                self.visual_items[new_idx].update_value(value)
+                
+                # Обновляем данные массива
+                if new_idx < len(self.array_data):
+                    self.array_data[new_idx] = value
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_group_progress":
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(300 * speed_factor))
+            
+        elif t == "shell_group_complete":
+            group_indices = action.get("group_indices", [])
+            
+            for idx in group_indices:
+                if idx < len(self.visual_items):
+                    self._mark_as_sorted([idx])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_gap_complete":
+            # Сбрасываем подсветку всех элементов
+            for item in self.visual_items:
+                item.reset_color()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_final_stage":
+            # Подсвечиваем все элементы для финального этапа
+            for item in self.visual_items:
+                item.highlight(self.color_palette["key"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+        
         elif t == "info":
             self._log(f"ℹ️ {action.get('description', '')}")
             self._schedule_next_action(int(500 * speed_factor))
             
         elif t == "compare":
             i, j = action["indices"]
-            self._highlight_items([i, j], "#FFD700", 
+            self._highlight_items([i, j], "comparing", 
                                 f"🔍 Сравнение: элемент[{i}] = {self.array_data[i]} vs элемент[{j}] = {self.array_data[j]}")
             self._schedule_next_action(int(base_delay * speed_factor))
             
@@ -2843,6 +3267,7 @@ class MainWindow(QMainWindow):
             self._swap_items(i, j)
             self._log(f"🔄 Обмен элементов {i} и {j}")
             self._schedule_next_action(int(1000 * speed_factor))
+            
         elif t == "insert" and "table" in action:
             table_data = action.get("table", [])
             collisions = action.get("collisions", 0)
@@ -2882,7 +3307,8 @@ class MainWindow(QMainWindow):
             progress = f"[{key_index + 1}/{total_keys}]" if total_keys > 0 else ""
             self._log(f"📊 Прогресс: {progress} Коллизий: {collisions}")
             
-            self._schedule_next_action(int(700 * speed_factor))            
+            self._schedule_next_action(int(700 * speed_factor))
+            
         elif t == "insert":
             arr = action.get("array")
             if arr:
@@ -2993,8 +3419,7 @@ class MainWindow(QMainWindow):
                 self._pause_auto_mode()
             
             self.inspector.update_info(action)
-            return           
-
+            return
             
         elif t == "complete":
             if self.algorithm_combo.currentText() == "HashTable":
@@ -3036,6 +3461,11 @@ class MainWindow(QMainWindow):
                 if success:
                     self._log("✅ Алгоритм успешно завершён!")
             else:
+                # При завершении помечаем все элементы как отсортированные
+                all_indices = list(range(len(self.visual_items)))
+                self._mark_as_sorted(all_indices)
+                
+                # Запускаем финальную анимацию
                 self._animate_completion()
                 self._log("✅ Алгоритм успешно завершён!")
             
@@ -3107,8 +3537,8 @@ class MainWindow(QMainWindow):
         self.visual_items[i].index = i
         self.visual_items[j].index = j
         
-        self.visual_items[i].highlight("#FF6B6B")
-        self.visual_items[j].highlight("#FF6B6B")
+        self.visual_items[i].highlight(self.color_palette["swapping"])
+        self.visual_items[j].highlight(self.color_palette["swapping"])
         
         radius, spacing = 30, 15
         total_width = len(self.visual_items) * (radius * 2 + spacing)
@@ -3121,19 +3551,6 @@ class MainWindow(QMainWindow):
         
         self.visual_items[i].animate_move(new_x_i, start_y, 600)
         self.visual_items[j].animate_move(new_x_j, start_y, 600)
-
-    def _highlight_items(self, indices, color, description=""):
-        """Анимированная подсветка элементов."""
-        for i in range(len(self.visual_items)):
-            if i in indices:
-                self.visual_items[i].highlight(color)
-                if len(indices) <= 3:
-                    self.visual_items[i].bounce_animation()
-            else:
-                self.visual_items[i].reset_color()
-        
-        if description:
-            self._log(description)
 
     def on_step_ready(self, action):
         """Обработка шагов алгоритма с анимациями."""
@@ -3162,8 +3579,7 @@ class MainWindow(QMainWindow):
         """Анимация завершения алгоритма - последовательная подсветка."""
         def highlight_next(index=0):
             if index < len(self.visual_items):
-                self.visual_items[index].highlight("#7EE081")
-                self.visual_items[index].bounce_animation()
+                self._mark_as_sorted([index])
                 QTimer.singleShot(150, lambda: highlight_next(index + 1))
             else:
                 self.is_animating = False

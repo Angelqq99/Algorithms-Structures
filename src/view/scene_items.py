@@ -142,7 +142,7 @@ class ZoomableGraphicsView(QGraphicsView):
 class ArrayCircleItem(QGraphicsObject):
     """Круг для визуализации элемента массива с анимациями."""
 
-    def __init__(self, x, y, value, index, radius=40):
+    def __init__(self, x, y, value, index, radius=30):
         """
         x, y - начальные координаты (y рассматриваем как базовую линию).
         index - индекс в массиве (можно обновлять позже).
@@ -151,14 +151,15 @@ class ArrayCircleItem(QGraphicsObject):
         self.index = index
         self.value = value
         self.radius = radius
+        
+        # Состояния для новой системы цветов
+        self.is_sorted = False
         self.is_spawning = True
 
+        # Цветовая система - используется в MainWindow
         self.default_color = QColor("#5A9BD5")
-        self.highlight_color = QColor("#FFD700")
-        self.swap_color = QColor("#FF6B6B")
-        self.complete_color = QColor("#7EE081")
-
-        self._current_color = self.default_color
+        self.sorted_color = QColor("#7EE081")
+        self.current_color = self.default_color
 
         # Базовая позиция по Y — та линия, на которой элемент должен стоять
         self.base_y = y
@@ -198,12 +199,12 @@ class ArrayCircleItem(QGraphicsObject):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         gradient = QRadialGradient(self.radius, self.radius, self.radius)
-        gradient.setColorAt(0.0, self._current_color.lighter(170))
-        gradient.setColorAt(0.4, self._current_color)
-        gradient.setColorAt(1.0, self._current_color.darker(140))
+        gradient.setColorAt(0.0, self.current_color.lighter(170))
+        gradient.setColorAt(0.4, self.current_color)
+        gradient.setColorAt(1.0, self.current_color.darker(140))
 
         painter.setBrush(QBrush(gradient))
-        painter.setPen(QPen(self._current_color.darker(220), max(2, int(self.radius * 0.06))))
+        painter.setPen(QPen(self.current_color.darker(220), max(2, int(self.radius * 0.06))))
         painter.drawEllipse(0, 0, self.radius * 2, self.radius * 2)
 
         font = QFont()
@@ -246,29 +247,48 @@ class ArrayCircleItem(QGraphicsObject):
 
     @pyqtProperty(QColor)
     def circleColor(self):
-        return self._current_color
+        return self.current_color
 
     @circleColor.setter
     def circleColor(self, value):
         if self._is_valid:
-            self._current_color = value
+            self.current_color = value
             self.update()
 
     def highlight(self, color):
+        """Подсвечивает элемент указанным цветом."""
         if not self._is_valid or not self.scene():
             return
-        target_color = QColor(color) if isinstance(color, (str, QColor)) else self.default_color
+        
+        # Определяем цвет
+        if isinstance(color, str):
+            target_color = QColor(color)
+        elif isinstance(color, QColor):
+            target_color = color
+        else:
+            target_color = self.default_color
+        
+        # Если зеленый - помечаем как отсортированный
+        if target_color.name() == "#7ee081" or color == "sorted":
+            self.is_sorted = True
+            target_color = self.sorted_color
+        
+        # Анимируем изменение цвета
         self.color_animation.stop()
-        self.color_animation.setStartValue(self._current_color)
+        self.color_animation.setStartValue(self.current_color)
         self.color_animation.setEndValue(target_color)
         self.color_animation.start()
 
     def reset_color(self):
+        """Сбрасывает цвет к стандартному или отсортированному."""
         if not self._is_valid or not self.scene():
             return
+        
+        target_color = self.sorted_color if self.is_sorted else self.default_color
+        
         self.color_animation.stop()
-        self.color_animation.setStartValue(self._current_color)
-        self.color_animation.setEndValue(self.default_color)
+        self.color_animation.setStartValue(self.current_color)
+        self.color_animation.setEndValue(target_color)
         self.color_animation.start()
 
     def animate_move(self, new_x, new_y, duration=600):
@@ -295,7 +315,8 @@ class ArrayCircleItem(QGraphicsObject):
         self.pos_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self.pos_animation.start()
 
-    def bounce_animation(self):
+    def bounce_animation(self, scale_factor=1.0):
+        """Запускает анимацию подпрыгивания с возможностью масштабирования."""
         if not self._is_valid or not self.scene() or getattr(self, "is_spawning", False):
             return
 
@@ -334,10 +355,10 @@ class ArrayCircleItem(QGraphicsObject):
         self.bounce_steps += 1
 
     def update_value(self, value):
+        """Обновляет значение элемента."""
         if self._is_valid:
             self.value = value
             self.update()
-
 
 # ==========================
 # 🌳 Узел дерева
