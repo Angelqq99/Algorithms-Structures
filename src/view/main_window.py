@@ -24,6 +24,7 @@ from model.trees.red_black_tree import RedBlackTree
 from model.trees.splay_tree import SplayTree
 from model.trees.treap import Treap
 from model.trees.b_tree import BTree
+from model.trees.heap import BinaryHeap
 from model.graphs.bfs import GraphBFS
 from model.graphs.dfs import GraphDFS
 from model.graphs.dijkstra import Dijkstra
@@ -1588,15 +1589,32 @@ class MainWindow(QMainWindow):
         # Выбор операции
         self.operations_layout.addWidget(QLabel("Операция:"))
         self.tree_ops_combo = QComboBox()
-        self.tree_ops_combo.addItems([
-            "Вставить узел",
-            "Удалить узел",
-            "Найти узел",
-            "Прямой обход (Pre-order)",
-            "Центральный обход (In-order)",
-            "Обратный обход (Post-order)",
-            "Обход в ширину (BFS)"
-        ])
+        algo_name = self.algorithm_combo.currentText()
+        if algo_name == "Heap":
+                # Операции специфичные для кучи
+                self.tree_ops_combo.addItems([
+                    "Вставить узел",
+                    "Удалить корень (delete)",
+                    "Посмотреть корень (peek)",
+                    "Получить размер (get_size)",
+                    "Проверить на пустоту (is_empty)",
+                    "Получить max (для max-heap)",
+                    "Получить min (для min-heap)",
+                    "Преобразовать в min-heap",
+                    "Преобразовать в max-heap",
+                    "Очистить кучу"
+                ])
+        else:
+            # Оригинальные операции для других деревьев
+            self.tree_ops_combo.addItems([
+                "Вставить узел",
+                "Удалить узел",
+                "Найти узел",
+                "Прямой обход (Pre-order)",
+                "Центральный обход (In-order)",
+                "Обратный обход (Post-order)",
+                "Обход в ширину (BFS)"
+            ])
         self.tree_ops_combo.setStyleSheet("""
             QComboBox {
                 padding: 8px;
@@ -1777,7 +1795,7 @@ class MainWindow(QMainWindow):
                 "ShellSort"       
             ])
         elif category == "Деревья":
-            self.algorithm_combo.addItems(["BST", "AVL", "RedBlackTree", "SplayTree", "Treap", "BTree"])
+            self.algorithm_combo.addItems(["BST", "AVL", "RedBlackTree", "SplayTree", "Treap", "BTree","Heap"])
         elif category == "Графы":
             self.algorithm_combo.addItems(["BFS", "DFS", "Dijkstra"])
         elif category == "Хэш-таблицы":
@@ -2169,6 +2187,22 @@ class MainWindow(QMainWindow):
                     graph_data = self._create_tree_graph(arr, directed=self.graph_directed)
                 else:
                     graph_data = None
+
+                if algo_name == "Heap":
+                    # Для кучи создаем отдельный экземпляр с поддержкой генератора
+                    heap_type = 'max'  # или можно добавить выбор типа в интерфейсе
+                    self.current_algorithm = BinaryHeap(arr.copy(), heap_type=heap_type)
+                    
+                    # Загружаем в движок
+                    self.engine.load_algorithm(self.current_algorithm)
+                    QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча создана"))
+                    # Отображаем начальное состояние
+                    heap_structure = self.current_algorithm._get_tree_structure()
+                    if heap_structure:
+                        self._render_tree(heap_structure)
+                    
+                    self._log(f"🔧 Куча ({heap_type}-heap) загружена. Готов к выполнению.")
+                    return True
                 
                 algorithms = {
                     "QuickSort": lambda: QuickSort(arr.copy()),
@@ -2183,6 +2217,7 @@ class MainWindow(QMainWindow):
                     "SplayTree": lambda: SplayTree(arr.copy()),
                     "Treap": lambda: Treap(arr.copy()),
                     "BTree": lambda: BTree(arr.copy()),
+                    "Heap": lambda: BinaryHeap(arr.copy(), heap_type='max'),
                     "BFS": lambda: GraphBFS(graph_data, arr[0] if arr else 0),
                     "DFS": lambda: GraphDFS(graph_data, arr[0] if arr else 0),
                     "Dijkstra": lambda: Dijkstra(graph_data, arr[0] if arr else 0),
@@ -2652,21 +2687,71 @@ class MainWindow(QMainWindow):
                 text_item.setPos(0, 0)
                 self._log("ℹ️ Дерево пустое - начните выполнение алгоритма")
                 return
-            # Используем прямое отображение без анимации для скорости
-            root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
+            
+            # Проверяем, является ли это кучей
+            is_heap = isinstance(self.current_algorithm, BinaryHeap) if self.current_algorithm else False
+            
+            # Отладочная информация
+            if is_heap:
+                self._log(f"📊 Получены данные кучи. Корень: {tree_data.get('value', 'N/A')}")
+            else:
+                self._log(f"📊 Получены данные дерева: {tree_data}")
+            
+            # Используем визуализатор
+            if is_heap:
+                # Для кучи используем стандартное дерево
+                root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
+            else:
+                root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
             
             if root:
                 # Сразу центрируем без дополнительных задержек
                 self._center_on_tree()
-                self._log("🌳 Дерево построено и отображено")
+                
+                if is_heap:
+                    self._log("🌳 Куча построена и отображена")
+                    # Добавляем специальную информацию для кучи
+                    heap_type = "Max-Heap" if self.current_algorithm.type == 'max' else "Min-Heap"
+                    heap_info = self.scene.addText(f"{heap_type}, Размер: {self.current_algorithm.get_size()}")
+                    heap_info.setDefaultTextColor(QColor("#3498DB"))
+                    heap_info.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+                    heap_info.setPos(-200, -100)
+                else:
+                    self._log("🌳 Дерево построено и отображено")
+                
+                # Отображаем информацию о количестве узлов
+                node_count = self._count_tree_nodes(tree_data)
+                self._log(f"📊 Узлов в дереве: {node_count}")
             else:
                 self._log("❌ Ошибка при построении дерева")
+                
+                # Отладочная информация: показываем сырые данные
+                debug_text = f"Сырые данные: {json.dumps(tree_data, default=str)}"
+                debug_item = self.scene.addText(debug_text)
+                debug_item.setPos(-200, 0)
+                debug_item.setDefaultTextColor(QColor("#FF6B6B"))
+                    
         except Exception as e:
             self._log(f"❌ Ошибка при визуализации дерева: {str(e)}")
             import traceback
             traceback.print_exc()
         finally:
             self._is_rendering_tree = False
+
+    def _count_tree_nodes(self, tree_data):
+        """Подсчитывает количество узлов в дереве."""
+        if not tree_data:
+            return 0
+        
+        count = 1  # текущий узел
+        
+        if 'left' in tree_data and tree_data['left']:
+            count += self._count_tree_nodes(tree_data['left'])
+        
+        if 'right' in tree_data and tree_data['right']:
+            count += self._count_tree_nodes(tree_data['right'])
+        
+        return count
 
     def _center_on_tree(self):
         """Центрирует вид на содержимом сцены с масштабированием."""
@@ -3710,35 +3795,339 @@ class MainWindow(QMainWindow):
         value_text = self.val_input.text().strip()
         
         try:
-            if operation in ["Вставить узел", "Удалить узел", "Найти узел"]:
-                if not value_text:
-                    QMessageBox.warning(self, "Ошибка", "Введите значение для операции")
-                    return
-                
-                value = int(value_text)
-                
+            is_heap = isinstance(self.current_algorithm, BinaryHeap)
+            if is_heap:
+                # Обработка операций для кучи
                 if operation == "Вставить узел":
-                    self._insert_node(value)
-                elif operation == "Удалить узел":
-                    self._delete_node(value)  # Используем новый метод
-                elif operation == "Найти узел":
-                    self._search_node(value)
-                
+                    if not value_text:
+                        QMessageBox.warning(self, "Ошибка", "Введите значение для операции")
+                        return
+                    value = int(value_text)
+                    self._heap_insert(value)
                     
-            elif operation == "Прямой обход (Pre-order)":
-                self._perform_traversal("preorder")
-            elif operation == "Центральный обход (In-order)":
-                self._perform_traversal("inorder")
-            elif operation == "Обратный обход (Post-order)":
-                self._perform_traversal("postorder")
-            elif operation == "Обход в ширину (BFS)":
-                self._perform_traversal("bfs")
+                elif operation == "Удалить корень (delete)":
+                    self._heap_delete()
+                    
+                elif operation == "Посмотреть корень (peek)":
+                    self._heap_peek()
+                    
+                elif operation == "Получить размер (get_size)":
+                    self._heap_get_size()
+                    
+                elif operation == "Проверить на пустоту (is_empty)":
+                    self._heap_is_empty()
+                    
+                elif operation == "Получить max (для max-heap)":
+                    self._heap_get_max()
+                    
+                elif operation == "Получить min (для min-heap)":
+                    self._heap_get_min()
+                    
+                elif operation == "Преобразовать в min-heap":
+                    self._heap_convert_to_min()
+                    
+                elif operation == "Преобразовать в max-heap":
+                    self._heap_convert_to_max()
+                    
+                elif operation == "Очистить кучу":
+                    self._heap_clear()
+                
+            else:
+                if operation in ["Вставить узел", "Удалить узел", "Найти узел"]:
+                    if not value_text:
+                        QMessageBox.warning(self, "Ошибка", "Введите значение для операции")
+                        return
+                    
+                    value = int(value_text)
+                    
+                    if operation == "Вставить узел":
+                        self._insert_node(value)
+                    elif operation == "Удалить узел":
+                        self._delete_node(value)  # Используем новый метод
+                    elif operation == "Найти узел":
+                        self._search_node(value)
+                    
+                        
+                elif operation == "Прямой обход (Pre-order)":
+                    self._perform_traversal("preorder")
+                elif operation == "Центральный обход (In-order)":
+                    self._perform_traversal("inorder")
+                elif operation == "Обратный обход (Post-order)":
+                    self._perform_traversal("postorder")
+                elif operation == "Обход в ширину (BFS)":
+                    self._perform_traversal("bfs")
                 
         except ValueError:
             QMessageBox.warning(self, "Ошибка", "Введите корректное число")
         except Exception as e:
             self._log(f"❌ Ошибка при выполнении операции: {str(e)}")
-    
+    def _update_heap_visualization(self, message=""):
+        """Обновляет визуализацию кучи."""
+        try:
+            heap = self.current_algorithm
+            
+            if not heap:
+                self._log("❌ Куча не инициализирована")
+                return
+            
+            # Получаем структуру дерева кучи
+            tree_data = heap._get_tree_structure()
+            
+            if tree_data:
+                # ВАЖНО: Используем TreeVisualizer для отображения кучи как дерева
+                self.scene.clear()
+                self.visual_items.clear()
+                
+                # Устанавливаем большой размер сцены
+                extended_scene_rect = QRectF(-3000, -3000, 6000, 6000)
+                self.scene.setSceneRect(extended_scene_rect)
+                
+                # Создаем дерево через TreeVisualizer
+                self.tree_visualizer.clear()
+                root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
+                
+                if root:
+                    if message:
+                        self._log(f"📈 {message}")
+                    
+                    # Отладочная информация
+                    heap_type = "Max-Heap" if heap.type == 'max' else "Min-Heap"
+                    self._log(f"📊 {heap_type}, Размер: {heap.get_size()}")
+                    self._log(f"📊 Массив кучи: {heap.heap}")
+                    
+                    # Центрируем вид
+                    QTimer.singleShot(50, self._center_on_tree)
+                    
+                    # Подгоняем масштаб
+                    QTimer.singleShot(100, lambda: self.view.fit_to_content(100) if hasattr(self.view, 'fit_to_content') else None)
+                else:
+                    self._log("❌ Не удалось построить визуализацию кучи")
+                    
+            else:
+                # Если куча пустая, показываем сообщение
+                self.scene.clear()
+                text_item = self.scene.addText("Куча пуста")
+                text_item.setDefaultTextColor(QColor("#666"))
+                text_item.setFont(QFont("Arial", 16))
+                text_item.setPos(-50, -20)
+                
+                # Добавляем информацию о типе
+                heap_type = "Max-Heap" if heap.type == 'max' else "Min-Heap"
+                type_item = self.scene.addText(f"Тип: {heap_type}")
+                type_item.setDefaultTextColor(QColor("#5A9BD5"))
+                type_item.setFont(QFont("Arial", 12))
+                type_item.setPos(-50, 20)
+                
+                self._log("📊 Куча пуста")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при обновлении визуализации кучи: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    def _heap_insert(self, value):
+        """Вставка элемента в кучу."""
+        try:
+            heap = self.current_algorithm
+            
+            # Вставляем элемент
+            success = heap.insert(value)
+            if success:
+                self._log(f"✅ Элемент {value} вставлен в кучу")
+                
+                # Обновляем визуализацию
+                QTimer.singleShot(100, lambda: self._update_heap_visualization(f"Вставлен элемент: {value}"))
+                
+            else:
+                self._log(f"❌ Не удалось вставить элемент {value}")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при вставке в кучу: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _heap_delete(self):
+        """Удаление корневого элемента из кучу."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.is_empty():
+                self._log("❌ Куча пуста, нечего удалять")
+                return
+            
+            # Используем пошаговое удаление
+            generator = heap.delete_with_steps()
+            
+            # Загружаем генератор в движок
+            self.engine.generator = generator
+            
+            # Запускаем автоматический режим для визуализации процесса
+            self._start_auto_mode()
+            # Обновляем визуализацию
+            QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча обновлена"))    
+        except Exception as e:
+            self._log(f"❌ Ошибка при удалении из кучи: {str(e)}")
+
+    def _heap_peek(self):
+        """Просмотр корневого элемента без удаления."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.is_empty():
+                self._log("❌ Куча пуста")
+                return
+            
+            root_value = heap.peek()
+            self._log(f"👁 Корневой элемент кучи: {root_value}")
+            
+            # Подсвечиваем корень
+            if hasattr(self, 'tree_visualizer'):
+                self.tree_visualizer.highlight_node_by_value(root_value, "#FFD700", 2000)
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при просмотре кучи: {str(e)}")
+
+    def _heap_get_size(self):
+        """Получение размера кучи."""
+        try:
+            heap = self.current_algorithm
+            size = heap.get_size()
+            self._log(f"📊 Размер кучи: {size}")
+        except Exception as e:
+            self._log(f"❌ Ошибка при получении размера кучи: {str(e)}")
+
+    def _heap_is_empty(self):
+        """Проверка кучи на пустоту."""
+        try:
+            heap = self.current_algorithm
+            is_empty = heap.is_empty()
+            status = "пуста" if is_empty else "не пуста"
+            self._log(f"📋 Куча {status}")
+        except Exception as e:
+            self._log(f"❌ Ошибка при проверке кучи: {str(e)}")
+
+    def _heap_get_max(self):
+        """Получение максимального элемента (для max-heap)."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.type != 'max':
+                self._log("❌ Эта операция доступна только для max-heap")
+                return
+            
+            max_value = heap.get_max()
+            if max_value is not None:
+                self._log(f"📊 Максимальный элемент: {max_value}")
+                # Подсвечиваем максимальный элемент (корень)
+                if hasattr(self, 'tree_visualizer'):
+                    self.tree_visualizer.highlight_node_by_value(max_value, "#FF6B6B", 2000)
+            else:
+                self._log("❌ Куча пуста")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при получении max: {str(e)}")
+
+    def _heap_get_min(self):
+        """Получение минимального элемента (для min-heap)."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.type != 'min':
+                self._log("❌ Эта операция доступна только для min-heap")
+                return
+            
+            min_value = heap.get_min()
+            if min_value is not None:
+                self._log(f"📊 Минимальный элемент: {min_value}")
+                # Подсвечиваем минимальный элемент (корень)
+                if hasattr(self, 'tree_visualizer'):
+                    self.tree_visualizer.highlight_node_by_value(min_value, "#4ECDC4", 2000)
+            else:
+                self._log("❌ Куча пуста")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при получении min: {str(e)}")
+
+    def _heap_convert_to_min(self):
+        """Преобразование кучи в min-heap."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.type == 'min':
+                self._log("ℹ️ Куча уже является min-heap")
+                return
+            
+            # Получаем текущие данные
+            data = heap.heap.copy()
+            
+            # Создаем новую min-heap
+            self.current_algorithm = BinaryHeap(data, heap_type='min')
+            
+            self._log("✅ Куча преобразована в min-heap")
+            
+            # Обновляем визуализацию
+            self._update_heap_visualization("Преобразована в min-heap")
+            # Обновляем визуализацию
+            QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча обновлена"))
+        except Exception as e:
+            self._log(f"❌ Ошибка при преобразовании в min-heap: {str(e)}")
+
+    def _heap_convert_to_max(self):
+        """Преобразование кучи в max-heap."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.type == 'max':
+                self._log("ℹ️ Куча уже является max-heap")
+                return
+            
+            # Получаем текущие данные
+            data = heap.heap.copy()
+            
+            # Создаем новую max-heap
+            self.current_algorithm = BinaryHeap(data, heap_type='max')
+            
+            self._log("✅ Куча преобразована в max-heap")
+            
+            # Обновляем визуализацию
+            self._update_heap_visualization("Преобразована в max-heap")
+            # Обновляем визуализацию
+            QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча обновлена"))
+        except Exception as e:
+            self._log(f"❌ Ошибка при преобразовании в max-heap: {str(e)}")
+
+    def _heap_clear(self):
+        """Очистка кучи."""
+        reply = QMessageBox.question(
+            self, "Подтверждение", 
+            "Вы уверены, что хотите очистить кучу?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                heap = self.current_algorithm
+                heap.clear()
+                
+                self._log("🗑️ Куча очищена")
+                
+                # Очищаем визуализацию
+                self.scene.clear()
+                self.visual_items.clear()
+                
+                # Показываем сообщение
+                text_item = self.scene.addText("Куча очищена")
+                text_item.setDefaultTextColor(QColor("#666"))
+                text_item.setFont(QFont("Arial", 16))
+                text_item.setPos(-50, -20)
+                # Обновляем визуализацию
+                QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча обновлена"))
+                # Подгоняем масштаб
+                self._schedule_zoom_reset()
+                
+            except Exception as e:
+                self._log(f"❌ Ошибка при очистке кучи: {str(e)}")
+
+
     def _insert_node(self, value):
         """Вставка узла в дерево."""
         try:
@@ -4291,7 +4680,10 @@ class MainWindow(QMainWindow):
         """Обновляет визуализацию дерева."""
         try:
             tree = self.current_algorithm
-            
+                    # Проверяем, является ли дерево кучей
+            if isinstance(tree, BinaryHeap):
+                self._update_heap_visualization(message)
+                return
             if isinstance(tree, RedBlackTree):
                 # Специальная обработка для красно-черного дерева
                 if hasattr(tree, '_get_tree_structure'):

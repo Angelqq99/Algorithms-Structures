@@ -382,7 +382,7 @@ class TreeNodeItem(ArrayCircleItem):
         self.treap_color = QColor("#9370DB")
         self.b_tree_color = QColor("#20B2AA")
 
-        self._current_color = self.default_color
+        self.current_color = self.default_color
         self.setZValue(1)
 
     def paint(self, painter, option, widget):
@@ -392,12 +392,12 @@ class TreeNodeItem(ArrayCircleItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         gradient = QRadialGradient(self.radius, self.radius, self.radius)
-        gradient.setColorAt(0.0, self._current_color.lighter(170))
-        gradient.setColorAt(0.4, self._current_color)
-        gradient.setColorAt(1.0, self._current_color.darker(180))
+        gradient.setColorAt(0.0, self.current_color.lighter(170))
+        gradient.setColorAt(0.4, self.current_color)
+        gradient.setColorAt(1.0, self.current_color.darker(180))
 
         painter.setBrush(QBrush(gradient))
-        painter.setPen(QPen(self._current_color.darker(220), max(3, int(self.radius * 0.05))))
+        painter.setPen(QPen(self.current_color.darker(220), max(3, int(self.radius * 0.05))))
         painter.drawEllipse(0, 0, self.radius * 2, self.radius * 2)
 
         font = QFont()
@@ -424,7 +424,7 @@ class TreeNodeItem(ArrayCircleItem):
 
         if tree_type in color_map:
             self.default_color = color_map[tree_type]
-            self._current_color = self.default_color
+            self.current_color = self.default_color
             self.update()
 
     def add_child(self, child_node):
@@ -1225,3 +1225,26 @@ class BTreeNodeItem(QGraphicsObject):
         if hasattr(self, 'setOpacity'):
             self.setOpacity(1.0)
         self.update()
+    def highlight(self, color):
+        """Подсвечивает элемент указанным цветом."""
+        if not self._is_valid or not self.scene():
+            return
+        
+        # Определяем цвет
+        if isinstance(color, str):
+            target_color = QColor(color)
+        elif isinstance(color, QColor):
+            target_color = color
+        else:
+            target_color = self.default_color
+        
+        # Если зеленый - помечаем как отсортированный
+        if target_color.name() == "#7ee081" or color == "sorted":
+            self.is_sorted = True
+            target_color = self.sorted_color
+        
+        # Анимируем изменение цвета
+        self.color_animation.stop()
+        self.color_animation.setStartValue(self.current_color)
+        self.color_animation.setEndValue(target_color)
+        self.color_animation.start()

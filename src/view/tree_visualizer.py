@@ -689,22 +689,31 @@ class TreeVisualizer:
     # ИНТЕРАКТИВНЫЕ ОПЕРАЦИИ
     
     def highlight_node_by_value(self, value, color="#FFD700", duration=2000):
-        """Подсвечивает узел по значению."""
-        node = self._find_node_by_value(value)
-        
-        if node:
-            # Сохраняем оригинальный цвет
-            original_color = self._get_node_color(node)
-            node._original_color = original_color
-            
-            # Подсвечиваем
-            self._set_node_color(node, color)
-            
-            # Возвращаем цвет через время
-            QTimer.singleShot(duration, lambda: self._reset_node_color(node))
-            return True
-        
-        return False
+            """Подсвечивает узел по значению."""
+            # 1. Поиск узла: сначала проверяем прямой ключ, затем ключ с префиксом "key_" (для B-деревьев)
+            node = self.value_to_node.get(value)
+            if not node:
+                node = self.value_to_node.get(f"key_{value}")
+                
+            # 2. Если в словаре не нашли (например, для КЧ-деревьев с суффиксами (R)/(B)), 
+            # используем существующий вспомогательный поиск с перебором
+            if not node:
+                node = self._find_node_by_value(value)
+                
+            if node and self._is_node_valid(node):
+                # 3. Сохраняем оригинальный цвет для последующего восстановления
+                if not hasattr(node, '_original_color'):
+                    node._original_color = self._get_node_color(node)
+                
+                # 4. Применяем подсветку. Метод _set_node_color вызовет анимацию highlight, 
+                # если она доступна у узла
+                self._set_node_color(node, color)
+                
+                # 5. Возвращаем исходный цвет через указанное время
+                QTimer.singleShot(duration, lambda: self._reset_node_color(node))
+                return True
+                
+            return False
     
     def highlight_btree_node_by_keys(self, keys, color="#FFD700", duration=2000):
         """Подсвечивает узел B-дерева по ключам."""
