@@ -1,137 +1,107 @@
+
 """
-Алгоритм поиска в ширину (BFS) для графов.
+Алгоритм обхода графа в ширину (BFS).
 """
 from collections import deque
+
 
 class GraphBFS:
     def __init__(self, graph, start_node):
         self.graph = graph
-        self.start_node = start_node
+        self.start = start_node
+        self.steps = []
         self.visited = set()
         self.queue = deque()
-        self.steps = []
-        
-    def step(self):
-        """Выполняет один шаг алгоритма и возвращает действие."""
-        if not self.steps:
-            self._initialize_bfs()
-            
-        if self.steps:
-            action = self.steps.pop(0)
-            return action
-        else:
-            return {
-                "type": "complete",
-                "visited_order": list(self.visited),
-                "description": f"BFS завершен. Посещено {len(self.visited)} узлов."
-            }
-    
-    def step_generator(self):
-        """Генератор шагов для движка."""
-        if not self.steps:
-            self._initialize_bfs()
-        
-        for step in self.steps:
-            yield step
-        
-        yield {
-            "type": "complete", 
-            "visited_order": list(self.visited),
-            "description": f"BFS завершен. Посещено {len(self.visited)} узлов."
-        }
-    
-    def get_generator(self):
-        """Возвращает генератор шагов."""
-        if not self.steps:
-            self._initialize_bfs()
-        for step in self.steps:
-            yield step
-        yield {
-            "type": "complete",
-            "visited_order": list(self.visited),
-            "description": f"BFS завершен. Посещено {len(self.visited)} узлов."
-        }
-    
-    def _get_neighbors(self, node):
-        """Унифицированное получение соседей для любого формата графа."""
-        if node not in self.graph:
-            return []
-        
-        neighbors = self.graph[node]
-        
-        if isinstance(neighbors, dict):
-            return list(neighbors.keys())
-        elif isinstance(neighbors, list):
-            neighbor_nodes = []
-            for neighbor in neighbors:
-                if isinstance(neighbor, tuple):
-                    neighbor_nodes.append(neighbor[0])  # Берем только ID узла
-                else:
-                    neighbor_nodes.append(neighbor)
-            return neighbor_nodes
-        else:
-            return []
-    
+
     def _initialize_bfs(self):
-        """Инициализирует BFS и генерирует все шаги."""
-        # Шаг 1: Инициализация графа
+        """Инициализация BFS."""
+        self.steps = []
+        self.visited = set()
+        self.queue = deque()
+        
+        # Инициализация
+        self.visited.add(self.start)
+        self.queue.append(self.start)
+        
+        # Шаг: инициализация
         self.steps.append({
-            "type": "graph_init",
-            "graph": self.graph,
-            "start_node": self.start_node,
-            "algorithm": "BFS"
+            "type": "info",
+            "description": f"Инициализация BFS: начальный узел {self.start}"
         })
         
-        # Если стартовый узел не существует в графе
-        if self.start_node not in self.graph:
-            self.steps.append({
-                "type": "complete",
-                "visited_order": [],
-                "description": f"Стартовый узел {self.start_node} не найден в графе."
-            })
-            return
-        
-        # Шаг 2: Посещение стартового узла
-        self.visited.add(self.start_node)
-        self.queue.append(self.start_node)
-        
+        # Шаг: посещение начального узла
         self.steps.append({
             "type": "visit",
-            "node": self.start_node,
-            "description": f"Посещаем стартовый узел {self.start_node}"
+            "node": self.start,
+            "description": f"Посещен начальный узел {self.start}"
         })
+
+    def _perform_bfs(self):
+        """Выполнение BFS."""
+        iteration = 0
         
-        # Основной цикл BFS
         while self.queue:
-            current_node = self.queue.popleft()
+            current = self.queue.popleft()
+            iteration += 1
             
-            # Получаем соседей текущего узла
-            neighbors = self._get_neighbors(current_node)
+            # Шаг: обработка текущего узла
+            self.steps.append({
+                "type": "info",
+                "description": f"Итерация {iteration}: обработка узла {current}"
+            })
             
-            # Обходим всех соседей
+            # Получаем соседей
+            neighbors = self.graph.get(current, {})
+            
             for neighbor in neighbors:
+                # Шаг: проверка соседа
+                self.steps.append({
+                    "type": "discover",
+                    "from_node": current,
+                    "node": neighbor,
+                    "description": f"Проверка соседа {neighbor} из узла {current}"
+                })
+                
                 if neighbor not in self.visited:
-                    # Шаг 3: Обнаружение нового узла
-                    self.steps.append({
-                        "type": "discover",
-                        "from_node": current_node,
-                        "node": neighbor,
-                        "description": f"Обнаружен узел {neighbor} из узла {current_node}"
-                    })
-                    
-                    # Шаг 4: Посещение нового узла
+                    # Шаг: посещение нового узла
                     self.visited.add(neighbor)
                     self.queue.append(neighbor)
                     
                     self.steps.append({
                         "type": "visit",
                         "node": neighbor,
-                        "description": f"Посещаем узел {neighbor}"
+                        "description": f"Найден новый узел {neighbor}, добавлен в очередь"
                     })
+                else:
+                    # Шаг: узел уже посещен
+                    self.steps.append({
+                        "type": "info",
+                        "description": f"Узел {neighbor} уже посещен ранее"
+                    })
+            
+            # Шаг: завершение обработки узла
+            self.steps.append({
+                "type": "info",
+                "description": f"Завершена обработка узла {current}"
+            })
         
-        # Шаг 5: Завершение
+        # Шаг: завершение алгоритма
         self.steps.append({
             "type": "complete",
-            "visited_order": list(self.visited),
-            "description": f"BFS завершен. Посещено {len(self.visited)} узлов."
+            "description": f"BFS завершен. Посещено узлов: {len(self.visited)}",
+            "visited_count": len(self.visited),
+            "visited_nodes": list(self.visited)
         })
+
+    def step_generator(self):
+        """Генератор шагов BFS."""
+        if not self.steps:
+            self._initialize_bfs()
+            self._perform_bfs()
+        
+        for step in self.steps:
+            yield step
+
+    def get_generator(self):
+        """Возвращает генератор шагов."""
+        return self.step_generator()

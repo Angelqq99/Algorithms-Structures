@@ -1,14 +1,14 @@
 """
 Визуализатор графов с анимациями.
 """
-from PyQt6.QtCore import QTimer, QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import QTimer, QPointF, QRectF, Qt, QPropertyAnimation, QEasingCurve
+from PyQt6.QtGui import QColor, QBrush, QPen
 from view.scene_items import GraphNodeItem, GraphEdgeItem
 from view.graph_layout import SpringLayout, CircularLayout, TreeLayout
 
 
 class GraphVisualizer:
-    """Класс для визуализации алгоритмов на графов (BFS, DFS, Dijkstra)."""
+    """Класс для визуализации алгоритмов на графов (BFS, DFS, Dijkstra, Kruskal)."""
     
     def __init__(self, scene, view):
         self.scene = scene
@@ -17,6 +17,7 @@ class GraphVisualizer:
         self.edges = {}
         self.adjacency_list = {}
         self.node_values = {}  # Словарь для хранения значений узлов
+        self.edge_weights = {}  # Словарь для хранения весов ребер
         
         # Доступные алгоритмы компоновки с увеличенными расстояниями
         self.layout_algorithms = {
@@ -31,6 +32,9 @@ class GraphVisualizer:
         # Направленность графа (True - ориентированный, False - неориентированный)
         self.is_directed = False  # По умолчанию неориентированный
         self.animation_duration_ms = 500
+        
+        # Для хранения информации о стартовом узле
+        self.start_node_value = None
 
     def set_layout_algorithm(self, algorithm_name):
         """Устанавливает алгоритм компоновки."""
@@ -41,6 +45,7 @@ class GraphVisualizer:
             if algorithm_name != "Auto":
                 self.user_selected_layout = algorithm_name
                 
+            print(f"Layout algorithm set to: {algorithm_name}")
             return True
         return False
 
@@ -58,6 +63,13 @@ class GraphVisualizer:
             for node in list(self.nodes.values()):
                 if node and hasattr(node, 'color_timer') and node.color_timer.isActive():
                     node.color_timer.stop()
+                if node and hasattr(node, 'animation') and node.animation:
+                    node.animation.stop()
+            
+            # Останавливаем анимации ребер
+            for edge_item in list(self.edges.values()):
+                if edge_item and hasattr(edge_item, 'animation') and edge_item.animation:
+                    edge_item.animation.stop()
             
             # Удаляем ребра из сцены ПЕРЕД узлами
             for edge_key, edge_item in list(self.edges.items()):
@@ -75,6 +87,7 @@ class GraphVisualizer:
                     except Exception as e:
                         print(f"Error removing edge: {e}")
             self.edges.clear()
+            self.edge_weights.clear()
             
             # Удаляем узлы из сцены
             for node_key, node_item in list(self.nodes.items()):
@@ -92,6 +105,8 @@ class GraphVisualizer:
             
             # Очищаем структуры данных
             self.adjacency_list.clear()
+            self.node_values.clear()
+            self.start_node_value = None
             
             # Принудительное обновление сцены
             self.scene.update()
@@ -176,11 +191,16 @@ class GraphVisualizer:
         if is_directed is not None:
             self.is_directed = is_directed
         
+        self.start_node_value = start_node_value
+        
         print(f"Creating graph with layout: {self.current_layout}")
         print(f"Graph data: {len(graph_data)} nodes, directed: {self.is_directed}")
+        if start_node_value:
+            print(f"Start node: {start_node_value}")
         
         self.clear()
         self.adjacency_list = {}
+        self.edge_weights = {}
 
         try:
             # Нормализуем данные графа
@@ -241,6 +261,7 @@ class GraphVisualizer:
                         edge_item = GraphEdgeItem(u_node, v_node, weight, is_directed=self.is_directed)
                         self.scene.addItem(edge_item)
                         self.edges[edge_key] = edge_item
+                        self.edge_weights[edge_key] = weight
                         edge_count += 1
                         print(f"Created edge {u_val} -{'>' if self.is_directed else '-'} {v_val} with weight {weight}")
 
@@ -278,8 +299,10 @@ class GraphVisualizer:
             width = max_x - min_x
             height = max_y - min_y
             
-            # Добавляем отступы
-            padding = 150
+            # Добавляем отступы (больше для больших графов)
+            node_count = len(self.nodes)
+            padding = max(150, node_count * 10)
+            
             scene_rect = QRectF(min_x - padding, min_y - padding, 
                             width + 2*padding, height + 2*padding)
             
@@ -289,6 +312,8 @@ class GraphVisualizer:
             # Используем fit_to_content для масштабирования
             if self.view and hasattr(self.view, 'fit_to_content'):
                 self.view.fit_to_content(padding)
+                # Ждем немного и центрируем
+                QTimer.singleShot(100, lambda: self._ensure_graph_visible())
             else:
                 # Fallback для старого поведения
                 self.view.fitInView(scene_rect, Qt.AspectRatioMode.KeepAspectRatio)
@@ -298,33 +323,62 @@ class GraphVisualizer:
         except Exception as e:
             print(f"Error centering graph: {e}")
 
+    def _ensure_graph_visible(self):
+        """Убеждается, что граф полностью виден."""
+        try:
+            if not self.nodes:
+                return
+                
+            scene_rect = self.scene.sceneRect()
+            view_rect = self.view.viewport().rect()
+            
+            # Если граф слишком маленький, центрируем его
+            if scene_rect.width() < view_rect.width() * 0.5 or scene_rect.height() < view_rect.height() * 0.5:
+                self.view.centerOn(scene_rect.center())
+                
+        except Exception as e:
+            print(f"Error ensuring graph visibility: {e}")
+
     def process_action(self, action):
         """Обрабатывает шаг алгоритма."""
         try:
             action_type = action.get("type")
+            print(f"Processing action: {action_type}")
 
             if action_type == "graph_init":
-                graph_data = action["graph"]
-                start_node = action["start_node"]
-                
-                # Используем настройку направленности из визуализатора
-                success = self.create_graph(graph_data, start_node, is_directed=self.is_directed)
-                if success:
-                    self._center_and_scale_graph()
-                return success
+                # Это действие больше не используется для интерактивных графов
+                return False
 
             node_val = action.get("node")
             node_item = self.nodes.get(node_val)
 
             if action_type == "visit" and node_item:
-                node_item.highlight("#7EE081") # Зеленый
+                print(f"Visiting node: {node_val}")
+                node_item.highlight("#7EE081")  # Зеленый - посещенный
+                node_item.setZValue(10)  # Поднимаем на передний план
+                
+                # Анимация узла
+                if hasattr(node_item, 'animate_visit'):
+                    node_item.animate_visit()
                 
                 if "distance" in action:
-                    node_item.update_distance_text(str(action["distance"]))
+                    distance = action["distance"]
+                    node_item.update_distance_text(str(distance))
+                    print(f"Node {node_val} distance: {distance}")
+                    
+                # Подсвечиваем ребра от этого узла
+                self._highlight_edges_from_node(node_val, "#7EE081", 0.5)
+                
                 return True
 
             elif action_type == "discover" and node_item:
-                node_item.highlight("#F9C80E") # Желтый
+                print(f"Discovering node: {node_val}")
+                node_item.highlight("#F9C80E")  # Желтый - обнаруженный
+                node_item.setZValue(5)  # Поднимаем, но ниже посещенных
+                
+                # Анимация узла
+                if hasattr(node_item, 'animate_discover'):
+                    node_item.animate_discover()
                 
                 from_node = action.get('from_node')
                 if from_node and from_node in self.nodes:
@@ -332,26 +386,138 @@ class GraphVisualizer:
                     edge_item = self.edges.get(edge_key)
                     if edge_item:
                         edge_item.highlight("#F9C80E")
+                        edge_item.setZValue(4)
+                        
+                        # Анимация ребра
+                        if hasattr(edge_item, 'animate_highlight'):
+                            edge_item.animate_highlight()
+                        
+                        print(f"Highlighted edge {from_node}-{node_val}")
+                        
                 return True
 
             elif action_type == "update_distance" and node_item:
-                node_item.highlight("#4A90E2") # Синий
+                new_distance = action.get('new_distance')
+                old_distance = action.get('old_distance', '∞')
+                print(f"Updating node {node_val} distance: {old_distance} -> {new_distance}")
                 
-                if "new_distance" in action:
-                    node_item.update_distance_text(str(action["new_distance"]))
+                node_item.highlight("#4A90E2")  # Синий - обновление расстояния
+                
+                if hasattr(node_item, 'animate_distance_update'):
+                    node_item.animate_distance_update()
+                
+                if new_distance is not None:
+                    node_item.update_distance_text(str(new_distance))
+                    
+                # Если есть предыдущий узел, подсвечиваем ребро
+                prev_node = action.get('prev_node')
+                if prev_node and prev_node in self.nodes:
+                    edge_key = self._get_edge_key(prev_node, node_val)
+                    edge_item = self.edges.get(edge_key)
+                    if edge_item:
+                        edge_item.highlight("#4A90E2", 2000)  # Временная подсветка
+                        
+                return True
+
+            # Обработка действий для алгоритма Крускала
+            elif action_type == "consider_edge":
+                u = action.get('u')
+                v = action.get('v')
+                weight = action.get('weight')
+                print(f"Considering edge: {u}-{v} (weight: {weight})")
+                
+                edge_key = self._get_edge_key(u, v)
+                edge_item = self.edges.get(edge_key)
+                if edge_item:
+                    edge_item.highlight("#FFA500")  # Оранжевый - рассматриваемое ребро
+                    edge_item.setZValue(6)
+                    
+                    # Анимация ребра
+                    if hasattr(edge_item, 'animate_consider'):
+                        edge_item.animate_consider()
+                        
+                return True
+
+            elif action_type == "accept_edge":
+                u = action.get('u')
+                v = action.get('v')
+                weight = action.get('weight')
+                print(f"Accepting edge into MST: {u}-{v} (weight: {weight})")
+                
+                edge_key = self._get_edge_key(u, v)
+                edge_item = self.edges.get(edge_key)
+                if edge_item:
+                    edge_item.highlight("#4ECDC4")  # Бирюзовый - ребро MST
+                    edge_item.set_thickness(3)  # Делаем ребро толще
+                    edge_item.setZValue(7)
+                    
+                    # Анимация принятия ребра
+                    if hasattr(edge_item, 'animate_accept'):
+                        edge_item.animate_accept()
+                        
+                return True
+
+            elif action_type == "reject_edge":
+                u = action.get('u')
+                v = action.get('v')
+                weight = action.get('weight')
+                print(f"Rejecting edge: {u}-{v} (weight: {weight})")
+                
+                edge_key = self._get_edge_key(u, v)
+                edge_item = self.edges.get(edge_key)
+                if edge_item:
+                    edge_item.highlight("#95A5A6")  # Серый - отвергнутое ребро
+                    edge_item.set_dashed(True)  # Делаем ребро пунктирным
+                    edge_item.setZValue(1)  # Отправляем на задний план
+                    
+                    # Анимация отклонения ребра
+                    if hasattr(edge_item, 'animate_reject'):
+                        edge_item.animate_reject()
+                        
                 return True
 
             elif action_type == "complete":
                 print("Completing algorithm - highlighting all nodes")
+                
+                # Подсвечиваем все узлы зеленым
                 self._highlight_all_nodes("#7EE081")
+                
+                # Сбрасываем z-value
+                for node_item in self.nodes.values():
+                    node_item.setZValue(0)
+                    
+                # Центрируем и масштабируем
                 self._center_and_scale_graph()
+                
+                # Показываем сообщение о завершении
+                if "mst_weight" in action:
+                    mst_weight = action["mst_weight"]
+                    print(f"MST total weight: {mst_weight}")
+                    
                 return True
             
             return False
             
         except Exception as e:
             print(f"Error processing action: {e}")
+            import traceback
+            traceback.print_exc()
             return False
+
+    def _highlight_edges_from_node(self, node_val, color_hex, duration=2000):
+        """Подсвечивает все ребра, исходящие из узла."""
+        try:
+            if node_val not in self.adjacency_list:
+                return
+                
+            for neighbor in self.adjacency_list[node_val]:
+                edge_key = self._get_edge_key(node_val, neighbor)
+                edge_item = self.edges.get(edge_key)
+                if edge_item:
+                    edge_item.highlight(color_hex)  # Убрали duration, если он не используется
+                        
+        except Exception as e:
+            print(f"Error highlighting edges from node: {e}")
 
     def _highlight_all_nodes(self, color_hex):
         """Безопасно подсвечивает все узлы."""
@@ -359,6 +525,11 @@ class GraphVisualizer:
             for node_val, node_item in list(self.nodes.items()):
                 if node_item and hasattr(node_item, 'highlight'):
                     node_item.highlight(color_hex)
+                    
+                    # Анимация завершения для всех узлов
+                    if hasattr(node_item, 'animate_complete'):
+                        node_item.animate_complete()
+                        
         except Exception as e:
             print(f"Error highlighting all nodes: {e}")
 
@@ -369,6 +540,88 @@ class GraphVisualizer:
             "edges_count": len(self.edges),
             "is_directed": self.is_directed,
             "current_layout": self.current_layout,
-            "adjacency_list": self.adjacency_list
+            "start_node": self.start_node_value,
+            "adjacency_list": self.adjacency_list,
+            "edge_weights": self.edge_weights
         }
         return info
+
+    def get_edge_weight(self, u, v):
+        """Возвращает вес ребра между узлами u и v."""
+        edge_key = self._get_edge_key(u, v)
+        return self.edge_weights.get(edge_key, 1)  # По умолчанию вес 1
+
+    def reset_highlights(self):
+        """Сбрасывает все подсветки к исходному состоянию."""
+        try:
+            print("Resetting all highlights")
+            
+            # Сбрасываем подсветку узлов
+            for node_item in self.nodes.values():
+                if hasattr(node_item, 'reset_highlight'):
+                    node_item.reset_highlight()
+                else:
+                    # Fallback: устанавливаем стандартный цвет
+                    node_item.highlight("#5A9BD5")  # Изменено с setBrush на highlight
+                        
+            # Сбрасываем подсветку ребер
+            for edge_item in self.edges.values():
+                if hasattr(edge_item, 'reset_highlight'):
+                    edge_item.reset_highlight()
+                else:
+                    # Fallback: устанавливаем стандартный цвет и толщину
+                    edge_item.highlight("#2c3e50")  # Изменено с setPen на highlight
+                    if hasattr(edge_item, 'set_dashed'):
+                        edge_item.set_dashed(False)
+                            
+            print("Highlights reset successfully")
+            
+        except Exception as e:
+            print(f"Error resetting highlights: {e}")
+
+    def animate_graph_layout_change(self, new_layout_name):
+        """Анимирует переход к новой компоновке графа."""
+        try:
+            if new_layout_name not in self.layout_algorithms:
+                print(f"Unknown layout: {new_layout_name}")
+                return False
+                
+            print(f"Animating layout change to: {new_layout_name}")
+            
+            # Сохраняем текущие позиции
+            old_positions = {}
+            for node_val, node_item in self.nodes.items():
+                old_positions[node_val] = node_item.pos()
+            
+            # Вычисляем новые позиции
+            new_layout = self.layout_algorithms[new_layout_name]
+            new_layout.calculate_layout(self.nodes, self.adjacency_list)
+            
+            # Анимируем перемещение узлов
+            for node_val, node_item in self.nodes.items():
+                if node_val in old_positions:
+                    old_pos = old_positions[node_val]
+                    new_pos = node_item.pos()
+                    
+                    # Создаем анимацию
+                    anim = QPropertyAnimation(node_item, b"pos")
+                    anim.setDuration(1000)
+                    anim.setStartValue(old_pos)
+                    anim.setEndValue(new_pos)
+                    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                    anim.start()
+            
+            # Обновляем текущую компоновку
+            self.current_layout = new_layout_name
+            self.layout_algorithm = new_layout
+            
+            # Через некоторое время центрируем граф
+            QTimer.singleShot(1200, self._center_and_scale_graph)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error animating layout change: {e}")
+            import traceback
+            traceback.print_exc()
+            return False

@@ -681,6 +681,19 @@ class GraphNodeItem(QGraphicsEllipseItem):
             self.distance_text.setPos(-text_rect.width() / 2, self.radius + 5)
         except Exception as e:
             print(f"Error updating distance text: {e}")
+    def reset_highlight(self):
+        """Сбрасывает подсветку узла к исходному состоянию."""
+        try:
+            # Сбрасываем анимацию, если она активна
+            if self.color_timer.isActive():
+                self.color_timer.stop()
+            
+            # Устанавливаем стандартный цвет
+            self._current_color = QColor("#4A90E2")
+            self._target_color = self._current_color
+            self.update()
+        except Exception as e:
+            print(f"Error resetting node highlight: {e}")
 
 
 class GraphEdgeItem(QGraphicsObject):
@@ -895,12 +908,21 @@ class GraphEdgeItem(QGraphicsObject):
             print(f"Error painting edge: {e}")
 
     def highlight(self, color_hex):
+        """Подсветка ребра."""
         try:
             self._color = QColor(color_hex)
+            # Можно временно увеличить толщину для лучшей видимости
+            self._pen_width = 4
             self.update()
         except Exception as e:
             print(f"Error highlighting edge: {e}")
-        
+    def set_thickness(self, thickness):
+        """Устанавливает толщину линии."""
+        try:
+            self._pen_width = thickness
+            self.update()
+        except Exception as e:
+            print(f"Error setting thickness: {e}")     
     def reset_color(self):
         try:
             self._color = QColor("#2c3e50")
@@ -917,6 +939,24 @@ class GraphEdgeItem(QGraphicsObject):
                 self.end_node.remove_connected_edge(self)
         except Exception as e:
             print(f"Error in edge destructor: {e}")
+    def set_dashed(self, is_dashed=True):
+        """Устанавливает пунктирный стиль линии."""
+        try:
+            self._pen_width = 2 if is_dashed else 3
+            self._is_dashed = is_dashed
+            self.update()
+        except Exception as e:
+            print(f"Error setting dashed style: {e}")
+    def reset_highlight(self):
+        """Сбрасывает подсветку ребра к исходному состоянию."""
+        try:
+            self._color = QColor("#2c3e50")
+            self._pen_width = 3
+            if hasattr(self, 'set_dashed'):
+                self.set_dashed(False)
+            self.update()
+        except Exception as e:
+            print(f"Error resetting edge highlight: {e}")
 
 
 class BTreeNodeItem(QGraphicsObject):

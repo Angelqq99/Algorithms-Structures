@@ -1,0 +1,4338 @@
+class MainWindow(QMainWindow):
+    """Главное окно визуализатора алгоритмов"""
+    
+    hashtable_completed = pyqtSignal(dict)
+    
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Визуализатор алгоритмов и структур данных")
+        self.setGeometry(100, 100, 1400, 850)
+        self.setStyleSheet("background-color: #f4f4f9;")
+
+        # Контроллер
+        self.engine = Engine()
+        self.engine.step_ready.connect(self.on_step_ready)
+
+        # Состояние
+        self.current_algorithm = None
+        self.visual_items = []
+        self.array_data = []
+        self.is_auto_mode = False
+        self.is_animating = False
+        self.pending_actions = []
+        self.total_steps = 0
+        self.current_step = 0
+        self.algorithm_completed = False
+        
+        # Для хэш-таблицы
+        self.hashtable_cells = []
+        self.hashtable_stats = {}
+        self.hashtable_display_mode = "initial"
+        self.hashtable_scroll_enabled = False
+        self.current_hashtable_data = []  # Для хранения текущих данных таблицы
+        
+        # Для структур данных (стек, очередь, дек)
+        self.container_visualizer = None
+        self.container_type = None
+        
+        # Для отложенной отрисовки деревьев
+        self._pending_tree_data = []
+        self._last_tree_data = None
+        
+        # Временные элементы для визуализации
+        self._temp_array_items = []
+        self._split_lines = []
+
+        # Инициализация сцены и визуализаторов
+        self.scene = QGraphicsScene()
+        self.view = ZoomableGraphicsView(self.scene)
+        self.tree_visualizer = TreeVisualizer(self.scene)
+        self._is_rendering_tree = False
+        self.graph_visualizer = GraphVisualizer(self.scene, self.view)
+        self.container_visualizer = None
+        self.inspector = Inspector()
+        
+        # Виджет временных массивов
+        self.temp_arrays_widget = TempArraysWidget()
+
+        # Направленность графа по умолчанию
+        self.graph_directed = False
+
+        # Добавляем таймер для отложенного сброса зума
+        self.zoom_reset_timer = QTimer()
+        self.zoom_reset_timer.setSingleShot(True)
+        self.zoom_reset_timer.timeout.connect(self._delayed_zoom_reset)
+        
+        # Таймер для анимации хэш-таблицы
+        self.hashtable_animation_timer = QTimer()
+        self.hashtable_animation_timer.timeout.connect(self._animate_hashtable_cell)
+        self.animation_queue = []
+
+        # Инициализация интерактивных операций
+        self.interactive_widget = None
+        self.val_input = None
+        self.tree_ops_combo = None
+        self.execute_btn = None
+        self.btn_min = self.btn_max = self.btn_height = self.btn_balance = None
+        self.btn_clear = self.btn_random = None
+        self.btn_fit_view = self.btn_center = self.btn_zoom_in = self.btn_zoom_out = None
+        
+        # Для интерактивного поиска
+        self._search_generator = None
+        self._search_value = None
+
+        # Система цветов
+        self._setup_color_system()
+
+        self._setup_ui()
+        self._connect_signals()
+
+    def _setup_color_system(self):
+        """Инициализация системы цветов для визуализации."""
+        # Цветовая палитра для сортировок
+        self.color_palette = {
+            # Основные состояния
+            "default": "#5A9BD5",        # Синий - обычное состояние
+            "sorted": "#7EE081",         # Зеленый - отсортированное положение
+            "current": "#FFD700",        # Желтый - текущий элемент
+            "comparing": "#FFA500",      # Оранжевый - сравнение
+            "swapping": "#FF6B6B",       # Красный - обмен
+            "pivot": "#9B59B6",         # Фиолетовый - опорный элемент
+            "key": "#3498DB",           # Голубой - ключевой элемент (для InsertionSort)
+            "shifted": "#E67E22",       # Оранжевый темный - сдвинутый элемент
+            "selected": "#1ABC9C",      # Бирюзовый - выбранный (для SelectionSort)
+            "group": "#4ECDC4",         # Бирюзовый светлый - группа (ShellSort)
+            "merging": "#2ECC71",       # Зеленый - слияние
+            "merge_left": "#4ECDC4",    # Бирюзовый - левый массив MergeSort
+            "merge_right": "#FF6B6B",   # Красный - правый массив MergeSort
+            "merge_target": "#7EE081",  # Светло-зеленый - целевая позиция MergeSort
+            
+            # Вспомогательные
+            "highlight": "#FFD700",     # Желтый - временная подсветка
+            "info": "#3498DB",          # Синий - информационный
+            "warning": "#E74C3C",       # Красный - предупреждение
+            "success": "#2ECC71",       # Зеленый - успех
+        }
+        
+        # Сброс кэша цветов
+        self.current_highlight = set()
+        self.last_operation = None
+
+    def _setup_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(5)
+
+        # Левая панель (управление)
+        left_panel = self._create_left_panel()
+        
+        # Центральная панель (визуализация)
+        center_panel = self._create_center_panel()
+        
+        # Правая панель (интерактивные операции)
+        right_panel = self._create_interactive_panel()
+        self.interactive_widget = right_panel
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(left_panel)
+        splitter.addWidget(center_panel)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([350, 800, 350])
+        main_layout.addWidget(splitter)
+
+        # Первичная генерация
+        self._generate_random_data()
+
+    def _create_left_panel(self):
+        left_panel = QFrame()
+        left_panel.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff; 
+                border-radius: 8px;
+                border: 1px solid #d0d0d0;
+            }
+        """)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(15, 15, 15, 15)
+        left_layout.setSpacing(8)
+
+        # Заголовок
+        title = QLabel("Управление алгоритмами и структурами")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
+        left_layout.addWidget(title)
+
+        # Категория и алгоритм
+        left_layout.addWidget(QLabel("Категория:"))
+        self.category_combo = QComboBox()
+        self.category_combo.addItems(["Сортировки", "Деревья", "Графы", "Хэш-таблицы", "Структуры данных"])
+        
+        left_layout.addWidget(QLabel("Алгоритм:"))
+        self.algorithm_combo = QComboBox()
+        self._initialize_algorithm_combo()
+
+        # Данные
+        left_layout.addWidget(QLabel("Данные:"))
+        self.data_input = QLineEdit()
+        self.data_input.setPlaceholderText("Введите данные через запятую: 5,2,8,1")
+
+        # Для графов добавляем выбор компоновки и направленности
+        self.graph_settings_label = QLabel("Настройки графа:")
+        self.graph_settings_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        
+        self.directed_label = QLabel("Направленность:")
+        self.directed_checkbox = QCheckBox("Ориентированный граф")
+        self.directed_checkbox.setChecked(self.graph_directed)
+        
+        self.graph_layout_label = QLabel("Компоновка графа:")
+        self.graph_layout_combo = QComboBox()
+        self.graph_layout_combo.addItems(["Пружинная", "Круговая", "Древовидная"])
+        
+        self.graph_settings_label.hide()
+        self.directed_label.hide()
+        self.directed_checkbox.hide()
+        self.graph_layout_label.hide()
+        self.graph_layout_combo.hide()
+        
+        # Настройки хэш-таблицы
+        self.hashtable_settings_label = QLabel("Настройки хэш-таблицы:")
+        self.hashtable_settings_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        
+        # Функция хеширования
+        self.hash_function_label = QLabel("Функция хеширования:")
+        self.hash_function_combo = QComboBox()
+        self.hash_function_combo.addItems(["Деления", "Умножения", "Простая"])
+        
+        # Метод разрешения коллизий
+        self.collision_method_label = QLabel("Метод разрешения коллизий:")
+        self.collision_method_combo = QComboBox()
+        self.collision_method_combo.addItems(["Линейное пробирование", "Квадратичное пробирование", 
+                                            "Двойное хеширование", "Метод цепочек"])
+        
+        # Размер таблиции
+        self.table_size_label = QLabel("Размер таблицы:")
+        self.table_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.table_size_slider.setRange(5, 30)
+        self.table_size_slider.setValue(10)
+        self.table_size_value = QLabel("10")
+        
+        table_size_layout = QHBoxLayout()
+        table_size_layout.addWidget(self.table_size_label)
+        table_size_layout.addWidget(self.table_size_slider)
+        table_size_layout.addWidget(self.table_size_value)
+        
+        # Скрываем настройки хэш-таблицы по умолчанию
+        self.hashtable_settings_label.hide()
+        self.hash_function_label.hide()
+        self.hash_function_combo.hide()
+        self.collision_method_label.hide()
+        self.collision_method_combo.hide()
+        self.table_size_label.hide()
+        self.table_size_slider.hide()
+        self.table_size_value.hide()
+        
+        # Кнопки управления
+        self.generate_btn = QPushButton("🎲 Сгенерировать случайные данные")
+        self.start_btn = QPushButton("▶ Запуск (ручной режим)")
+        self.auto_btn = QPushButton("⚙ Автоматический режим")
+        self.pause_btn = QPushButton("⏸ Пауза")
+        self.reset_btn = QPushButton("⟳ Сброс алгоритма")
+        
+        # Новая кнопка для просмотра цепочек
+        self.view_chains_btn = QPushButton("🔗 Просмотреть цепочки")
+        self.view_chains_btn.clicked.connect(self._show_chains_viewer)
+        self.view_chains_btn.setEnabled(False)
+        self.view_chains_btn.hide()
+
+        self.pause_btn.hide()
+
+        button_style = """
+            QPushButton {
+                background-color: #5A9BD5;
+                color: white;
+                border-radius: 6px;
+                padding: 8px;
+                font-weight: bold;
+                border: none;
+                margin-top: 5px;
+            }
+            QPushButton:hover { 
+                background-color: #4B89C6; 
+            }
+            QPushButton:pressed { 
+                background-color: #3A6FA3; 
+            }
+            QPushButton:disabled {
+                background-color: #b0b0b0;
+                color: #e0e0e0;
+            }
+        """
+        for btn in [self.generate_btn, self.start_btn, self.auto_btn, self.pause_btn, self.reset_btn]:
+            btn.setStyleSheet(button_style)
+        
+        # Специальный стиль для кнопки просмотра цепочек
+        self.view_chains_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4ECDC4;
+                color: white;
+                border-radius: 6px;
+                padding: 10px;
+                font-weight: bold;
+                border: 2px solid #2eaba2;
+                font-size: 13px;
+            }
+            QPushButton:hover { 
+                background-color: #3dbcb3; 
+                border: 2px solid #1d9a91;
+            }
+            QPushButton:pressed { 
+                background-color: #2eaba2; 
+            }
+            QPushButton:disabled {
+                background-color: #b0d0cd;
+                color: #e0f0ee;
+                border: 2px solid #a0c0bd;
+            }
+        """)
+
+        # Настройка скорости
+        speed_layout = QHBoxLayout()
+        speed_layout.addWidget(QLabel("Скорость:"))
+        self.speed_slider = QSlider(Qt.Orientation.Horizontal)
+        self.speed_slider.setRange(1, 10)
+        self.speed_slider.setValue(5)
+        speed_layout.addWidget(self.speed_slider)
+        self.speed_label = QLabel("x5")
+        speed_layout.addWidget(self.speed_label)
+
+        # Добавление элементов в левую панель
+        left_layout.addWidget(self.category_combo)
+        left_layout.addWidget(self.algorithm_combo)
+        left_layout.addWidget(self.data_input)
+        
+        left_layout.addWidget(self.graph_settings_label)
+        left_layout.addWidget(self.directed_label)
+        left_layout.addWidget(self.directed_checkbox)
+        left_layout.addWidget(self.graph_layout_label)
+        left_layout.addWidget(self.graph_layout_combo)
+        
+        left_layout.addWidget(self.hashtable_settings_label)
+        left_layout.addWidget(self.hash_function_label)
+        left_layout.addWidget(self.hash_function_combo)
+        left_layout.addWidget(self.collision_method_label)
+        left_layout.addWidget(self.collision_method_combo)
+        left_layout.addLayout(table_size_layout)
+        
+        left_layout.addWidget(self.generate_btn)
+        left_layout.addWidget(self.start_btn)
+        left_layout.addWidget(self.auto_btn)
+        left_layout.addWidget(self.pause_btn)
+        left_layout.addWidget(self.reset_btn)
+        left_layout.addWidget(self.view_chains_btn)
+        left_layout.addLayout(speed_layout)
+        
+        # Виджет временных массивов MergeSort
+        left_layout.addWidget(self.temp_arrays_widget)
+        self.temp_arrays_widget.hide()
+        
+        left_layout.addWidget(QLabel("Инспектор состояния:"))
+        left_layout.addWidget(self.inspector)
+        left_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+
+        return left_panel
+
+    def _create_center_panel(self):
+        """Создает центральную панель с визуализацией."""
+        center_panel = QFrame()
+        center_panel.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff; 
+                border-radius: 8px;
+                border: 1px solid #d0d0d0;
+            }
+        """)
+        
+        center_layout = QVBoxLayout(center_panel)
+        center_layout.setContentsMargins(15, 15, 15, 15)
+        center_layout.setSpacing(8)
+
+        viz_label = QLabel("Визуализация:")
+        viz_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50;")
+        center_layout.addWidget(viz_label)
+
+        self.view.setStyleSheet("""
+            QGraphicsView {
+                background: #fafafa; 
+                border: 2px solid #e0e0e0; 
+                border-radius: 6px;
+            }
+        """)
+        
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        center_layout.addWidget(self.view, 4)
+        
+        # Добавляем панель управления визуализацией
+        viz_controls = self._create_visualization_controls()
+        center_layout.addWidget(viz_controls)
+
+        log_label = QLabel("Пошаговое объяснение:")
+        log_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2c3e50;")
+        center_layout.addWidget(log_label)
+
+        self.log_text = QTextEdit()
+        self.log_text.setMaximumHeight(200)
+        self.log_text.setReadOnly(True)
+        self.log_text.setStyleSheet("""
+            QTextEdit {
+                background: #f8f9fa;
+                border: 1px solid #e0e0e0;
+                border-radius: 6px;
+                padding: 8px;
+                font-family: 'Consolas', 'Monaco', monospace;
+            }
+        """)
+        center_layout.addWidget(self.log_text, 1)
+
+        return center_panel
+
+    def _create_visualization_controls(self):
+        """Создает панель управления визуализацией."""
+        controls = QWidget()
+        layout = QHBoxLayout(controls)
+        layout.setContentsMargins(0, 5, 0, 5)
+        
+        self.btn_fit_view = QPushButton("🔍 Подогнать вид")
+        self.btn_fit_view.clicked.connect(self._fit_to_content)
+        self.btn_fit_view.setToolTip("Подогнать масштаб к содержимому")
+        
+        self.btn_center = QPushButton("🎯 Центрировать")
+        self.btn_center.clicked.connect(self._center_view)
+        self.btn_center.setToolTip("Центрировать вид")
+        
+        # Стили кнопок
+        button_style = """
+            QPushButton {
+                background-color: #5A9BD5;
+                color: white;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4B89C6;
+            }
+            QPushButton:pressed {
+                background-color: #3A6FA3;
+            }
+        """
+        
+        for btn in [self.btn_fit_view, self.btn_center]:
+            btn.setStyleSheet(button_style)
+            layout.addWidget(btn)
+        
+        layout.addStretch()
+        return controls
+
+    def _create_interactive_panel(self):
+        """Создает панель интерактивных операций для структур данных."""
+        panel = QFrame()
+        panel.setStyleSheet("""
+            QFrame {
+                background-color: #ffffff;
+                border: 2px solid #5A9BD5;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
+        
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
+        
+        # Заголовок
+        title = QLabel("⚙️ Интерактивные операции")
+        title.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding-bottom: 5px;
+                border-bottom: 2px solid #5A9BD5;
+            }
+        """)
+        layout.addWidget(title)
+        
+        # Контейнер для операций в зависимости от типа
+        self.operations_container = QWidget()
+        self.operations_layout = QVBoxLayout(self.operations_container)
+        self.operations_layout.setSpacing(8)
+        layout.addWidget(self.operations_container)
+        
+        # Информационная панель
+        self.info_label = QLabel("ℹ️ Выберите структуру данных для интерактивных операций")
+        self.info_label.setStyleSheet("""
+            QLabel {
+                color: #666;
+                font-size: 11px;
+                font-style: italic;
+                padding: 5px;
+                background-color: #f0f8ff;
+                border-radius: 4px;
+                border: 1px solid #d0e0ff;
+            }
+        """)
+        self.info_label.setWordWrap(True)
+        layout.addWidget(self.info_label)
+        
+        layout.addStretch()
+        
+        return panel
+
+    def _create_container_interactive_panel(self, container_type):
+        """Создает панель интерактивных операций для контейнеров."""
+        # Очищаем контейнер полностью
+        self._clear_interactive_panel_children()
+        
+        # Обновляем информационную метку
+        self.info_label.setText(f"ℹ️ Выполняйте операции с {container_type} в реальном времени")
+        
+        # Поле ввода значения
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(QLabel("Значение:"))
+        self.container_val_input = QLineEdit()
+        self.container_val_input.setPlaceholderText("Введите число...")
+        self.container_val_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        self.container_val_input.returnPressed.connect(self._on_container_operation_execute)
+        input_layout.addWidget(self.container_val_input)
+        self.operations_layout.addLayout(input_layout)
+        
+        # Выбор операции
+        ops_layout = QHBoxLayout()
+        ops_layout.addWidget(QLabel("Операция:"))
+        self.container_ops_combo = QComboBox()
+        
+        # Операции в зависимости от типа контейнера
+        if container_type == "stack":
+            self.container_ops_combo.addItems([
+                "push (добавить)",
+                "pop (удалить верхний)",
+                "peek (посмотреть верхний)",
+                "size (размер)",
+                "is_empty (пусто?)"
+            ])
+        elif container_type == "queue":
+            self.container_ops_combo.addItems([
+                "enqueue (добавить)",
+                "dequeue (удалить первый)",
+                "front (посмотреть первый)",
+                "back (посмотреть последний)",
+                "size (размер)",
+                "is_empty (пусто?)"
+            ])
+        elif container_type == "deque":
+            self.container_ops_combo.addItems([
+                "push_front (добавить в начало)",
+                "push_back (добавить в конец)",
+                "pop_front (удалить из начала)",
+                "pop_back (удалить из конца)",
+                "front (посмотреть первый)",
+                "back (посмотреть последний)",
+                "size (размер)",
+                "is_empty (пусто?)"
+            ])
+        
+        self.container_ops_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        ops_layout.addWidget(self.container_ops_combo)
+        self.operations_layout.addLayout(ops_layout)
+        
+        # Кнопка выполнения
+        self.container_execute_btn = QPushButton("Выполнить операцию")
+        self.container_execute_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4ECDC4;
+                color: white;
+                border-radius: 6px;
+                padding: 12px;
+                font-weight: bold;
+                font-size: 14px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #3dbcb3;
+            }
+            QPushButton:pressed {
+                background-color: #2eaba2;
+            }
+        """)
+        self.container_execute_btn.clicked.connect(self._on_container_operation_execute)
+        self.operations_layout.addWidget(self.container_execute_btn)
+        
+        # Панель быстрых действий
+        quick_actions = QGroupBox("Быстрые действия")
+        quick_actions.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        
+        quick_layout = QHBoxLayout()
+        
+        # Кнопки быстрых действий
+        self.container_clear_btn = QPushButton("🗑️ Очистить")
+        self.container_clear_btn.clicked.connect(self._clear_container)
+        self.container_clear_btn.setToolTip("Очистить структуру")
+        
+        self.container_random_btn = QPushButton("🎲 Добавить 3 случайных")
+        self.container_random_btn.clicked.connect(self._add_random_to_container)
+        self.container_random_btn.setToolTip("Добавить 3 случайных значения")
+        
+        # Стили кнопок быстрых действий
+        quick_button_style = """
+            QPushButton {
+                background-color: #5A9BD5;
+                color: white;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4B89C6;
+            }
+            QPushButton:pressed {
+                background-color: #3A6FA3;
+            }
+        """
+        
+        for btn in [self.container_clear_btn, self.container_random_btn]:
+            btn.setStyleSheet(quick_button_style)
+            btn.setMinimumHeight(35)
+            quick_layout.addWidget(btn)
+        
+        quick_actions.setLayout(quick_layout)
+        self.operations_layout.addWidget(quick_actions)
+
+    def _clear_interactive_panel_children(self):
+        """Очищает все дочерние элементы интерактивной панели."""
+        # Удаляем все виджеты из operations_layout
+        while self.operations_layout.count():
+            item = self.operations_layout.takeAt(0)
+            if item.widget():
+                widget = item.widget()
+                widget.setParent(None)
+                widget.deleteLater()
+            elif item.layout():
+                # Рекурсивно очищаем вложенные layout
+                self._clear_layout_recursive(item.layout())
+        
+        # Сбрасываем ссылки на виджеты
+        self.container_val_input = None
+        self.container_ops_combo = None
+        self.container_execute_btn = None
+        self.container_clear_btn = None
+        self.container_random_btn = None
+
+    def _clear_layout_recursive(self, layout):
+        """Рекурсивно очищает layout и все его дочерние элементы."""
+        if layout:
+            for i in reversed(range(layout.count())):
+                item = layout.takeAt(i)
+                if item.widget():
+                    widget = item.widget()
+                    widget.setParent(None)
+                    widget.deleteLater()
+                elif item.layout():
+                    self._clear_layout_recursive(item.layout())
+
+    def _create_tree_interactive_panel(self):
+        """Создает панель интерактивных операций для деревьев."""
+        # Двойная проверка категории
+        if self.category_combo.currentText() != "Деревья":
+            return
+        
+        # Полностью очищаем предыдущие виджеты
+        self._clear_interactive_panel_children()
+        
+        # Ждем завершения очистки
+        QApplication.processEvents()
+        
+        # Обновляем информационную метку
+        self.info_label.setText("ℹ️ Выполняйте операции с деревом в реальном времени")
+        
+        # Скрываем панель операций перед созданием новых виджетов
+        self.operations_container.hide()
+        
+        # Вместо создания отдельного виджета, создаем элементы напрямую в operations_layout
+        # чтобы избежать временного появления отдельного окна
+        
+        # Поле ввода значения
+        input_layout = QHBoxLayout()
+        input_layout.addWidget(QLabel("Значение:"))
+        self.val_input = QLineEdit()
+        self.val_input.setPlaceholderText("Введите число...")
+        self.val_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        input_layout.addWidget(self.val_input)
+        self.operations_layout.addLayout(input_layout)
+        
+        # Выбор операции
+        self.operations_layout.addWidget(QLabel("Операция:"))
+        self.tree_ops_combo = QComboBox()
+        algo_name = self.algorithm_combo.currentText()
+        if algo_name == "Heap":
+                # Операции специфичные для кучи
+                self.tree_ops_combo.addItems([
+                    "Вставить узел",
+                    "Удалить корень (delete)",
+                    "Посмотреть корень (peek)",
+                    "Получить размер (get_size)",
+                    "Проверить на пустоту (is_empty)",
+                    "Получить max (для max-heap)",
+                    "Получить min (для min-heap)",
+                    "Преобразовать в min-heap",
+                    "Преобразовать в max-heap",
+                    "Очистить кучу"
+                ])
+        else:
+            # Оригинальные операции для других деревьев
+            self.tree_ops_combo.addItems([
+                "Вставить узел",
+                "Удалить узел",
+                "Найти узел",
+                "Прямой обход (Pre-order)",
+                "Центральный обход (In-order)",
+                "Обратный обход (Post-order)",
+                "Обход в ширину (BFS)"
+            ])
+        self.tree_ops_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        self.operations_layout.addWidget(self.tree_ops_combo)
+        
+        # Кнопка выполнения
+        self.execute_btn = QPushButton("Выполнить операцию")
+        self.execute_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4ECDC4;
+                color: white;
+                border-radius: 6px;
+                padding: 12px;
+                font-weight: bold;
+                font-size: 14px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #3dbcb3;
+            }
+            QPushButton:pressed {
+                background-color: #2eaba2;
+            }
+        """)
+        self.operations_layout.addWidget(self.execute_btn)
+        
+        # Панель быстрых действий
+        quick_actions = QGroupBox("Быстрые действия")
+        quick_actions.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        
+        quick_layout = QGridLayout()
+        
+        # Кнопки быстрых действий
+        self.btn_min = QPushButton("Найти min")
+        self.btn_max = QPushButton("Найти max")
+        self.btn_height = QPushButton("Высота")
+        self.btn_balance = QPushButton("Баланс")
+        self.btn_clear = QPushButton("🗑️ Очистить")
+        self.btn_random = QPushButton("🎲 Случайные")
+        
+        # Стили кнопок быстрых действий
+        quick_button_style = """
+            QPushButton {
+                background-color: #5A9BD5;
+                color: white;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4B89C6;
+            }
+            QPushButton:pressed {
+                background-color: #3A6FA3;
+            }
+        """
+        
+        for btn in [self.btn_min, self.btn_max, self.btn_height, self.btn_balance, 
+                    self.btn_clear, self.btn_random]:
+            btn.setStyleSheet(quick_button_style)
+            btn.setMinimumHeight(35)
+        
+        # Размещаем кнопки в сетке
+        quick_layout.addWidget(self.btn_min, 0, 0)
+        quick_layout.addWidget(self.btn_max, 0, 1)
+        quick_layout.addWidget(self.btn_height, 1, 0)
+        quick_layout.addWidget(self.btn_balance, 1, 1)
+        quick_layout.addWidget(self.btn_clear, 2, 0)
+        quick_layout.addWidget(self.btn_random, 2, 1)
+        
+        quick_actions.setLayout(quick_layout)
+        self.operations_layout.addWidget(quick_actions)
+        
+        # Подключаем сигналы
+        self.val_input.returnPressed.connect(self._on_operation_execute)
+        self.execute_btn.clicked.connect(self._on_operation_execute)
+        self.btn_min.clicked.connect(lambda: self._find_min_max("min"))
+        self.btn_max.clicked.connect(lambda: self._find_min_max("max"))
+        self.btn_height.clicked.connect(self._get_tree_height)
+        self.btn_balance.clicked.connect(self._check_balance)
+        self.btn_clear.clicked.connect(self._clear_tree)
+        self.btn_random.clicked.connect(self._add_random_nodes)
+        
+        # Показываем панель операций
+        self.operations_container.show()
+        
+        # Принудительное обновление
+        self.operations_container.update()
+        self.interactive_widget.update()
+        QApplication.processEvents()
+
+    def _clear_interactive_panel(self):
+        """Очищает панель интерактивных операций."""
+        # Очищаем контейнер
+        self._clear_interactive_panel_children()
+        
+        # Возвращаем информационную метку
+        self.info_label.setText("ℹ️ Выберите структуру данных для интерактивных операций")
+
+    def _connect_signals(self):
+        """Подключение сигналов к слотам."""
+        self.category_combo.currentTextChanged.connect(self._on_category_changed)
+        self.algorithm_combo.currentTextChanged.connect(self._on_algorithm_changed)
+        self.speed_slider.valueChanged.connect(self._update_speed)
+        self.generate_btn.clicked.connect(self._generate_random_data)
+        self.start_btn.clicked.connect(self._step_algorithm)
+        self.auto_btn.clicked.connect(self._start_auto_mode)
+        self.pause_btn.clicked.connect(self._pause_auto_mode)
+        self.reset_btn.clicked.connect(self._reset_algorithm)
+        self.table_size_slider.valueChanged.connect(
+            lambda v: self.table_size_value.setText(str(v))
+        )
+        self.directed_checkbox.stateChanged.connect(self._on_directed_changed)
+
+    def _on_directed_changed(self, state):
+        """Обработка изменения направленности графа."""
+        self.graph_directed = (state == Qt.CheckState.Checked.value)
+        self.graph_visualizer.set_directed(self.graph_directed)
+        
+        direction_text = "ориентированный" if self.graph_directed else "неориентированный"
+        self._log(f"📊 Граф изменен на {direction_text}")
+        
+        if self.current_algorithm and self.algorithm_combo.currentText() in ["BFS", "DFS", "Dijkstra"]:
+            self._reset_algorithm()
+            self._log("♻ Настройки графа изменены. Алгоритм сброшен.")
+
+    def _on_algorithm_changed(self, algorithm_name):
+        """Обработка изменения алгоритма."""
+        # Очищаем интерактивную панель при смене алгоритма
+        self._clear_interactive_panel()
+        
+        # При изменении алгоритма сбрасываем состояние
+        if self.current_algorithm:
+            self._reset_algorithm()
+        
+        # Обновляем интерактивную панель
+        category = self.category_combo.currentText()
+        if category == "Структуры данных":
+            # Для структур данных создаем соответствующую панель и инициализируем контейнер
+            self._create_container_panel_for_current_algo()
+        elif category == "Деревья":
+            # Для деревьев создаем соответствующую панель
+            self._create_tree_interactive_panel()
+        else:
+            # Для других категорий очищаем панель
+            self._clear_interactive_panel()
+
+    def _initialize_algorithm_combo(self):
+        """Инициализация выпадающего списка алгоритмов."""
+        category = self.category_combo.currentText()
+        self.algorithm_combo.clear()
+        if category == "Сортировки":
+            self.algorithm_combo.addItems([
+                "QuickSort", 
+                "MergeSort", 
+                "BubbleSort",
+                "InsertionSort",  
+                "SelectionSort",  
+                "ShellSort"       
+            ])
+        elif category == "Деревья":
+            self.algorithm_combo.addItems(["BST", "AVL", "RedBlackTree", "SplayTree", "Treap", "BTree","Heap"])
+        elif category == "Графы":
+            self.algorithm_combo.addItems(["BFS", "DFS", "Dijkstra"])
+        elif category == "Хэш-таблицы":
+            self.algorithm_combo.addItems(["HashTable"])
+        elif category == "Структуры данных":
+            self.algorithm_combo.addItems(["Stack", "Queue", "Deque"])
+
+    def _update_speed(self, value):
+        """Изменение скорости во время работы."""
+        self.speed_label.setText(f"x{value}")
+        self.engine.set_speed(value)
+        self._log(f"⚡ Скорость изменена: x{value}")
+
+    
+    def _on_category_changed(self, category):
+        """Обработка изменения категории алгоритма."""
+        # 1. Приостанавливаем все операции
+        self.engine.pause()
+        
+        # 2. Скрываем ВСЕ специфичные виджеты
+        self.temp_arrays_widget.hide()
+        self.temp_arrays_widget.clear()
+        
+        # 3. Скрываем настройки графов
+        self.graph_settings_label.hide()
+        self.directed_label.hide()
+        self.directed_checkbox.hide()
+        self.graph_layout_label.hide()
+        self.graph_layout_combo.hide()
+        
+        # 4. Скрываем настройки хэш-таблицы
+        self.hashtable_settings_label.hide()
+        self.hash_function_label.hide()
+        self.hash_function_combo.hide()
+        self.collision_method_label.hide()
+        self.collision_method_combo.hide()
+        self.table_size_label.hide()
+        self.table_size_slider.hide()
+        self.table_size_value.hide()
+        self.view_chains_btn.hide()
+        
+        # 5. Очищаем сцену
+        self.scene.clear()
+        
+        # 6. Даем время на очистку
+        QApplication.processEvents()
+        
+        # 7. Очищаем интерактивную панель
+        self._clear_interactive_panel()
+        
+        # 8. Инициализируем список алгоритмов
+        self._initialize_algorithm_combo()
+        
+        # 9. Показываем только нужные виджеты для текущей категории
+        if category == "Графы":
+            self.graph_settings_label.show()
+            self.directed_label.show()
+            self.directed_checkbox.show()
+            self.graph_layout_label.show()
+            self.graph_layout_combo.show()
+        elif category == "Хэш-таблицы":
+            self.hashtable_settings_label.show()
+            self.hash_function_label.show()
+            self.hash_function_combo.show()
+            self.collision_method_label.show()
+            self.collision_method_combo.show()
+            self.table_size_label.show()
+            self.table_size_slider.show()
+            self.table_size_value.show()
+            self.view_chains_btn.show()
+        
+        # 10. Обновляем интерактивную панель
+        if category == "Деревья":
+            QTimer.singleShot(100, self._create_tree_interactive_panel)
+        elif category == "Структуры данных":
+            QTimer.singleShot(100, self._create_container_panel_for_current_algo)
+        else:
+            self._clear_interactive_panel()
+        
+        # 11. Сбрасываем алгоритм при смене категории
+        self._reset_algorithm()
+        
+        # 12. Для структур данных показываем сообщение
+        if category == "Структуры данных":
+            self._log("📦 Выберите структуру данных для интерактивных операций")
+
+    def _create_container_panel_for_current_algo(self):
+        """Создает панель для текущего алгоритма контейнера."""
+        algo_name = self.algorithm_combo.currentText()
+        if algo_name == "Stack":
+            self._create_container_interactive_panel("stack")
+            # Инициализируем контейнер сразу
+            self.current_algorithm = Stack([])
+            self.container_type = "stack"
+            self.container_visualizer = ContainerVisualizer(self.scene, "stack")
+            # Очищаем сцену и создаем интерфейс
+            self.scene.clear()
+            self.container_visualizer._create_interface()
+            self._log("📚 Стек создан. Используйте интерактивные операции справа.")
+        elif algo_name == "Queue":
+            self._create_container_interactive_panel("queue")
+            self.current_algorithm = Queue([])
+            self.container_type = "queue"
+            self.container_visualizer = ContainerVisualizer(self.scene, "queue")
+            self.scene.clear()
+            self.container_visualizer._create_interface()
+            self._log("📥 Очередь создана. Используйте интерактивные операции справа.")
+        elif algo_name == "Deque":
+            self._create_container_interactive_panel("deque")
+            self.current_algorithm = Deque([])
+            self.container_type = "deque"
+            self.container_visualizer = ContainerVisualizer(self.scene, "deque")
+            self.scene.clear()
+            self.container_visualizer._create_interface()
+            self._log("🔄 Дек создан. Используйте интерактивные операции справа.")
+
+    def _start_auto_mode(self):
+        """Запуск автоматического режима."""
+        category = self.category_combo.currentText()
+        
+        # Для структур данных отключаем автоматический режим
+        if category == "Структуры данных":
+            self._log("ℹ️ Для структур данных используйте интерактивные операции справа")
+            return
+        
+        if self.algorithm_completed or not self.current_algorithm:
+            if not self._start_algorithm():
+                return
+
+        speed_value = self.speed_slider.value()
+        interval_ms = max(50, int(600 / speed_value))
+        
+        self.engine.run(interval_ms)
+
+        self.is_auto_mode = True
+        self.auto_btn.hide()
+        self.pause_btn.show()
+        self.start_btn.setEnabled(False)
+        self._log(f"▶ Автоматический режим запущен (скорость x{speed_value})")
+
+    def _pause_auto_mode(self):
+        """Пауза автоматического режима."""
+        self.engine.pause()
+        self.is_auto_mode = False
+        self.pause_btn.hide()
+        self.auto_btn.show()
+        self.start_btn.setEnabled(True)
+        self._log("⏸ Автоматический режим приостановлен")
+
+    def _step_algorithm(self):
+        """Шаг в ручном режиме."""
+        category = self.category_combo.currentText()
+        
+        # Для структур данных отключаем запуск через Engine
+        if category == "Структуры данных":
+            self._log("ℹ️ Для структур данных используйте интерактивные операции справа")
+            return
+        
+        if self.algorithm_completed or not self.current_algorithm:
+            if not self._start_algorithm():
+                return
+        
+        if not self.is_animating:
+            success = self.engine.step()
+            if not success:
+                self._log("❌ Алгоритм завершен или произошла ошибка")
+                self.algorithm_completed = True
+
+    def _reset_algorithm(self):
+        """Сброс текущего алгоритма и интерфейса."""
+        try:
+            # 1. Останавливаем движок и таймеры
+            self.engine.pause()
+            self.engine.generator = None
+            
+            # Останавливаем интерактивный поиск
+            self._search_generator = None
+            self._search_value = None
+            
+            # Останавливаем таймеры анимации
+            self.hashtable_animation_timer.stop()
+            if self.zoom_reset_timer.isActive():
+                self.zoom_reset_timer.stop()
+            
+            # 2. Очищаем контейнеры ПЕРЕД очисткой сцены
+            if hasattr(self, 'container_visualizer') and self.container_visualizer:
+                try:
+                    self.container_visualizer.clear()
+                except Exception as e:
+                    print(f"Warning clearing container visualizer: {e}")
+                self.container_visualizer = None
+                self.container_type = None
+            
+            # 3. Очищаем визуализаторы графов ПЕРЕД очисткой сцены
+            if hasattr(self, 'graph_visualizer'):
+                try:
+                    self.graph_visualizer.clear()
+                except Exception as e:
+                    print(f"Warning clearing graph visualizer: {e}")
+            
+            # 4. Теперь очищаем сцену
+            if hasattr(self, 'scene'):
+                self.scene.clear()
+            
+            # 5. Скрываем специфичные виджеты
+            self.temp_arrays_widget.hide()
+            self.temp_arrays_widget.clear()
+            
+            # 6. Сброс состояния хэш-таблицы
+            self.hashtable_cells = []
+            self.hashtable_stats = {}
+            self.hashtable_display_mode = "initial"
+            self.hashtable_scroll_enabled = False
+            self.current_hashtable_data = []
+            
+            # 7. Сброс других состояний
+            self.current_algorithm = None
+            self.is_auto_mode = False
+            self.is_animating = False
+            self.algorithm_completed = False
+            self.pending_actions.clear()
+            self.current_step = 0
+            self.total_steps = 0
+            
+            # Сброс системы цветов
+            self.current_highlight.clear()
+            self.last_operation = None
+            
+            self._pending_tree_data = []
+            self._last_tree_data = None
+            self._temp_array_items = []
+            self._split_lines = []
+            self.animation_queue = []
+            
+            # 8. Отключаем кнопку просмотра цепочек
+            self.view_chains_btn.setEnabled(False)
+            
+            # 9. Восстанавливаем кнопки
+            self.auto_btn.show()
+            self.pause_btn.hide()
+            self.start_btn.setEnabled(True)
+            
+            # 10. Восстанавливаем начальный вид
+            category = self.category_combo.currentText()
+            if category == "Структуры данных":
+                # Для структур данных просто очищаем сцену
+                self._log("📦 Контейнер сброшен")
+            elif category == "Хэш-таблицы":
+                # Для хэш-таблицы показываем начальный вид
+                text = self.data_input.text()
+                try:
+                    arr = [int(x.strip()) for x in text.split(",") if x.strip()]
+                    self._render_hashtable_initial_view(arr)
+                except ValueError:
+                    pass
+            else:
+                # Для всех остальных - массив
+                text = self.data_input.text()
+                try:
+                    arr = [int(x.strip()) for x in text.split(",") if x.strip()]
+                    self._render_array(arr)
+                except ValueError:
+                    if hasattr(self, 'current_data'):
+                        self._render_array(self.current_data)
+            
+            # 11. Обновляем сцену и вид
+            if hasattr(self, 'scene'):
+                self.scene.update()
+            if hasattr(self, 'view'):
+                self.view.update()
+            
+            self._log("♻ Алгоритм сброшен. Можно запустить заново.")
+            
+            # 12. Планируем сброс зума
+            self._schedule_zoom_reset()
+            
+        except Exception as e:
+            print(f"Error resetting algorithm: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _generate_random_data(self):
+        """Генерация случайных данных с анимацией."""
+        category = self.category_combo.currentText()
+        
+        if category == "Структуры данных":
+            # Для структур данных просто очищаем
+            self._log("🎲 Для структур данных используйте интерактивные операции справа")
+            
+        else:
+            # Для остальных категорий - случайные числа
+            count = random.randint(6, 12)
+            data = [random.randint(10, 99) for _ in range(count)]
+            self.data_input.setText(",".join(map(str, data)))
+            
+            self.current_data = data.copy()
+            
+            # Рендерим в зависимости от выбранной категории
+            category = self.category_combo.currentText()
+            if category == "Хэш-таблицы":
+                self._render_hashtable_initial_view(data)
+            else:
+                self._render_array(data)
+            
+            self._log(f"🎲 Сгенерированы {count} случайных чисел")
+        
+        self._reset_algorithm()
+        self._schedule_zoom_reset()
+
+    def _schedule_zoom_reset(self):
+        """Запланировать сброс зума с небольшой задержкой."""
+        if self.zoom_reset_timer.isActive():
+            self.zoom_reset_timer.stop()
+        
+        self.zoom_reset_timer.start(100)
+
+    def _delayed_zoom_reset(self):
+        """Отложенный сброс зума к содержимому."""
+        try:
+            if hasattr(self, 'view') and self.view:
+                if hasattr(self.view, 'fit_to_content'):
+                    self.view.fit_to_content(200)
+                else:
+                    rect = self.scene.itemsBoundingRect()
+                    if rect.isValid():
+                        rect.adjust(-200, -200, 200, 200)
+                        self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                
+                if self.scene and self.scene.items():
+                    rect = self.scene.itemsBoundingRect()
+                    if rect.isValid():
+                        self.view.centerOn(rect.center())
+                        
+                self._log("🔍 Масштаб сброшен к содержимому")
+        except Exception as e:
+            print(f"Error resetting zoom: {e}")
+
+    def _start_algorithm(self):
+        """Запуск выбранного алгоритма."""
+        self._reset_algorithm()
+        
+        algo_name = self.algorithm_combo.currentText()
+        category = self.category_combo.currentText()
+        
+        if category == "Структуры данных":
+            # Для структур данных создаем пустую структуру
+            if algo_name == "Stack":
+                self.current_algorithm = Stack([])
+                self.container_type = "stack"
+            elif algo_name == "Queue":
+                self.current_algorithm = Queue([])
+                self.container_type = "queue"
+            elif algo_name == "Deque":
+                self.current_algorithm = Deque([])
+                self.container_type = "deque"
+            else:
+                self._log(f"❌ Алгоритм '{algo_name}' не найден")
+                return False
+            
+            # Инициализируем визуализатор
+            self.container_visualizer = ContainerVisualizer(self.scene, self.container_type)
+            
+            # Загружаем в движок (но не запускаем генератор)
+            # Для структур данных НЕ используем Engine
+            self.engine.pause()
+            self.engine.generator = None
+            
+            # Показываем начальный вид
+            self._render_container_initial_view()
+            
+            # Включаем интерактивную панель
+            self._create_container_interactive_panel(self.container_type)
+            
+            self._log(f"📦 {algo_name} создан. Используйте интерактивные операции справа.")
+            return False  # Возвращаем False, так как для контейнеров не нужен запуск через Engine
+            
+        else:
+            # Оригинальная логика для других категорий
+            text = self.data_input.text()
+            try:
+                arr = [int(x.strip()) for x in text.split(",") if x.strip()]
+                if len(arr) < 1:
+                    QMessageBox.warning(self, "Ошибка", "Введите хотя бы 1 число")
+                    return False
+                
+                self.current_data = arr.copy()
+                
+                if algo_name in ["BFS", "DFS", "Dijkstra"]:
+                    graph_data = self._create_tree_graph(arr, directed=self.graph_directed)
+                else:
+                    graph_data = None
+
+                if algo_name == "Heap":
+                    # Для кучи создаем отдельный экземпляр с поддержкой генератора
+                    heap_type = 'max'  # или можно добавить выбор типа в интерфейсе
+                    self.current_algorithm = BinaryHeap(arr.copy(), heap_type=heap_type)
+                    
+                    # Загружаем в движок
+                    self.engine.load_algorithm(self.current_algorithm)
+                    QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча создана"))
+                    # Отображаем начальное состояние
+                    heap_structure = self.current_algorithm._get_tree_structure()
+                    if heap_structure:
+                        self._render_tree(heap_structure)
+                    
+                    self._log(f"🔧 Куча ({heap_type}-heap) загружена. Готов к выполнению.")
+                    return True
+                
+                algorithms = {
+                    "QuickSort": lambda: QuickSort(arr.copy()),
+                    "MergeSort": lambda: MergeSort(arr.copy()),
+                    "BubbleSort": lambda: BubbleSort(arr.copy()),
+                    "InsertionSort": lambda: InsertionSort(arr.copy()),  
+                    "SelectionSort": lambda: SelectionSort(arr.copy()),  
+                    "ShellSort": lambda: ShellSort(arr.copy()),   
+                    "BST": lambda: BST(arr.copy()),
+                    "AVL": lambda: AVLTree(arr.copy()),
+                    "RedBlackTree": lambda: RedBlackTree(arr.copy()),
+                    "SplayTree": lambda: SplayTree(arr.copy()),
+                    "Treap": lambda: Treap(arr.copy()),
+                    "BTree": lambda: BTree(arr.copy()),
+                    "Heap": lambda: BinaryHeap(arr.copy(), heap_type='max'),
+                    "BFS": lambda: GraphBFS(graph_data, arr[0] if arr else 0),
+                    "DFS": lambda: GraphDFS(graph_data, arr[0] if arr else 0),
+                    "Dijkstra": lambda: Dijkstra(graph_data, arr[0] if arr else 0),
+                    "HashTable": lambda: self._create_hashtable(arr.copy())
+                }
+
+                if algo_name in algorithms:
+                    try:
+                        self.current_algorithm = algorithms[algo_name]()
+                        self.engine.load_algorithm(self.current_algorithm)
+                        
+                        # Показываем виджет временных массивов только для MergeSort
+                        if algo_name == "MergeSort":
+                            self.temp_arrays_widget.show()
+                        else:
+                            self.temp_arrays_widget.hide()
+                        
+                        # Обработка для разных типов алгоритмов
+                        if algo_name in ["BFS", "DFS", "Dijkstra"]:
+                            self.scene.clear()
+                            
+                            self.graph_visualizer.node_values = {val: val for val in arr}
+                            
+                            if self.graph_layout_combo:
+                                layout_name = self.graph_layout_combo.currentText()
+                                layout_map = {
+                                    "Пружинная": "Spring", 
+                                    "Круговая": "Circular",
+                                    "Древовидная": "Tree"
+                                }
+                                
+                                if layout_name in layout_map:
+                                    selected_layout = layout_map[layout_name]
+                                    success = self.graph_visualizer.set_layout_algorithm(selected_layout)
+                                    if success:
+                                        self._log(f"📐 Установлена компоновка: {layout_name}")
+                            
+                            self.graph_visualizer.set_directed(self.graph_directed)
+                            
+                            direction_text = "ориентированный" if self.graph_directed else "неориентированный"
+                            self._log(f"🕸️ Подготовка {direction_text} графа для алгоритма {algo_name}...")
+                        
+                        elif algo_name == "HashTable":
+                            # Для хэш-таблицы отображаем начальный вид
+                            self._render_hashtable_initial_view(arr)
+                            self._log(f"🔑 Подготовка хэш-таблицы с параметрами: " +
+                                    f"размер={self.table_size_slider.value()}, " +
+                                    f"функция={self.hash_function_combo.currentText()}, " +
+                                    f"метод={self.collision_method_combo.currentText()}")
+                            
+                            # Включаем кнопку просмотра цепочек после завершения
+                            self.view_chains_btn.setEnabled(True)
+                        else:
+                            self._render_array(arr)
+                            
+                        self._log(f"🔧 Алгоритм '{algo_name}' загружен. Готов к выполнению.")
+                        return True
+                    except Exception as e:
+                        self._log(f"❌ Ошибка при создании алгоритма: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        return False
+                else:
+                    self._log(f"❌ Алгоритм '{algo_name}' не найден")
+                    return False
+                    
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Вводите только числа через запятую")
+                return False
+
+    def _create_hashtable(self, data):
+        """Создает хэш-таблицу с выбранными параметрами"""
+        # Преобразуем выбранные настройки
+        hash_function_map = {
+            "Деления": "division",
+            "Умножения": "multiplication",
+            "Простая": "simple"
+        }
+        
+        collision_method_map = {
+            "Линейное пробирование": "linear",
+            "Квадратичное пробирование": "quadratic",
+            "Двойное хеширование": "double",
+            "Метод цепочек": "chaining"
+        }
+        
+        hash_func = hash_function_map.get(
+            self.hash_function_combo.currentText(), 
+            "division"
+        )
+        
+        collision_method = collision_method_map.get(
+            self.collision_method_combo.currentText(),
+            "linear"
+        )
+        
+        table_size = self.table_size_slider.value()
+        
+        return HashTable(data, size=table_size, 
+                        hash_function=hash_func, 
+                        collision_method=collision_method)
+
+    def _create_table_header(self, start_x, start_y, width, height):
+        """Создает заголовок таблицы."""
+        index_width = 100
+        value_width = width - index_width
+        
+        # Фон шапки Индекс
+        header_idx = QGraphicsRectItem(start_x, start_y, index_width, height)
+        header_idx.setBrush(QBrush(QColor("#2c3e50")))
+        header_idx.setPen(QPen(QColor("#ffffff"), 2))
+        self.scene.addItem(header_idx)
+        
+        text_idx = QGraphicsTextItem("INDEX")
+        text_idx.setDefaultTextColor(Qt.GlobalColor.white)
+        text_idx.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        text_idx.setPos(start_x + 20, start_y + 15)
+        self.scene.addItem(text_idx)
+        
+        # Фон шапки Значение
+        header_val = QGraphicsRectItem(start_x + index_width, start_y, value_width, height)
+        header_val.setBrush(QBrush(QColor("#34495e")))
+        header_val.setPen(QPen(QColor("#ffffff"), 2))
+        self.scene.addItem(header_val)
+        
+        text_val = QGraphicsTextItem("VALUE")
+        text_val.setDefaultTextColor(Qt.GlobalColor.white)
+        text_val.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+        text_val.setPos(start_x + index_width + 110, start_y + 15)
+        self.scene.addItem(text_val)
+
+    def _render_hashtable_structure(self, table_size, y_offset=0):
+        """Отображает структуру хэш-таблицы как ВЕРТИКАЛЬНУЮ таблицу."""
+        # Очищаем старые ячейки
+        self.hashtable_cells.clear()
+        
+        # Параметры верстки
+        cell_width = 400  # Общая ширина ячейки (индекс + значение)
+        cell_height = 60
+        start_x = -150
+        start_y = y_offset + 50
+        
+        # Создаем заголовок таблицы
+        self._create_table_header(start_x, start_y - cell_height, cell_width, cell_height)
+        
+        # Создаем ячейки таблицы
+        for i in range(table_size):
+            current_y = start_y + i * cell_height
+            
+            cell = HashTableCell(
+                start_x, 
+                current_y,
+                cell_width, 
+                cell_height,
+                i
+            )
+            self.scene.addItem(cell)
+            self.hashtable_cells.append(cell)
+        
+        # Устанавливаем размер сцены
+        total_height = table_size * cell_height + 200
+        self.scene.setSceneRect(-300, -200, 800, total_height)
+
+    def _render_hashtable_initial_view(self, arr):
+        """Отображает начальный вид для хэш-таблицы."""
+        self.scene.clear()
+        self.hashtable_cells = []
+        self.hashtable_display_mode = "initial"
+        
+        table_size = self.table_size_slider.value()
+        
+        # Отображаем заголовок
+        title = self.scene.addText(f"Хэш-таблица")
+        title.setPos(-200, -150)
+        title.setDefaultTextColor(QColor("#2c3e50"))
+        title.setFont(QFont("Arial", 24, QFont.Weight.Bold))
+        
+        # Отображаем параметры таблицы
+        params_text = self.scene.addText(
+            f"Размер: {table_size} | {self.hash_function_combo.currentText()} | {self.collision_method_combo.currentText()}"
+        )
+        params_text.setPos(-200, -90)
+        params_text.setDefaultTextColor(QColor("#5A9BD5"))
+        params_text.setFont(QFont("Arial", 14))
+        
+        # Отображаем пустую таблицу
+        self._render_hashtable_structure(table_size, y_offset=0)
+        
+        # Сразу подстраиваем зум
+        if hasattr(self.view, 'fit_to_content'):
+            self.view.fit_to_content(100)
+
+    def _render_hashtable_content(self, table_data, collisions=0, max_chain_length=0):
+        """Обновляет содержимое ячеек хэш-таблицы."""
+        if not self.hashtable_cells:
+            return
+            
+        # Сохраняем текущие данные таблицы
+        self.current_hashtable_data = table_data.copy()
+            
+        # Удаляем старую текстовую статистику (если есть)
+        items_to_remove = [item for item in self.scene.items() 
+                          if isinstance(item, QGraphicsTextItem) and item.pos().y() > self.hashtable_cells[-1].y() + 50]
+        for item in items_to_remove:
+            self.scene.removeItem(item)
+            
+        # Обновляем каждую ячейку
+        for i, cell in enumerate(self.hashtable_cells):
+            if i < len(table_data):
+                value = table_data[i]
+                
+                if value is not None:
+                    if isinstance(value, list):  # Метод цепочек
+                        if value:
+                            cell.set_value(value[0], len(value), value)
+                        else:
+                            cell.set_value(None, 0)
+                    else:  # Одиночное значение
+                        cell.set_value(value, 1, [value])
+                else:
+                    cell.set_value(None)
+        
+        # Отображаем статистику снизу таблицы
+        if self.hashtable_cells:
+            last_cell = self.hashtable_cells[-1]
+            stats_y = last_cell.y() + 80
+            
+            stats_text = self.scene.addText(
+                f"Статистика:\n"
+                f"• Коллизий: {collisions}\n"
+                f"• Макс. длина цепочки: {max_chain_length}\n"
+                f"• Заполнение: {sum(1 for x in table_data if x is not None)}/{len(table_data)}"
+            )
+            stats_text.setPos(last_cell.x() - 50, stats_y)
+            stats_text.setDefaultTextColor(QColor("#2c3e50"))
+            stats_text.setFont(QFont("Arial", 14))
+
+    def _render_completed_hashtable(self, action):
+        """Полностью перестраивает сцену с завершенной хэш-таблицей."""
+        self.scene.clear()
+        self.hashtable_cells = []
+        self.hashtable_display_mode = "completed"
+        
+        table_size = action.get("table_size", self.table_size_slider.value())
+        table_data = action.get("table", [])
+        
+        # Сохраняем данные таблицы для просмотра цепочек
+        self.current_hashtable_data = table_data.copy()
+        
+        # Параметры верстки
+        cell_width = 400
+        cell_height = 60
+        start_x = -150
+        start_y = 50
+        
+        # --- ЗАГОЛОВОК ---
+        title = self.scene.addText(f"✅ Хэш-таблица построена")
+        title.setPos(-200, -150)
+        title.setDefaultTextColor(QColor("#2c3e50"))
+        title.setFont(QFont("Arial", 24, QFont.Weight.Bold))
+        
+        # Параметры таблицы
+        params_text = self.scene.addText(
+            f"Размер: {table_size} | {self.hash_function_combo.currentText()} | {self.collision_method_combo.currentText()}"
+        )
+        params_text.setPos(-200, -90)
+        params_text.setDefaultTextColor(QColor("#5A9BD5"))
+        params_text.setFont(QFont("Arial", 14))
+        
+        # Создаем заголовок таблицы
+        self._create_table_header(start_x, start_y - cell_height, cell_width, cell_height)
+        
+        # --- СТРОКИ ТАБЛИЦЫ С ДАННЫМИ ---
+        for i in range(table_size):
+            current_y = start_y + i * cell_height
+            
+            # Получаем значение для текущей ячейки
+            value = None
+            if i < len(table_data):
+                value = table_data[i]
+            
+            # Инициализируем параметры для ячейки
+            display_value = None
+            chain_length = 0
+            full_chain = []
+            
+            # Обрабатываем значение в зависимости от типа
+            if value is not None:
+                if isinstance(value, list):  # Метод цепочек
+                    if value:  # Не пустой список
+                        display_value = value[0]
+                        chain_length = len(value)
+                        full_chain = value
+                    else:  # Пустой список
+                        display_value = None
+                        chain_length = 0
+                        full_chain = []
+                else:  # Одиночное значение (не список)
+                    display_value = value
+                    chain_length = 1
+                    full_chain = [value]
+            
+            # Создаем ячейку с данными
+            cell = HashTableCell(
+                start_x, 
+                current_y,
+                cell_width, 
+                cell_height,
+                i,  # index
+                display_value,  # value
+                chain_length,  # chain_length
+                False,  # is_probing
+                full_chain  # full_chain
+            )
+            
+            self.scene.addItem(cell)
+            self.hashtable_cells.append(cell)
+        
+        # --- СТАТИСТИКА СПРАВА ---
+        stats_x = start_x + cell_width + 50
+        stats_y = start_y - 50
+        
+        # Вычисляем статистику
+        filled_cells = action.get('filled_cells', 0)
+        collisions = action.get('collisions', 0)
+        max_chain_length = action.get('max_chain_length', 0)
+        load_factor = action.get('load_factor', 0)
+        
+        # Создаем текст статистики
+        stats_text = (
+            f"📊 Итоговая статистика:\n\n"
+            f"• Всего ключей: {len(self.current_data)}\n"
+            f"• Размер таблицы: {table_size}\n"
+            f"• Заполнено ячеек: {filled_cells}\n"
+            f"• Коллизий: {collisions}\n"
+            f"• Коэффициент заполнения: {load_factor:.2f}\n"
+            f"• Макс. длина цепочки: {max_chain_length}\n"
+            f"• Функция хеширования: {self.hash_function_combo.currentText()}\n"
+            f"• Метод разрешения коллизий: {self.collision_method_combo.currentText()}"
+        )
+        
+        stats_item = self.scene.addText(stats_text)
+        stats_item.setPos(stats_x, stats_y)
+        stats_item.setDefaultTextColor(QColor("#2c3e50"))
+        stats_item.setFont(QFont("Arial", 11))
+        
+        # Устанавливаем правильный размер сцены
+        total_height = table_size * cell_height + 200
+        self.scene.setSceneRect(-300, -200, 1000, total_height)
+        
+        # Включаем интерактивность для всех ячеек
+        for cell in self.hashtable_cells:
+            cell.setAcceptHoverEvents(True)
+            cell.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+        
+        # Включаем кнопку просмотра цепочек
+        self.view_chains_btn.setEnabled(True)
+        self._log("✅ Хэш-таблица построена. Нажмите кнопку '🔗 Просмотреть цепочки' для детального анализа.")
+
+    def _create_tree_graph(self, arr, weight_mode="diff", min_weight=1, max_weight=10, directed=False):
+        """Создает древовидный граф."""
+        graph = {}
+        if not arr:
+            return graph
+
+        nodes = list(dict.fromkeys(arr))
+
+        def make_weight(a, b):
+            if weight_mode == "diff":
+                return max(min_weight, abs(int(a) - int(b)))
+            elif weight_mode == "uniform":
+                return max(1, int(min_weight))
+            elif weight_mode == "random":
+                return random.randint(min_weight, max_weight)
+            else:
+                return max(1, abs(int(a) - int(b)))
+
+        for v in nodes:
+            graph[v] = {}
+
+        if len(nodes) == 1:
+            return graph
+
+        root = nodes[0]
+        remaining_nodes = nodes[1:]
+        
+        level_nodes = [root]
+        
+        while remaining_nodes:
+            next_level = []
+            for parent in level_nodes:
+                if not remaining_nodes:
+                    break
+                    
+                num_children = min(2, len(remaining_nodes))
+                for _ in range(num_children):
+                    if not remaining_nodes:
+                        break
+                    child = remaining_nodes.pop(0)
+                    
+                    w = make_weight(parent, child)
+                    graph[parent][child] = w
+                    
+                    if not directed:
+                        graph[child][parent] = w
+                    
+                    next_level.append(child)
+            
+            level_nodes = next_level
+
+        try:
+            edge_count = sum(len(neighbors) for neighbors in graph.values())
+            if directed:
+                self._log(f"🌳 Создан ориентированный граф: узлов={len(nodes)}, ребер={edge_count}")
+            else:
+                self._log(f"🌳 Создан неориентированный граф: узлов={len(nodes)}, ребер={edge_count}")
+        except Exception:
+            print(f"Generated tree graph: nodes={len(nodes)}, directed={directed}")
+
+        return graph
+
+    def _render_array(self, arr):
+        """Рендеринг массива с анимированным появлением."""
+        self.scene.clear()
+        self.visual_items.clear()
+        self._temp_array_items = []
+        self._split_lines = []
+        self.array_data = arr.copy()
+        
+        radius, spacing = 30, 15
+        total_width = len(arr) * (radius * 2 + spacing)
+        scene_width = max(800, total_width + 100)
+        
+        extended_scene_rect = QRectF(-2000, -2000, 4000, 4000)
+        self.scene.setSceneRect(extended_scene_rect)
+        
+        start_x = (scene_width - total_width) / 2
+        start_y = 150
+
+        for i, val in enumerate(arr):
+            x = start_x + i * (radius * 2 + spacing)
+            y = start_y
+            
+            circle = ArrayCircleItem(0, 0, val, i, radius)
+            circle.setPos(x, y + 300)
+            self.scene.addItem(circle)
+            self.visual_items.append(circle)
+            
+            circle.animate_move(x, y, 400 + i * 80)
+            QTimer.singleShot(400 + i * 80, lambda c=circle: setattr(c, "is_spawning", False))
+
+    def _render_tree(self, tree_data):
+        """Рендеринг дерева."""
+        if self._is_rendering_tree:
+            return
+        self._is_rendering_tree = True
+        
+        try:
+            self.scene.clear()
+            self.visual_items.clear()
+            
+            extended_scene_rect = QRectF(-3000, -3000, 6000, 6000)
+            self.scene.setSceneRect(extended_scene_rect)
+            
+            if not tree_data:
+                text_item = self.scene.addText("Дерево пустое или строится...")
+                text_item.setPos(0, 0)
+                self._log("ℹ️ Дерево пустое - начните выполнение алгоритма")
+                return
+            
+            # Проверяем, является ли это кучей
+            is_heap = isinstance(self.current_algorithm, BinaryHeap) if self.current_algorithm else False
+            
+            # Отладочная информация
+            if is_heap:
+                self._log(f"📊 Получены данные кучи. Корень: {tree_data.get('value', 'N/A')}")
+            else:
+                self._log(f"📊 Получены данные дерева: {tree_data}")
+            
+            # Используем визуализатор
+            if is_heap:
+                # Для кучи используем стандартное дерево
+                root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
+            else:
+                root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
+            
+            if root:
+                # Сразу центрируем без дополнительных задержек
+                self._center_on_tree()
+                
+                if is_heap:
+                    self._log("🌳 Куча построена и отображена")
+                    # Добавляем специальную информацию для кучи
+                    heap_type = "Max-Heap" if self.current_algorithm.type == 'max' else "Min-Heap"
+                    heap_info = self.scene.addText(f"{heap_type}, Размер: {self.current_algorithm.get_size()}")
+                    heap_info.setDefaultTextColor(QColor("#3498DB"))
+                    heap_info.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+                    heap_info.setPos(-200, -100)
+                else:
+                    self._log("🌳 Дерево построено и отображено")
+                
+                # Отображаем информацию о количестве узлов
+                node_count = self._count_tree_nodes(tree_data)
+                self._log(f"📊 Узлов в дереве: {node_count}")
+            else:
+                self._log("❌ Ошибка при построении дерева")
+                
+                # Отладочная информация: показываем сырые данные
+                debug_text = f"Сырые данные: {json.dumps(tree_data, default=str)}"
+                debug_item = self.scene.addText(debug_text)
+                debug_item.setPos(-200, 0)
+                debug_item.setDefaultTextColor(QColor("#FF6B6B"))
+                    
+        except Exception as e:
+            self._log(f"❌ Ошибка при визуализации дерева: {str(e)}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self._is_rendering_tree = False
+
+    def _count_tree_nodes(self, tree_data):
+        """Подсчитывает количество узлов в дереве."""
+        if not tree_data:
+            return 0
+        
+        count = 1  # текущий узел
+        
+        if 'left' in tree_data and tree_data['left']:
+            count += self._count_tree_nodes(tree_data['left'])
+        
+        if 'right' in tree_data and tree_data['right']:
+            count += self._count_tree_nodes(tree_data['right'])
+        
+        return count
+
+    def _center_on_tree(self):
+        """Центрирует вид на содержимом сцены с масштабированием."""
+        if self.scene.items():
+            if hasattr(self, 'view') and self.view:
+                rect = self.scene.itemsBoundingRect()
+                if rect.isValid():
+                    rect.adjust(-100, -100, 100, 100)
+                    self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+                    self.view.centerOn(rect.center())
+
+    def _reset_all_colors(self, keep_sorted=False):
+        """Сбрасывает все цвета к стандартному состоянию."""
+        if not keep_sorted:
+            # Полный сброс всех элементов
+            for item in self.visual_items:
+                item.reset_color()
+            self.current_highlight.clear()
+        else:
+            # Сброс только не-отсортированных элементов
+            for item in self.visual_items:
+                if not hasattr(item, 'is_sorted') or not item.is_sorted:
+                    item.reset_color()
+                    
+    def _highlight_items(self, indices, color_name, description="", keep_others=False):
+        """Улучшенная подсветка элементов с управлением состояниями."""
+        if not keep_others:
+            # Сбрасываем предыдущую подсветку
+            self._reset_all_colors(keep_sorted=True)
+        
+        # Получаем цвет из палитры
+        color = self.color_palette.get(color_name, color_name)
+        
+        # Запоминаем текущую подсветку
+        self.current_highlight = set(indices)
+        self.last_operation = description
+        
+        # Подсвечиваем элементы
+        for i in range(len(self.visual_items)):
+            if i in indices:
+                self.visual_items[i].highlight(color)
+                
+                # Добавляем анимацию для 1-3 элементов
+                if len(indices) <= 3:
+                    self.visual_items[i].bounce_animation()
+            elif not keep_others:
+                # Сбрасываем только если явно не требуется сохранить
+                if hasattr(self.visual_items[i], 'is_sorted') and self.visual_items[i].is_sorted:
+                    # Оставляем отсортированные элементы зелеными
+                    self.visual_items[i].highlight(self.color_palette["sorted"])
+                else:
+                    self.visual_items[i].reset_color()
+        
+        # Логируем описание
+        if description:
+            self._log(description)
+            
+    def _mark_as_sorted(self, indices):
+        """Помечает элементы как отсортированные."""
+        for i in indices:
+            if i < len(self.visual_items):
+                self.visual_items[i].highlight(self.color_palette["sorted"])
+                self.visual_items[i].is_sorted = True
+                # Небольшая анимация для подтверждения
+                self.visual_items[i].bounce_animation(scale_factor=1.1)
+                
+    def _mark_as_current(self, index):
+        """Помечает элемент как текущий."""
+        if index < len(self.visual_items):
+            self.visual_items[index].highlight(self.color_palette["current"])
+            self.visual_items[index].bounce_animation()
+
+    def _process_action(self, action):
+        """Обработка действия с улучшенной системой цветов."""
+        self.is_animating = True
+        self.current_step += 1
+        self.start_btn.setEnabled(False)
+        
+        t = action.get("type")
+        
+        base_delay = 800
+        speed_factor = max(0.3, 1.0 / self.speed_slider.value())
+        
+        if t == "tree":
+            tree_data = action.get("tree_data")
+            if tree_data:
+                self._last_tree_data = tree_data
+                self._log(action.get("description", "Вставка узла в дерево"))
+            
+            self._schedule_next_action(int(600 * speed_factor))
+        
+        elif t == "traversal":
+            node_sequence = action.get("nodes", [])
+            if self._last_tree_data:
+                self._render_tree(self._last_tree_data)
+                self.tree_visualizer.highlight_traversal(node_sequence)
+            
+            self._log(f"🔄 Обход дерева: {action.get('description', '')}")
+            self._schedule_next_action(int(len(node_sequence) * 500 * speed_factor))
+        
+        elif t == "graph_init":
+            success = self.graph_visualizer.process_action(action)
+            if success:
+                graph_info = self.graph_visualizer.get_graph_info()
+                action["graph_info"] = graph_info
+                self._log(f"🕸️ Инициализирован граф для {action.get('algorithm', 'алгоритма')}")
+            else:
+                self._log("❌ Ошибка при создании графа")
+            self._schedule_next_action(int(800 * speed_factor))
+            
+        elif t == "visit":
+            node_index = action.get('node')
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                success = self.graph_visualizer.process_action(action)
+                if success:
+                    if node_index in self.graph_visualizer.adjacency_list:
+                        action["connections"] = self.graph_visualizer.adjacency_list[node_index]
+                    self._log(f"📍 Посещен узел: {node_index}")
+            elif node_index < len(self.visual_items):
+                self._mark_as_current(node_index)
+                self._log(f"📍 Посещен элемент: {node_index}")
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "discover":
+            from_node = action.get('from_node')
+            to_node = action.get('node')
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                success = self.graph_visualizer.process_action(action)
+                if success:
+                    edge_key = self.graph_visualizer._get_edge_key(from_node, to_node)
+                    edge_item = self.graph_visualizer.edges.get(edge_key)
+                    if edge_item and hasattr(edge_item, 'weight'):
+                        action["edge_weight"] = edge_item.weight
+                    self._log(f"🔍 Обнаружен узел {to_node} из узла {from_node}")
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "update_distance":
+            node_index = action.get('node')
+            new_distance = action.get('new_distance')
+            old_distance = action.get('old_distance', 'неизвестно')
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                success = self.graph_visualizer.process_action(action)
+                if success:
+                    self._log(f"📊 Обновлено расстояние до узла {node_index}: {old_distance} → {new_distance}")
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        # === ОБРАБОТЧИКИ ДЛЯ MERGESORT ===
+        elif t == "split":
+            left = action.get("left", 0)
+            right = action.get("right", 0)
+            mid = action.get("mid", 0)
+            
+            indices = list(range(left, right + 1))
+            self._highlight_items(indices, "comparing", action.get("description", ""))
+            
+            self._draw_split_line(mid, left, right)
+            
+            self._schedule_next_action(int(1000 * speed_factor))
+            
+        elif t == "merge_start":
+            left = action.get("left", 0)
+            mid = action.get("mid", 0)
+            right = action.get("right", 0)
+            
+            for i in range(left, mid + 1):
+                if i < len(self.visual_items):
+                    self.visual_items[i].highlight(self.color_palette["merge_left"])
+            
+            for i in range(mid + 1, right + 1):
+                if i < len(self.visual_items):
+                    self.visual_items[i].highlight(self.color_palette["merge_right"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(800 * speed_factor))
+            
+        elif t == "temp_arrays":
+            left_copy = action.get("left_copy", [])
+            right_copy = action.get("right_copy", [])
+            
+            # Обновляем виджет временных массивов
+            self.temp_arrays_widget.update_arrays(left_copy, right_copy)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(800 * speed_factor))
+            
+        elif t == "compare_merge":
+            i, j = action.get("indices", (0, 0))
+            target_index = action.get("target_index", 0)
+            
+            if i < len(self.visual_items):
+                self.visual_items[i].highlight(self.color_palette["comparing"])
+                self.visual_items[i].bounce_animation()
+            
+            if j < len(self.visual_items):
+                self.visual_items[j].highlight(self.color_palette["comparing"])
+                self.visual_items[j].bounce_animation()
+            
+            if target_index < len(self.visual_items):
+                self.visual_items[target_index].highlight(self.color_palette["merge_target"])
+            
+            desc = action.get("description", "")
+            left_val = action.get("left_value", 0)
+            right_val = action.get("right_value", 0)
+            self._log(f"🔍 {desc}")
+            
+            self._schedule_next_action(int(700 * speed_factor))
+            
+        elif t == "select_left" or t == "select_right" or t == "select_from_left" or t == "select_from_right":
+            from_idx = action.get("from_index", 0)
+            to_idx = action.get("to_index", 0)
+            value = action.get("value", 0)
+            
+            # Определяем тип действия
+            is_from_left = "from_left" in t or "left" in t
+            
+            if from_idx < len(self.visual_items) and to_idx < len(self.visual_items):
+                color = self.color_palette["merge_left"] if is_from_left else self.color_palette["merge_right"]
+                self.visual_items[from_idx].highlight(color)
+                self.visual_items[to_idx].highlight(self.color_palette["merge_target"])
+                self.visual_items[to_idx].bounce_animation()
+                self.visual_items[to_idx].update_value(value)
+                
+                if to_idx < len(self.array_data):
+                    self.array_data[to_idx] = value
+            
+            source = "левого" if is_from_left else "правого"
+            self._log(f"📥 {action.get('description', f'Выбор из {source} массива')}")
+            
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "remaining_left" or t == "remaining_right":
+            from_idx = action.get("from_index", 0)
+            to_idx = action.get("to_index", 0)
+            value = action.get("value", 0)
+            
+            if to_idx < len(self.visual_items):
+                self.visual_items[to_idx].highlight(self.color_palette["merge_target"])
+                self.visual_items[to_idx].bounce_animation()
+                self.visual_items[to_idx].update_value(value)
+                
+                if to_idx < len(self.array_data):
+                    self.array_data[to_idx] = value
+            
+            source = "левого" if t == "remaining_left" else "правого"
+            self._log(f"📋 {action.get('description', f'Оставшийся элемент из {source} массива')}")
+            
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "merge_complete" or t == "merge_result":
+            left = action.get("left", 0)
+            right = action.get("right", 0)
+            
+            for i in range(left, right + 1):
+                if i < len(self.visual_items):
+                    self.visual_items[i].highlight(self.color_palette["sorted"])
+                    if i == left or i == right:
+                        self.visual_items[i].bounce_animation()
+            
+            # Очищаем виджет временных массивов
+            self.temp_arrays_widget.clear()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(800 * speed_factor))
+            
+        elif t == "base_case":
+            index = action.get("index", 0)
+            if index < len(self.visual_items):
+                self.visual_items[index].highlight(self.color_palette["sorted"])
+                self.visual_items[index].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        # === ОБРАБОТЧИКИ ДЛЯ INSERTION SORT ===
+        elif t == "insertion_sorted_init":
+            index = action.get("sorted_index", 0)
+            if index < len(self.visual_items):
+                self._mark_as_sorted([index])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "insertion_start":
+            key_index = action.get("key_index", 0)
+            if key_index < len(self.visual_items):
+                self.visual_items[key_index].highlight(self.color_palette["key"])
+                self.visual_items[key_index].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "insertion_comparing_range":
+            start_index = action.get("start_index", 0)
+            key_index = action.get("key_index", 0)
+            
+            # Подсвечиваем диапазон для сравнения
+            for i in range(start_index + 1):
+                if i < len(self.visual_items):
+                    self.visual_items[i].highlight(self.color_palette["current"])
+            
+            if key_index < len(self.visual_items):
+                self.visual_items[key_index].highlight(self.color_palette["key"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "insertion_compare":
+            current_idx = action.get("current_index", 0)
+            key_idx = action.get("key_index", 0)
+            
+            if current_idx < len(self.visual_items):
+                self.visual_items[current_idx].highlight(self.color_palette["comparing"])
+                self.visual_items[current_idx].bounce_animation()
+            
+            if key_idx < len(self.visual_items):
+                self.visual_items[key_idx].highlight(self.color_palette["key"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "insertion_shift":
+            from_idx = action.get("from_index", 0)
+            to_idx = action.get("to_index", 0)
+            
+            if from_idx < len(self.visual_items) and to_idx < len(self.visual_items):
+                self.visual_items[to_idx].highlight(self.color_palette["shifted"])
+                self.visual_items[to_idx].bounce_animation()
+                self.visual_items[to_idx].update_value(action.get("shifted_value", 0))
+                
+                # Обновляем данные массива
+                if to_idx < len(self.array_data):
+                    self.array_data[to_idx] = action.get("shifted_value", 0)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "insertion_next_comparison":
+            next_idx = action.get("next_index", 0)
+            
+            if next_idx >= 0 and next_idx < len(self.visual_items):
+                self.visual_items[next_idx].highlight(self.color_palette["current"])
+                self.visual_items[next_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "insertion_insert":
+            from_idx = action.get("from_index", 0)
+            to_idx = action.get("to_index", 0)
+            value = action.get("value", 0)
+            
+            if to_idx < len(self.visual_items):
+                self._mark_as_sorted([to_idx])
+                self.visual_items[to_idx].update_value(value)
+                
+                # Обновляем данные массива
+                if to_idx < len(self.array_data):
+                    self.array_data[to_idx] = value
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "insertion_already_sorted":
+            index = action.get("index", 0)
+            
+            if index < len(self.visual_items):
+                self._mark_as_sorted([index])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "insertion_sorted_part":
+            sorted_indices = action.get("sorted_indices", [])
+            new_idx = action.get("newly_sorted_index", 0)
+            
+            # Помечаем все отсортированные элементы
+            self._mark_as_sorted(sorted_indices)
+            
+            if new_idx < len(self.visual_items):
+                self.visual_items[new_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+        
+        # === ОБРАБОТЧИКИ ДЛЯ SELECTION SORT ===
+        elif t == "selection_current":
+            index = action.get("current_index", 0)
+            
+            if index < len(self.visual_items):
+                self._mark_as_current(index)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "selection_compare":
+            indices = action.get("indices", (0, 0))
+            min_idx = action.get("current_min_index", 0)
+            compare_idx = indices[1]
+            
+            # Текущий минимум - бирюзовый
+            if min_idx < len(self.visual_items):
+                self.visual_items[min_idx].highlight(self.color_palette["selected"])
+            
+            # Сравниваемый элемент - оранжевый
+            if compare_idx < len(self.visual_items):
+                self.visual_items[compare_idx].highlight(self.color_palette["comparing"])
+                self.visual_items[compare_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "selection_new_min":
+            new_idx = action.get("new_min_index", 0)
+            
+            if new_idx < len(self.visual_items):
+                self.visual_items[new_idx].highlight(self.color_palette["selected"])
+                self.visual_items[new_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "selection_not_min":
+            index = action.get("compared_index", 0)
+            
+            if index < len(self.visual_items):
+                self.visual_items[index].highlight(self.color_palette["default"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(300 * speed_factor))
+            
+        elif t == "selection_pre_swap":
+            indices = action.get("indices", (0, 0))
+            
+            for i in indices:
+                if i < len(self.visual_items):
+                    self.visual_items[i].highlight(self.color_palette["swapping"])
+                    self.visual_items[i].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "selection_swap":
+            indices = action.get("indices", (0, 0))
+            
+            # Подсвечиваем обмен
+            self._highlight_items(list(indices), "swapping", "🔄 Обмен минимального элемента")
+            
+            # Выполняем обмен
+            if len(indices) == 2:
+                i, j = indices
+                self._swap_items(i, j)
+            
+            # После обмена помечаем элемент как отсортированный
+            if indices[0] < len(self.visual_items):
+                self.visual_items[indices[0]].is_sorted = True
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(800 * speed_factor))
+            
+        elif t == "selection_already_sorted":
+            index = action.get("index", 0)
+            
+            if index < len(self.visual_items):
+                self._mark_as_sorted([index])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "selection_sorted_part":
+            sorted_indices = action.get("sorted_indices", [])
+            
+            # Помечаем все отсортированные элементы
+            self._mark_as_sorted(sorted_indices)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+        
+        # === ОБРАБОТЧИКИ ДЛЯ SHELL SORT ===
+        elif t == "shell_gap_start":
+            gap = action.get("gap", 1)
+            gap_idx = action.get("gap_index", 0)
+            total_gaps = action.get("total_gaps", 1)
+            
+            # Подсвечиваем все элементы, чтобы показать начало нового этапа
+            for i in range(len(self.visual_items)):
+                self.visual_items[i].highlight(self.color_palette["default"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "shell_group_start":
+            group_indices = action.get("group_indices", [])
+            
+            for idx in group_indices:
+                if idx < len(self.visual_items):
+                    self.visual_items[idx].highlight(self.color_palette["group"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_current_element":
+            element_idx = action.get("element_index", 0)
+            
+            if element_idx < len(self.visual_items):
+                self.visual_items[element_idx].highlight(self.color_palette["key"])
+                self.visual_items[element_idx].bounce_animation()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "shell_compare":
+            current_idx = action.get("current_index", 0)
+            key_idx = action.get("key_index", 0)
+            
+            if current_idx < len(self.visual_items):
+                self.visual_items[current_idx].highlight(self.color_palette["comparing"])
+                self.visual_items[current_idx].bounce_animation()
+            
+            if key_idx < len(self.visual_items):
+                self.visual_items[key_idx].highlight(self.color_palette["key"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_shift":
+            from_idx = action.get("from_index", 0)
+            to_idx = action.get("to_index", 0)
+            
+            if to_idx < len(self.visual_items):
+                self.visual_items[to_idx].highlight(self.color_palette["shifted"])
+                self.visual_items[to_idx].bounce_animation()
+                self.visual_items[to_idx].update_value(action.get("shifted_value", 0))
+                
+                # Обновляем данные массива
+                if to_idx < len(self.array_data):
+                    self.array_data[to_idx] = action.get("shifted_value", 0)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "shell_insert":
+            new_idx = action.get("new_index", 0)
+            value = action.get("value", 0)
+            
+            if new_idx < len(self.visual_items):
+                self._mark_as_sorted([new_idx])
+                self.visual_items[new_idx].update_value(value)
+                
+                # Обновляем данные массива
+                if new_idx < len(self.array_data):
+                    self.array_data[new_idx] = value
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_group_progress":
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(300 * speed_factor))
+            
+        elif t == "shell_group_complete":
+            group_indices = action.get("group_indices", [])
+            
+            for idx in group_indices:
+                if idx < len(self.visual_items):
+                    self._mark_as_sorted([idx])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_gap_complete":
+            # Сбрасываем подсветку всех элементов
+            for item in self.visual_items:
+                item.reset_color()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "shell_final_stage":
+            # Подсвечиваем все элементы для финального этапа
+            for item in self.visual_items:
+                item.highlight(self.color_palette["key"])
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+        
+        elif t == "info":
+            self._log(f"ℹ️ {action.get('description', '')}")
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "compare":
+            i, j = action["indices"]
+            self._highlight_items([i, j], "comparing", 
+                                f"🔍 Сравнение: элемент[{i}] = {self.array_data[i]} vs элемент[{j}] = {self.array_data[j]}")
+            self._schedule_next_action(int(base_delay * speed_factor))
+            
+        elif t == "swap":
+            i, j = action["indices"]
+            self._swap_items(i, j)
+            self._log(f"🔄 Обмен элементов {i} и {j}")
+            self._schedule_next_action(int(1000 * speed_factor))
+            
+        elif t == "insert" and "table" in action:
+            table_data = action.get("table", [])
+            collisions = action.get("collisions", 0)
+            max_chain_length = action.get("max_chain_length", 0)
+            key_index = action.get("key_index", 0)
+            total_keys = action.get("total_keys", 0)
+            probed_index = action.get("probed_index")
+            original_index = action.get("original_index")
+            probing_steps_count = action.get("probing_steps_count", 0)
+            
+            # Обновляем отображение таблицы
+            self.hashtable_display_mode = "building"
+            self._render_hashtable_content(table_data, collisions, max_chain_length)
+            
+            # Анимируем вставку
+            insert_idx = probed_index if probed_index is not None else action.get("index", 0)
+            if insert_idx < len(self.hashtable_cells):
+                self.animation_queue.append({
+                    "type": "insert_cell",
+                    "index": insert_idx,
+                    "value": action.get("key", 0),
+                    "original_index": original_index,
+                    "duration": 500
+                })
+                
+                if not self.hashtable_animation_timer.isActive():
+                    self.hashtable_animation_timer.start(50)
+            
+            # Логируем информацию о вставке
+            desc = action.get("description", "")
+            if probing_steps_count > 0:
+                desc += f" (шагов пробирования: {probing_steps_count})"
+            
+            self._log(f"📥 {desc}")
+            
+            # Показываем прогресс
+            progress = f"[{key_index + 1}/{total_keys}]" if total_keys > 0 else ""
+            self._log(f"📊 Прогресс: {progress} Коллизий: {collisions}")
+            
+            self._schedule_next_action(int(700 * speed_factor))
+            
+        elif t == "insert":
+            arr = action.get("array")
+            if arr:
+                self._render_array(arr)
+            self._log("📥 Вставка элемента")
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        # === ОБРАБОТЧИКИ ДЛЯ ХЭШ-ТАБЛИЦЫ ===
+        elif t == "info" and "hash_index" in action:
+            key = action.get("key", 0)
+            hash_idx = action.get("hash_index", 0)
+            self._log(f"🔑 Обработка ключа {key}: хэш-функция → индекс {hash_idx}")
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "collision" and self.algorithm_combo.currentText() == "HashTable":
+            idx = action.get("index", 0)
+            key = action.get("key", 0)
+            occupied_key = action.get("occupied_key", 0)
+            chain_length = action.get("chain_length", 0)
+            
+            # Подсвечиваем ячейку с коллизией
+            if idx < len(self.hashtable_cells):
+                self.hashtable_cells[idx].set_collision(True)
+                
+                # Добавляем анимацию
+                self.animation_queue.append({
+                    "type": "highlight_cell",
+                    "index": idx,
+                    "color": "#FF6B6B",
+                    "duration": 300
+                })
+                
+                if not self.hashtable_animation_timer.isActive():
+                    self.hashtable_animation_timer.start(50)
+            
+            if chain_length > 0:
+                self._log(f"⚡ Коллизия: ключ {key} в индекс {idx} (цепочка: {chain_length} элементов)")
+            else:
+                self._log(f"⚡ Коллизия: ключ {key} пытается встать в занятый индекс {idx} (занят ключом {occupied_key})")
+            
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "probing_step":
+            step_num = action.get("step", 0)
+            idx = action.get("index", 0)
+            key = action.get("key", 0)
+            
+            # Подсвечиваем ячейку пробирования
+            if idx < len(self.hashtable_cells):
+                self.hashtable_cells[idx].set_probing(True)
+                
+                # Добавляем анимацию
+                self.animation_queue.append({
+                    "type": "highlight_cell",
+                    "index": idx,
+                    "color": "#FFA500",
+                    "duration": 200
+                })
+                
+                if not self.hashtable_animation_timer.isActive():
+                    self.hashtable_animation_timer.start(50)
+            
+            self._log(f"🔍 Шаг {step_num} пробирования: проверка индекса {idx} для ключа {key}")
+            self._schedule_next_action(int(300 * speed_factor))
+            
+        elif t == "duplicate":
+            idx = action.get("index", 0)
+            key = action.get("key", 0)
+            
+            # Подсвечиваем ячейку с дубликатом
+            if idx < len(self.hashtable_cells):
+                self.hashtable_cells[idx].set_collision(True)
+                
+                # Добавляем анимацию
+                self.animation_queue.append({
+                    "type": "highlight_cell",
+                    "index": idx,
+                    "color": "#FFA500",
+                    "duration": 300
+                })
+                
+                if not self.hashtable_animation_timer.isActive():
+                    self.hashtable_animation_timer.start(50)
+            
+            self._log(f"⚠️ Дубликат: ключ {key} уже существует в индексе {idx}")
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "full":
+            self._log(f"❌ Таблица полна, невозможно вставить элемент")
+            self._schedule_next_action(int(400 * speed_factor))
+
+        elif t in ["push", "pop", "peek", "enqueue", "dequeue", "front", "back", 
+                "push_front", "push_back", "pop_front", "pop_back", "size", "is_empty"]:
+            
+            if self.container_visualizer:
+                self.container_visualizer.process_action(action)
+                self._log(action.get("description", ""))
+            
+            self._schedule_next_action(int(700 * speed_factor))
+            
+        elif t == "complete" and self.container_visualizer:
+            self.container_visualizer.process_action(action)
+            self._log("✅ Все операции с контейнером выполнены")
+            self.is_animating = False
+            self.algorithm_completed = True
+            
+            if self.is_auto_mode:
+                self._pause_auto_mode()
+            
+            self.inspector.update_info(action)
+            return
+            
+        elif t == "complete":
+            if self.algorithm_combo.currentText() == "HashTable":
+                # Сохраняем статистику
+                self.hashtable_stats = {
+                    "table": action.get("table", []),
+                    "collisions": action.get("collisions", 0),
+                    "load_factor": action.get("load_factor", 0),
+                    "filled_cells": action.get("filled_cells", 0),
+                    "total_cells": action.get("total_cells", 0),
+                    "max_chain_length": action.get("max_chain_length", 0),
+                    "probing_steps_total": action.get("probing_steps_total", 0),
+                    "hash_function": action.get("hash_function", ""),
+                    "collision_method": action.get("collision_method", ""),
+                    "table_size": action.get("table_size", 0)
+                }
+                
+                # ПОЛНОСТЬЮ ПЕРЕСТРАИВАЕМ СЦЕНУ С НОВЫМИ ДАННЫМИ
+                self._render_completed_hashtable(action)
+                
+                # Переходим в режим завершения
+                self.hashtable_display_mode = "completed"
+                
+                # Включаем прокрутку
+                self._enable_hashtable_scroll()
+                
+                # Включаем кнопку просмотра цепочек
+                self.view_chains_btn.setEnabled(True)
+                self._log("✅ Хэш-таблица построена! Используйте прокрутку для просмотра.")
+                
+                # Завершаем анимацию
+                self._schedule_next_action(100)
+                
+            elif self._last_tree_data:
+                self._render_tree(self._last_tree_data)
+                self._log("🌳 Построение дерева завершено")
+            elif hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                success = self.graph_visualizer.process_action(action)
+                if success:
+                    self._log("✅ Алгоритм успешно завершён!")
+            else:
+                # При завершении помечаем все элементы как отсортированные
+                all_indices = list(range(len(self.visual_items)))
+                self._mark_as_sorted(all_indices)
+                
+                # Запускаем финальную анимацию
+                self._animate_completion()
+                self._log("✅ Алгоритм успешно завершён!")
+            
+            # Скрываем виджет временных массивов
+            self.temp_arrays_widget.hide()
+            self.temp_arrays_widget.clear()
+            
+            self.is_animating = False
+            self.algorithm_completed = True
+            
+            if self.is_auto_mode:
+                self._pause_auto_mode()
+            
+            self.inspector.update_info(action)
+            return
+            
+        # Обновление инспектора с расширенной информацией
+        self.inspector.update_info(action)
+
+    def _draw_split_line(self, mid, left, right):
+        """Рисует линию разделения между подмассивами."""
+        try:
+            if left >= len(self.visual_items) or right >= len(self.visual_items):
+                return
+                
+            left_item = self.visual_items[left]
+            right_item = self.visual_items[right]
+            
+            x1 = left_item.x() + left_item.radius
+            x2 = right_item.x() + right_item.radius
+            y = left_item.y() - 50
+            
+            line = QGraphicsLineItem(x1, y, x2, y)
+            line.setPen(QPen(QColor("#FFA500"), 3, Qt.PenStyle.DashLine))
+            line.setZValue(-1)
+            self.scene.addItem(line)
+            
+            text = QGraphicsTextItem(f"Разделение на [{left}:{mid}] и [{mid+1}:{right}]")
+            text.setPos((x1 + x2) / 2 - text.boundingRect().width() / 2, y - 25)
+            text.setDefaultTextColor(QColor("#FFA500"))
+            text.setFont(QFont("Arial", 10))
+            self.scene.addItem(text)
+            
+            self._split_lines.append((line, text))
+            
+            QTimer.singleShot(2000, lambda: self._remove_split_line(line, text))
+            
+        except Exception as e:
+            print(f"Error drawing split line: {e}")
+    
+    def _remove_split_line(self, line, text):
+        """Удаляет линию разделения."""
+        try:
+            if line and line in self.scene.items():
+                self.scene.removeItem(line)
+            if text and text in self.scene.items():
+                self.scene.removeItem(text)
+        except:
+            pass
+
+    def _swap_items(self, i, j):
+        """Анимированный обмен элементов."""
+        if not (0 <= i < len(self.visual_items) and 0 <= j < len(self.visual_items)):
+            return
+            
+        self.array_data[i], self.array_data[j] = self.array_data[j], self.array_data[i]
+        self.visual_items[i], self.visual_items[j] = self.visual_items[j], self.visual_items[i]
+        
+        self.visual_items[i].index = i
+        self.visual_items[j].index = j
+        
+        self.visual_items[i].highlight(self.color_palette["swapping"])
+        self.visual_items[j].highlight(self.color_palette["swapping"])
+        
+        radius, spacing = 30, 15
+        total_width = len(self.visual_items) * (radius * 2 + spacing)
+        scene_width = max(800, total_width + 100)
+        start_x = (scene_width - total_width) / 2
+        start_y = 150
+        
+        new_x_i = start_x + i * (radius * 2 + spacing)
+        new_x_j = start_x + j * (radius * 2 + spacing)
+        
+        self.visual_items[i].animate_move(new_x_i, start_y, 600)
+        self.visual_items[j].animate_move(new_x_j, start_y, 600)
+
+    def on_step_ready(self, action):
+        """Обработка шагов алгоритма с анимациями."""
+        if self.is_animating:
+            self.pending_actions.append(action)
+            return
+        self._process_action(action)
+
+    def _schedule_next_action(self, delay):
+        """Запланировать следующее действие после задержки."""
+        QTimer.singleShot(delay, self._on_animation_complete)
+
+    def _on_animation_complete(self):
+        """Завершение анимации и переход к следующему действию."""
+        self.is_animating = False
+        
+        if self.pending_actions:
+            next_action = self.pending_actions.pop(0)
+            self._process_action(next_action)
+        elif self.is_auto_mode and not self.algorithm_completed:
+            QTimer.singleShot(100, self.engine._on_tick)
+        else:
+            self.start_btn.setEnabled(True)
+
+    def _animate_completion(self):
+        """Анимация завершения алгоритма - последовательная подсветка."""
+        def highlight_next(index=0):
+            if index < len(self.visual_items):
+                self._mark_as_sorted([index])
+                QTimer.singleShot(150, lambda: highlight_next(index + 1))
+            else:
+                self.is_animating = False
+        
+        highlight_next()
+
+    def _animate_hashtable_cell(self):
+        """Анимация ячеек хэш-таблицы."""
+        if not self.animation_queue:
+            self.hashtable_animation_timer.stop()
+            return
+            
+        animation = self.animation_queue.pop(0)
+        anim_type = animation.get("type")
+        
+        if anim_type == "highlight_cell":
+            idx = animation.get("index", 0)
+            color = animation.get("color", "#FF6B6B")
+            duration = animation.get("duration", 300)
+            
+            if idx < len(self.hashtable_cells):
+                cell = self.hashtable_cells[idx]
+                
+                # Временная подсветка через таймер
+                timer = QTimer()
+                timer.setSingleShot(True)
+                timer.timeout.connect(lambda: cell.set_collision(False) if color == "#FF6B6B" else cell.set_probing(False))
+                timer.start(duration)
+                
+        elif anim_type == "insert_cell":
+            idx = animation.get("index", 0)
+            value = animation.get("value", 0)
+            original_index = animation.get("original_index")
+            duration = animation.get("duration", 500)
+            
+            if idx < len(self.hashtable_cells):
+                cell = self.hashtable_cells[idx]
+                
+                # Анимация "появления" - масштабирование
+                scale_anim = QPropertyAnimation(cell, b"scale")
+                scale_anim.setDuration(duration)
+                scale_anim.setStartValue(1)
+                scale_anim.setEndValue(1.0)
+                scale_anim.setEasingCurve(QEasingCurve.Type.OutBounce)
+                scale_anim.start()
+
+    def _enable_hashtable_scroll(self):
+        """Включает возможность прокрутки для хэш-таблицы."""
+        self.hashtable_scroll_enabled = True
+        
+        # Настраиваем view для прокрутки
+        if hasattr(self.view, 'set_scene_rect_based_on_content'):
+            # Вычисляем область с содержимым таблицы
+            if self.hashtable_cells:
+                # Берем первую ячейку для начала
+                cells_rect = self.hashtable_cells[0].boundingRect()
+                cells_rect.translate(self.hashtable_cells[0].pos())
+                
+                # Объединяем со всеми ячейками
+                for cell in self.hashtable_cells[1:]:
+                    r = cell.boundingRect()
+                    r.translate(cell.pos())
+                    cells_rect = cells_rect.united(r)
+                
+                # Добавляем пространство для заголовка и статистики
+                cells_rect.adjust(-100, -200, 300, 300)
+                self.view.set_scene_rect_based_on_content(cells_rect, 50)
+        
+        # Включаем скроллбары
+        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+    def _log(self, msg):
+        """Добавление сообщения в лог."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_text.append(f"[{timestamp}] {msg}")
+        scrollbar = self.log_text.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def _show_chains_viewer(self):
+        """Показывает диалог просмотра всех цепочек."""
+        try:
+            if not self.current_hashtable_data:
+                QMessageBox.information(
+                    self,
+                    "Нет данных",
+                    "Хэш-таблица еще не построена или данные недоступны."
+                )
+                return
+            
+            # Проверяем, есть ли вообще цепочки
+            has_chains = False
+            for data in self.current_hashtable_data:
+                if isinstance(data, list) and len(data) > 1:
+                    has_chains = True
+                    break
+            
+            if not has_chains:
+                QMessageBox.information(
+                    self,
+                    "Нет цепочек",
+                    "В хэш-таблице нет цепочек (все значения уникальны или используются другие методы разрешения коллизий)."
+                )
+                return
+            
+            # Создаем и показываем диалог
+            dialog = ChainsViewerDialog(self.current_hashtable_data, self)
+            dialog.exec()
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось открыть просмотр цепочек: {str(e)}"
+            )
+            import traceback
+            traceback.print_exc()
+
+    # === ИНТЕРАКТИВНЫЕ ОПЕРАЦИИ С ДЕРЕВЬЯМИ ===
+    
+    def _on_operation_execute(self):
+        """Выполнение выбранной операции с деревом."""
+        if not self.current_algorithm or not hasattr(self.current_algorithm, '__class__'):
+            self._log("❌ Нет активного дерева для операций")
+            return
+        
+        operation = self.tree_ops_combo.currentText()
+        value_text = self.val_input.text().strip()
+        
+        try:
+            is_heap = isinstance(self.current_algorithm, BinaryHeap)
+            if is_heap:
+                # Обработка операций для кучи
+                if operation == "Вставить узел":
+                    if not value_text:
+                        QMessageBox.warning(self, "Ошибка", "Введите значение для операции")
+                        return
+                    value = int(value_text)
+                    self._heap_insert(value)
+                    
+                elif operation == "Удалить корень (delete)":
+                    self._heap_delete()
+                    
+                elif operation == "Посмотреть корень (peek)":
+                    self._heap_peek()
+                    
+                elif operation == "Получить размер (get_size)":
+                    self._heap_get_size()
+                    
+                elif operation == "Проверить на пустоту (is_empty)":
+                    self._heap_is_empty()
+                    
+                elif operation == "Получить max (для max-heap)":
+                    self._heap_get_max()
+                    
+                elif operation == "Получить min (для min-heap)":
+                    self._heap_get_min()
+                    
+                elif operation == "Преобразовать в min-heap":
+                    self._heap_convert_to_min()
+                    
+                elif operation == "Преобразовать в max-heap":
+                    self._heap_convert_to_max()
+                    
+                elif operation == "Очистить кучу":
+                    self._heap_clear()
+                
+            else:
+                if operation in ["Вставить узел", "Удалить узел", "Найти узел"]:
+                    if not value_text:
+                        QMessageBox.warning(self, "Ошибка", "Введите значение для операции")
+                        return
+                    
+                    value = int(value_text)
+                    
+                    if operation == "Вставить узел":
+                        self._insert_node(value)
+                    elif operation == "Удалить узел":
+                        self._delete_node(value)  # Используем новый метод
+                    elif operation == "Найти узел":
+                        self._search_node(value)
+                    
+                        
+                elif operation == "Прямой обход (Pre-order)":
+                    self._perform_traversal("preorder")
+                elif operation == "Центральный обход (In-order)":
+                    self._perform_traversal("inorder")
+                elif operation == "Обратный обход (Post-order)":
+                    self._perform_traversal("postorder")
+                elif operation == "Обход в ширину (BFS)":
+                    self._perform_traversal("bfs")
+                
+        except ValueError:
+            QMessageBox.warning(self, "Ошибка", "Введите корректное число")
+        except Exception as e:
+            self._log(f"❌ Ошибка при выполнении операции: {str(e)}")
+    def _update_heap_visualization(self, message=""):
+        """Обновляет визуализацию кучи."""
+        try:
+            heap = self.current_algorithm
+            
+            if not heap:
+                self._log("❌ Куча не инициализирована")
+                return
+            
+            # Получаем структуру дерева кучи
+            tree_data = heap._get_tree_structure()
+            
+            if tree_data:
+                # ВАЖНО: Используем TreeVisualizer для отображения кучи как дерева
+                self.scene.clear()
+                self.visual_items.clear()
+                
+                # Устанавливаем большой размер сцены
+                extended_scene_rect = QRectF(-3000, -3000, 6000, 6000)
+                self.scene.setSceneRect(extended_scene_rect)
+                
+                # Создаем дерево через TreeVisualizer
+                self.tree_visualizer.clear()
+                root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
+                
+                if root:
+                    if message:
+                        self._log(f"📈 {message}")
+                    
+                    # Отладочная информация
+                    heap_type = "Max-Heap" if heap.type == 'max' else "Min-Heap"
+                    self._log(f"📊 {heap_type}, Размер: {heap.get_size()}")
+                    self._log(f"📊 Массив кучи: {heap.heap}")
+                    
+                    # Центрируем вид
+                    QTimer.singleShot(50, self._center_on_tree)
+                    
+                    # Подгоняем масштаб
+                    QTimer.singleShot(100, lambda: self.view.fit_to_content(100) if hasattr(self.view, 'fit_to_content') else None)
+                else:
+                    self._log("❌ Не удалось построить визуализацию кучи")
+                    
+            else:
+                # Если куча пустая, показываем сообщение
+                self.scene.clear()
+                text_item = self.scene.addText("Куча пуста")
+                text_item.setDefaultTextColor(QColor("#666"))
+                text_item.setFont(QFont("Arial", 16))
+                text_item.setPos(-50, -20)
+                
+                # Добавляем информацию о типе
+                heap_type = "Max-Heap" if heap.type == 'max' else "Min-Heap"
+                type_item = self.scene.addText(f"Тип: {heap_type}")
+                type_item.setDefaultTextColor(QColor("#5A9BD5"))
+                type_item.setFont(QFont("Arial", 12))
+                type_item.setPos(-50, 20)
+                
+                self._log("📊 Куча пуста")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при обновлении визуализации кучи: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    def _heap_insert(self, value):
+        """Вставка элемента в кучу."""
+        try:
+            heap = self.current_algorithm
+            
+            # Вставляем элемент
+            success = heap.insert(value)
+            if success:
+                self._log(f"✅ Элемент {value} вставлен в кучу")
+                
+                # Обновляем визуализацию
+                QTimer.singleShot(100, lambda: self._update_heap_visualization(f"Вставлен элемент: {value}"))
+                
+            else:
+                self._log(f"❌ Не удалось вставить элемент {value}")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при вставке в кучу: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _heap_delete(self):
+        """Удаление корневого элемента из кучу."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.is_empty():
+                self._log("❌ Куча пуста, нечего удалять")
+                return
+            
+            # Используем пошаговое удаление
+            generator = heap.delete_with_steps()
+            
+            # Загружаем генератор в движок
+            self.engine.generator = generator
+            
+            # Запускаем автоматический режим для визуализации процесса
+            self._start_auto_mode()
+            # Обновляем визуализацию
+            QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча обновлена"))    
+        except Exception as e:
+            self._log(f"❌ Ошибка при удалении из кучи: {str(e)}")
+
+    def _heap_peek(self):
+        """Просмотр корневого элемента без удаления."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.is_empty():
+                self._log("❌ Куча пуста")
+                return
+            
+            root_value = heap.peek()
+            self._log(f"👁 Корневой элемент кучи: {root_value}")
+            
+            # Подсвечиваем корень
+            if hasattr(self, 'tree_visualizer'):
+                self.tree_visualizer.highlight_node_by_value(root_value, "#FFD700", 2000)
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при просмотре кучи: {str(e)}")
+
+    def _heap_get_size(self):
+        """Получение размера кучи."""
+        try:
+            heap = self.current_algorithm
+            size = heap.get_size()
+            self._log(f"📊 Размер кучи: {size}")
+        except Exception as e:
+            self._log(f"❌ Ошибка при получении размера кучи: {str(e)}")
+
+    def _heap_is_empty(self):
+        """Проверка кучи на пустоту."""
+        try:
+            heap = self.current_algorithm
+            is_empty = heap.is_empty()
+            status = "пуста" if is_empty else "не пуста"
+            self._log(f"📋 Куча {status}")
+        except Exception as e:
+            self._log(f"❌ Ошибка при проверке кучи: {str(e)}")
+
+    def _heap_get_max(self):
+        """Получение максимального элемента (для max-heap)."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.type != 'max':
+                self._log("❌ Эта операция доступна только для max-heap")
+                return
+            
+            max_value = heap.get_max()
+            if max_value is not None:
+                self._log(f"📊 Максимальный элемент: {max_value}")
+                # Подсвечиваем максимальный элемент (корень)
+                if hasattr(self, 'tree_visualizer'):
+                    self.tree_visualizer.highlight_node_by_value(max_value, "#FF6B6B", 2000)
+            else:
+                self._log("❌ Куча пуста")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при получении max: {str(e)}")
+
+    def _heap_get_min(self):
+        """Получение минимального элемента (для min-heap)."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.type != 'min':
+                self._log("❌ Эта операция доступна только для min-heap")
+                return
+            
+            min_value = heap.get_min()
+            if min_value is not None:
+                self._log(f"📊 Минимальный элемент: {min_value}")
+                # Подсвечиваем минимальный элемент (корень)
+                if hasattr(self, 'tree_visualizer'):
+                    self.tree_visualizer.highlight_node_by_value(min_value, "#4ECDC4", 2000)
+            else:
+                self._log("❌ Куча пуста")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при получении min: {str(e)}")
+
+    def _heap_convert_to_min(self):
+        """Преобразование кучи в min-heap."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.type == 'min':
+                self._log("ℹ️ Куча уже является min-heap")
+                return
+            
+            # Получаем текущие данные
+            data = heap.heap.copy()
+            
+            # Создаем новую min-heap
+            self.current_algorithm = BinaryHeap(data, heap_type='min')
+            
+            self._log("✅ Куча преобразована в min-heap")
+            
+            # Обновляем визуализацию
+            self._update_heap_visualization("Преобразована в min-heap")
+            # Обновляем визуализацию
+            QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча обновлена"))
+        except Exception as e:
+            self._log(f"❌ Ошибка при преобразовании в min-heap: {str(e)}")
+
+    def _heap_convert_to_max(self):
+        """Преобразование кучи в max-heap."""
+        try:
+            heap = self.current_algorithm
+            
+            if heap.type == 'max':
+                self._log("ℹ️ Куча уже является max-heap")
+                return
+            
+            # Получаем текущие данные
+            data = heap.heap.copy()
+            
+            # Создаем новую max-heap
+            self.current_algorithm = BinaryHeap(data, heap_type='max')
+            
+            self._log("✅ Куча преобразована в max-heap")
+            
+            # Обновляем визуализацию
+            self._update_heap_visualization("Преобразована в max-heap")
+            # Обновляем визуализацию
+            QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча обновлена"))
+        except Exception as e:
+            self._log(f"❌ Ошибка при преобразовании в max-heap: {str(e)}")
+
+    def _heap_clear(self):
+        """Очистка кучи."""
+        reply = QMessageBox.question(
+            self, "Подтверждение", 
+            "Вы уверены, что хотите очистить кучу?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                heap = self.current_algorithm
+                heap.clear()
+                
+                self._log("🗑️ Куча очищена")
+                
+                # Очищаем визуализацию
+                self.scene.clear()
+                self.visual_items.clear()
+                
+                # Показываем сообщение
+                text_item = self.scene.addText("Куча очищена")
+                text_item.setDefaultTextColor(QColor("#666"))
+                text_item.setFont(QFont("Arial", 16))
+                text_item.setPos(-50, -20)
+                # Обновляем визуализацию
+                QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча обновлена"))
+                # Подгоняем масштаб
+                self._schedule_zoom_reset()
+                
+            except Exception as e:
+                self._log(f"❌ Ошибка при очистке кучи: {str(e)}")
+
+
+    def _insert_node(self, value):
+        """Вставка узла в дерево."""
+        try:
+            tree = self.current_algorithm
+            
+            if not tree:
+                self._log("❌ Нет активного дерева для операций")
+                return
+            
+            # Проверяем тип дерева и используем соответствующий метод
+            if hasattr(tree, 'insert') or hasattr(tree, 'insert_value'):
+                # Для B-дерева используем insert_value
+                if isinstance(tree, BTree):
+                    tree.insert_value(value)
+                    self._log(f"✅ Значение {value} добавлено в B-дерево")
+                    
+                    # Специальная обработка для B-дерева - полное перестроение
+                    tree_data = tree._get_tree_structure_list()
+                    if tree_data:
+                        # Используем анимацию перестроения
+                        self._update_btree_visualization(tree_data, animate=True)
+                    else:
+                        self._log("⚠️ Не удалось получить данные B-дерева для визуализации")
+                else:
+                    # Для обычных деревьев
+                    tree.insert(value)
+                    self._log(f"✅ Узел {value} вставлен в дерево")
+                    self._update_tree_visualization(f"Вставлен узел: {value}")
+                    
+        except ValueError as e:
+            QMessageBox.warning(self, "Ошибка", f"Некорректное значение: {str(e)}")
+        except Exception as e:
+            self._log(f"❌ Ошибка при вставке: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _delete_node(self, value):
+        """Удаляет узел из дерева."""
+        try:
+            tree = self.current_algorithm
+            
+            if not hasattr(tree, 'delete'):
+                self._log("❌ Этот тип дерева не поддерживает удаление")
+                return
+            
+            # Подсвечиваем удаляемый узел
+            if hasattr(self, 'tree_visualizer'):
+                self.tree_visualizer.highlight_node_by_value(value, "#FF6B6B", 1000)
+            
+            # Удаляем узел
+            try:
+                tree.delete(value)
+                self._log(f"✅ Узел {value} удален из дерева")
+            except ValueError as e:
+                self._log(f"❌ {str(e)}")
+                return
+            
+            # Обновляем визуализацию
+            self._update_tree_visualization(f"Удален узел: {value}")
+            
+            # Добавляем небольшую задержку для отображения
+            QTimer.singleShot(500, lambda: self._center_on_tree())
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при удалении: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _search_node(self, value):
+        """Поиск узла в дереве."""
+        try:
+            if not self.current_algorithm:
+                self._log("❌ Нет активного дерева для операций")
+                return
+            
+            tree = self.current_algorithm
+            
+            # Проверяем поддержку поиска
+            if not hasattr(tree, 'search'):
+                self._log("❌ Этот тип дерева не поддерживает поиск")
+                return
+            
+            # Останавливаем текущие анимации
+            if self.is_auto_mode:
+                self._pause_auto_mode()
+            
+            # Получаем текущую структуру дерева
+            if hasattr(tree, '_get_tree_structure_list'):
+                tree_data = tree._get_tree_structure_list()
+                if tree_data:
+                    self._update_btree_visualization(tree_data, animate=False)
+            elif hasattr(tree, '_get_tree_structure'):
+                tree_data = tree._get_tree_structure(tree.root)
+                if tree_data:
+                    self._render_tree(tree_data)
+            
+            # Выполняем поиск
+            result = tree.search(value)
+            
+            if result:
+                # Для разных типов деревьев разный формат результата
+                if isinstance(result, tuple) and len(result) == 2:  # B-дерево
+                    node, idx = result
+                    self._log(f"✅ Найден узел со значением {value} в позиции {idx}")
+                    self._highlight_found_node_in_btree(node, value, idx)
+                else:  # Обычное дерево
+                    self._log(f"✅ Найден узел {value}")
+                    self._highlight_found_node(value)
+            else:
+                self._log(f"❌ Узел {value} не найден в дереве")
+                QMessageBox.information(self, "Поиск", f"Узел {value} не найден")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при поиске: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _highlight_found_node(self, value):
+        """Подсвечивает найденный узел."""
+        try:
+            if hasattr(self, 'tree_visualizer'):
+                # Пробуем разные способы поиска узла
+                node_found = False
+                
+                # 1. Ищем в value_to_node
+                if hasattr(self.tree_visualizer, 'value_to_node'):
+                    if value in self.tree_visualizer.value_to_node:
+                        node = self.tree_visualizer.value_to_node[value]
+                        if hasattr(node, 'highlight'):
+                            original_color = getattr(node, 'circleColor', getattr(node, 'bg_color', None))
+                            node.highlight(QColor("#FFD700"))
+                            node_found = True
+                            
+                            # Возвращаем цвет через 2 секунды
+                            QTimer.singleShot(2000, lambda: self._reset_node_color(node, original_color))
+                
+                # 2. Ищем во всех узлах сцены
+                if not node_found:
+                    for item in self.scene.items():
+                        if isinstance(item, TreeNodeItem) and str(item.value) == str(value):
+                            item.highlight(QColor("#FFD700"))
+                            node_found = True
+                            
+                            # Возвращаем цвет через 2 секунды
+                            original_color = getattr(item, 'circleColor', None)
+                            QTimer.singleShot(2000, lambda: self._reset_node_color(item, original_color))
+                            break
+                        
+                        elif isinstance(item, BTreeNodeItem):
+                            # Для B-дерева проверяем ключи
+                            if hasattr(item, 'keys') and value in item.keys:
+                                original_color = item.bg_color
+                                item.bg_color = QColor("#FFD700")
+                                item.update()
+                                node_found = True
+                                
+                                # Возвращаем цвет через 2 секунды
+                                QTimer.singleShot(2000, lambda: self._reset_btree_node_color(item, original_color))
+                                break
+                
+                if not node_found:
+                    self._log(f"⚠️ Не удалось визуально выделить узел {value}")
+                    
+        except Exception as e:
+            self._log(f"❌ Ошибка при подсветке узла: {str(e)}")
+    
+    def _highlight_found_node_in_btree(self, btree_node, value, idx):
+        """Подсвечивает найденный узел в B-дереве."""
+        try:
+            if hasattr(self, 'tree_visualizer'):
+                # Ищем узел B-дерева по ключам
+                for item in self.scene.items():
+                    if isinstance(item, BTreeNodeItem):
+                        if hasattr(item, 'keys') and value in item.keys:
+                            # Сохраняем оригинальный цвет
+                            original_color = item.bg_color
+                            
+                            # Подсвечиваем весь узел
+                            item.bg_color = QColor("#FFD700")
+                            item.update()
+                            
+                            # Также можно подсветить конкретный ключ
+                            self._log(f"✅ Найден ключ {value} в B-дереве в позиции {idx}")
+                            
+                            # Возвращаем цвет через 2 секунды
+                            QTimer.singleShot(2000, lambda: self._reset_btree_node_color(item, original_color))
+                            break
+                            
+        except Exception as e:
+            self._log(f"❌ Ошибка при подсветке B-дерева узла: {str(e)}")
+    
+    def _reset_node_color(self, node, color):
+        """Сбрасывает цвет узла."""
+        try:
+            if node and hasattr(node, 'highlight') and color:
+                node.highlight(color)
+        except:
+            pass
+    
+    def _reset_btree_node_color(self, node, color):
+        """Сбрасывает цвет узла B-дерева."""
+        try:
+            if node and hasattr(node, 'bg_color') and color:
+                node.bg_color = color
+                if hasattr(node, 'update'):
+                    node.update()
+        except:
+            pass
+    
+    def _perform_traversal(self, traversal_type):
+        """Выполнение обхода дерева."""
+        try:
+            tree = self.current_algorithm
+            
+            if not tree:
+                self._log("❌ Нет активного дерева для операций")
+                return
+            
+            result = []
+            
+            if traversal_type == "preorder":
+                if hasattr(tree, 'get_preorder'):
+                    result = tree.get_preorder()
+                    traversal_name = "Прямой обход (Pre-order)"
+                else:
+                    self._log("❌ Этот тип обхода не поддерживается")
+                    return
+                    
+            elif traversal_type == "inorder":
+                if hasattr(tree, 'get_inorder'):
+                    result = tree.get_inorder()
+                    traversal_name = "Центральный обход (In-order)"
+                elif hasattr(tree, '_inorder_traversal'):
+                    result = tree._inorder_traversal(tree.root)
+                    traversal_name = "Центральный обход (In-order)"
+                else:
+                    self._log("❌ Этот тип обхода не поддерживается")
+                    return
+                    
+            elif traversal_type == "postorder":
+                if hasattr(tree, 'get_postorder'):
+                    result = tree.get_postorder()
+                    traversal_name = "Обратный обход (Post-order)"
+                else:
+                    self._log("❌ Этот тип обхода не поддерживается")
+                    return
+                    
+            elif traversal_type == "bfs":
+                if hasattr(tree, 'get_bfs'):
+                    result = tree.get_bfs()
+                    traversal_name = "Обход в ширину (BFS)"
+                elif isinstance(tree, BTree):
+                    # Специальная обработка для B-дерева
+                    result = self._bfs_btree_improved(tree)
+                    traversal_name = "Обход в ширину (BFS)"
+                else:
+                    self._log("❌ Этот тип обхода не поддерживается")
+                    return
+            
+            if result:
+                # Форматируем результат в зависимости от типа дерева
+                if isinstance(tree, BTree):
+                    # Для B-дерева результат должен быть правильно структурирован
+                    if traversal_type == "bfs":
+                        # BFS уже возвращает правильный формат
+                        result_str = ""
+                        for i, level_nodes in enumerate(result):
+                            if isinstance(level_nodes, list):
+                                level_str = ", ".join(f"{keys}" for keys in level_nodes)
+                                result_str += f"Уровень {i}: [{level_str}]\n"
+                            else:
+                                result_str += f"Уровень {i}: [{level_nodes}]\n"
+                    else:
+                        # Для других обходов
+                        result_str = "\n".join(f"Узел: {keys}" for keys in result)
+                    
+                    self._log(f"📊 {traversal_name}:\n{result_str}")
+                    
+                    # Визуализируем обход
+                    tree_data = tree._get_tree_structure_list()
+                    if tree_data:
+                        self._update_btree_visualization(tree_data, animate=False)
+                        
+                        # Для BFS показываем обход по уровням
+                        if traversal_type == "bfs":
+                            self._highlight_btree_traversal(result)
+                        else:
+                            # Для других обходов - просто показываем дерево
+                            self._log(f"🌳 B-дерево отображено для обхода {traversal_name}")
+                else:
+                    # Для обычных деревьев
+                    result_str = " → ".join(map(str, result))
+                    self._log(f"📊 {traversal_name}: {result_str}")
+                    
+                    # Визуализируем обход
+                    if hasattr(tree, '_get_tree_structure'):
+                        tree_data = tree._get_tree_structure(tree.root)
+                        if tree_data:
+                            self._render_tree(tree_data)
+                            # Подсвечиваем узлы в порядке обхода
+                            self._highlight_traversal(result)
+            else:
+                self._log("📊 Дерево пустое")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при обходе: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _bfs_btree_improved(self, btree):
+        """Улучшенный BFS для B-дерева."""
+        from collections import deque
+        
+        result = []
+        if not btree.root:
+            return result
+        
+        queue = deque([btree.root])
+        
+        while queue:
+            level_size = len(queue)
+            level_nodes = []
+            
+            for _ in range(level_size):
+                node = queue.popleft()
+                # Сохраняем ключи узла
+                level_nodes.append(node.keys.copy())
+                
+                # Добавляем детей в очередь
+                for child in node.children:
+                    queue.append(child)
+            
+            result.append(level_nodes)
+        
+        return result
+    
+    def _highlight_btree_traversal(self, levels):
+        """Подсвечивает обход B-дерева по уровням."""
+        # Проверяем и нормализуем формат данных
+        normalized_levels = []
+        for level in levels:
+            if isinstance(level, list):
+                normalized_levels.append(level)
+            else:
+                # Если это просто список ключей (не список списков)
+                normalized_levels.append([level])
+        
+        # Проверяем, что у нас есть данные
+        if not normalized_levels:
+            return
+        
+        # Подсвечиваем узлы с задержкой
+        for level_idx, level_nodes in enumerate(normalized_levels):
+            for node_idx, keys in enumerate(level_nodes):
+                # Задержка для анимации
+                delay = (level_idx * len(normalized_levels[0]) + node_idx) * 300
+                
+                QTimer.singleShot(delay, lambda l=level_idx, k=keys: 
+                                self._highlight_btree_level(l, k))
+        
+        # Сбрасываем подсветку через время
+        total_delay = len(normalized_levels) * len(normalized_levels[0]) * 300 + 2000
+        QTimer.singleShot(total_delay, self._reset_all_highlight)
+    
+    def _highlight_btree_level(self, level_idx, keys):
+        """Подсвечивает уровень B-дерева."""
+        try:
+            # Ищем узлы с такими ключами
+            for item in self.scene.items():
+                if isinstance(item, BTreeNodeItem):
+                    if hasattr(item, 'keys') and item.keys == keys:
+                        # Сохраняем оригинальный цвет
+                        if not hasattr(item, '_original_color'):
+                            item._original_color = item.bg_color
+                        
+                        # Подсвечиваем цветом в зависимости от уровня
+                        colors = ["#FF6B6B", "#4ECDC4", "#FFD166", "#06D6A0", "#118AB2"]
+                        color_idx = level_idx % len(colors)
+                        item.bg_color = QColor(colors[color_idx])
+                        item.update()
+                        break
+        except Exception as e:
+            print(f"Error highlighting B-tree level: {e}")
+    
+    def _reset_all_highlight(self):
+        """Сбрасывает всю подсветку."""
+        for item in self.scene.items():
+            if isinstance(item, (TreeNodeItem, BTreeNodeItem)):
+                if hasattr(item, '_original_color'):
+                    if isinstance(item, BTreeNodeItem):
+                        item.bg_color = item._original_color
+                        item.update()
+                    elif hasattr(item, 'highlight'):
+                        item.highlight(item._original_color)
+                    delattr(item, '_original_color')
+    
+    def _find_min_max(self, mode):
+        """Находит минимальный или максимальный элемент."""
+        try:
+            tree = self.current_algorithm
+            
+            if mode == "min":
+                if hasattr(tree, 'get_min'):
+                    min_value = tree.get_min()
+                    if min_value is not None:
+                        self._log(f"📊 Минимальный элемент: {min_value}")
+                        self.val_input.setText(str(min_value))
+                        self._highlight_found_node(min_value)
+                    else:
+                        self._log("📊 Дерево пустое")
+                else:
+                    self._log("❌ Эта операция не поддерживается для данного дерева")
+            else:
+                if hasattr(tree, 'get_max'):
+                    max_value = tree.get_max()
+                    if max_value is not None:
+                        self._log(f"📊 Максимальный элемент: {max_value}")
+                        self.val_input.setText(str(max_value))
+                        self._highlight_found_node(max_value)
+                    else:
+                        self._log("📊 Дерево пустое")
+                else:
+                    self._log("❌ Эта операция не поддерживается для данного дерева")
+                    
+        except Exception as e:
+            self._log(f"❌ Ошибка при поиске мин/макс: {str(e)}")
+    
+    def _get_tree_height(self):
+        """Вычисляет высоту дерева."""
+        try:
+            tree = self.current_algorithm
+            
+            if hasattr(tree, 'get_height'):
+                height = tree.get_height()
+                self._log(f"📊 Высота дерева: {height}")
+            elif hasattr(tree, 'get_tree_height'):
+                height = tree.get_tree_height()
+                self._log(f"📊 Высота дерева: {height}")
+            elif hasattr(tree, 'root'):
+                # Простой расчет высоты для бинарных деревьев
+                def calc_height(node):
+                    if not node:
+                        return 0
+                    return 1 + max(calc_height(node.left), calc_height(node.right))
+                
+                height = calc_height(tree.root)
+                self._log(f"📊 Высота дерева: {height}")
+            else:
+                self._log("❌ Не удалось вычислить высоту дерева")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при вычислении высоты: {str(e)}")
+    
+    def _check_balance(self):
+        """Проверяет балансировку дерева."""
+        try:
+            tree = self.current_algorithm
+            
+            if hasattr(tree, 'is_balanced'):
+                balanced = tree.is_balanced()
+                if balanced:
+                    self._log("✅ Дерево сбалансировано")
+                else:
+                    self._log("⚠️ Дерево несбалансировано")
+            elif hasattr(tree, '_get_balance'):
+                # Для AVL деревьев
+                balance = tree._get_balance(tree.root)
+                self._log(f"📊 Баланс корня: {balance}")
+                
+                if abs(balance) <= 1:
+                    self._log("✅ Дерево сбалансировано")
+                else:
+                    self._log("⚠️ Дерево несбалансировано")
+                    
+                # Подсвечиваем корень
+                if hasattr(tree, '_get_tree_structure'):
+                    tree_data = tree._get_tree_structure(tree.root)
+                    if tree_data:
+                        self._render_tree(tree_data)
+                        self._highlight_root()
+            else:
+                self._log("ℹ️ Эта операция доступна только для AVL деревьев")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при проверке баланса: {str(e)}")
+    
+    def _clear_tree(self):
+        """Очищает дерево."""
+        reply = QMessageBox.question(
+            self, "Подтверждение", 
+            "Вы уверены, что хотите очистить дерево?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                tree = self.current_algorithm
+                
+                if hasattr(tree, 'root'):
+                    tree.root = None
+                    if hasattr(tree, 'data'):
+                        tree.data = []
+                    
+                    self._log("🗑️ Дерево очищено")
+                    
+                    # Визуально очищаем сцену
+                    self.scene.clear()
+                    self.visual_items.clear()
+                    
+                    # Очищаем визуализатор деревьев
+                    if hasattr(self, 'tree_visualizer'):
+                        self.tree_visualizer.clear()
+                    
+                    # Сбрасываем последние данные дерева
+                    self._last_tree_data = None
+                    
+                    # Показываем сообщение о пустом дереве
+                    text_item = self.scene.addText("Дерево очищено")
+                    text_item.setDefaultTextColor(QColor("#666"))
+                    text_item.setFont(QFont("Arial", 16))
+                    text_item.setPos(-50, -20)
+                    
+                    # Подгоняем масштаб
+                    self._schedule_zoom_reset()
+                    
+                    # Обновляем инспектор
+                    self.inspector.update_info({"type": "tree_cleared", "description": "Дерево очищено"})
+                    
+            except Exception as e:
+                self._log(f"❌ Ошибка при очистке дерева: {str(e)}")
+    
+    def _add_random_nodes(self):
+        """Добавляет случайные узлы в дерево."""
+        try:
+            values = [random.randint(1, 100) for _ in range(5)]
+            
+            for value in values:
+                if hasattr(self.current_algorithm, 'insert'):
+                    self.current_algorithm.insert(value)
+                elif hasattr(self.current_algorithm, 'insert_value'):
+                    self.current_algorithm.insert_value(value)
+            
+            self._log(f"🎲 Добавлены случайные значения: {values}")
+            self._update_tree_visualization(f"Добавлены случайные узлы: {values}")
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при добавлении случайных узлов: {str(e)}")
+    
+    def _update_tree_visualization(self, message=""):
+        """Обновляет визуализацию дерева."""
+        try:
+            tree = self.current_algorithm
+                    # Проверяем, является ли дерево кучей
+            if isinstance(tree, BinaryHeap):
+                self._update_heap_visualization(message)
+                return
+            if isinstance(tree, RedBlackTree):
+                # Специальная обработка для красно-черного дерева
+                if hasattr(tree, '_get_tree_structure'):
+                    tree_data = tree._get_tree_structure(tree.root)
+                    if tree_data:
+                        # Устанавливаем тип дерева в визуализаторе
+                        self.tree_visualizer.set_tree_type("RedBlackTree")
+                        
+                        # Очищаем сцену
+                        self.scene.clear()
+                        self.visual_items.clear()
+                        
+                        # Устанавливаем большой размер сцены
+                        extended_scene_rect = QRectF(-3000, -3000, 6000, 6000)
+                        self.scene.setSceneRect(extended_scene_rect)
+                        
+                        # Создаем дерево без анимации для скорости
+                        root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
+                        
+                        if message:
+                            self._log(f"📈 {message}")
+                            
+                        # Короткая задержка для подгонки вида
+                        QTimer.singleShot(10, self._fit_to_content)
+                        return
+                else:
+                    self._log("⚠️ Не удалось получить структуру дерева")
+                    return
+                    
+            elif hasattr(tree, '_get_tree_structure_list'):
+                # Для B-дерева используем специальный метод
+                tree_data = tree._get_tree_structure_list()
+                
+                # Обновляем визуализацию с анимацией
+                self._update_btree_visualization(tree_data, animate=True)
+                
+                if message:
+                    self._log(f"📈 {message}")
+                    
+                # Короткая задержка для подгонки вида
+                QTimer.singleShot(10, self._fit_to_content)
+                
+            elif hasattr(tree, '_get_tree_structure'):
+                # Для обычных деревьев
+                tree_data = tree._get_tree_structure(tree.root)
+                if tree_data:
+                    # Используем прямое отображение без анимации для интерактивных операций
+                    self._render_tree(tree_data)
+                    
+                    if message:
+                        self._log(f"📈 {message}")
+                        
+                    # Короткая задержка для подгонки вида
+                    QTimer.singleShot(10, self._fit_to_content)
+                        
+        except Exception as e:
+            self._log(f"❌ Ошибка при обновлении визуализации: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _update_btree_visualization(self, tree_data, animate=False):
+        """Обновляет визуализацию B-дерева с перестроением."""
+        try:
+            # Очищаем сцену
+            self.scene.clear()
+            self.visual_items.clear()
+            
+            # Устанавливаем большой размер сцены для B-дерева
+            extended_scene_rect = QRectF(-3000, -3000, 6000, 6000)
+            self.scene.setSceneRect(extended_scene_rect)
+            
+            if not tree_data:
+                text_item = self.scene.addText("B-дерево пустое")
+                text_item.setPos(0, 0)
+                return
+            
+            # Используем визуализатор для B-дерева
+            if hasattr(self, 'tree_visualizer'):
+                # Для интерактивных операций НЕ используем анимацию построения
+                # Используем только анимацию перестроения
+                root = self.tree_visualizer.update_btree_visualization(tree_data, animate=animate)
+                
+                if root:
+                    # Центрируем вид
+                    self._center_on_tree()
+                    # Подгоняем масштаб
+                    self._schedule_zoom_reset()
+                    return True
+                else:
+                    self._log("❌ Ошибка при обновлении B-дерева")
+                    return False
+                    
+        except Exception as e:
+            self._log(f"❌ Ошибка при обновлении B-дерева: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _highlight_traversal(self, nodes):
+        """Подсвечивает узлы в порядке обхода."""
+        if hasattr(self, 'tree_visualizer'):
+            self.tree_visualizer.highlight_traversal(nodes)
+    
+    def _highlight_root(self):
+        """Подсвечивает корень дерева."""
+        if hasattr(self, 'tree_visualizer'):
+            self.tree_visualizer.highlight_node_by_value(self.current_algorithm.root.value, "#FFA500", 2000)
+    
+    def _on_container_operation_execute(self):
+        """Выполнение интерактивной операции с контейнером."""
+        try:
+            # Проверяем, что контейнер инициализирован
+            if self.container_type is None or self.container_visualizer is None:
+                # Если нет, создаем его на основе выбранного алгоритма
+                algo_name = self.algorithm_combo.currentText()
+                if algo_name == "Stack":
+                    self.current_algorithm = Stack([])
+                    self.container_type = "stack"
+                    self.container_visualizer = ContainerVisualizer(self.scene, "stack")
+                    # Очищаем сцену и показываем интерфейс контейнера
+                    self.scene.clear()
+                    self.container_visualizer._create_interface()
+                elif algo_name == "Queue":
+                    self.current_algorithm = Queue([])
+                    self.container_type = "queue"
+                    self.container_visualizer = ContainerVisualizer(self.scene, "queue")
+                    self.scene.clear()
+                    self.container_visualizer._create_interface()
+                elif algo_name == "Deque":
+                    self.current_algorithm = Deque([])
+                    self.container_type = "deque"
+                    self.container_visualizer = ContainerVisualizer(self.scene, "deque")
+                    self.scene.clear()
+                    self.container_visualizer._create_interface()
+                else:
+                    self._log("❌ Неизвестный тип контейнера")
+                    return
+            
+            if not self.current_algorithm:
+                self._log("❌ Контейнер не инициализирован")
+                return
+            
+            operation_text = self.container_ops_combo.currentText()
+            value_text = self.container_val_input.text().strip()
+            
+            # ИСПРАВЛЕННЫЙ БЛОК ОПРЕДЕЛЕНИЯ ОПЕРАЦИИ
+            operation = ""
+            
+            # Сначала проверяем полные названия операций
+            if operation_text == "push_front (добавить в начало)":
+                operation = "push_front"
+            elif operation_text == "push_back (добавить в конец)":
+                operation = "push_back"
+            elif operation_text == "pop_front (удалить из начала)":
+                operation = "pop_front"
+            elif operation_text == "pop_back (удалить из конца)":
+                operation = "pop_back"
+            elif operation_text == "front (посмотреть первый)":
+                operation = "front"
+            elif operation_text == "back (посмотреть последний)":
+                operation = "back"
+            elif operation_text == "size (размер)":
+                operation = "size"
+            elif operation_text == "is_empty (пусто?)":
+                operation = "is_empty"
+            # Для стека
+            elif operation_text == "push (добавить)":
+                operation = "push"
+            elif operation_text == "pop (удалить верхний)":
+                operation = "pop"
+            elif operation_text == "peek (посмотреть верхний)":
+                operation = "peek"
+            # Для очереди
+            elif operation_text == "enqueue (добавить)":
+                operation = "enqueue"
+            elif operation_text == "dequeue (удалить первый)":
+                operation = "dequeue"
+            else:
+                self._log(f"❌ Неизвестная операция: {operation_text}")
+                return
+            
+            # Выполняем операцию
+            result = None
+            if operation in ["push", "enqueue", "push_front", "push_back"]:
+                if not value_text:
+                    QMessageBox.warning(self, "Ошибка", "Введите значение для операции добавления")
+                    return
+                
+                try:
+                    value = int(value_text)
+                except ValueError:
+                    QMessageBox.warning(self, "Ошибка", "Введите корректное число")
+                    return
+                
+                if self.container_type == "stack":
+                    success = self.current_algorithm.push(value)
+                    if success:
+                        self._log(f"✅ Добавлено в стек: {value}")
+                        # Визуализируем с анимацией
+                        if self.container_visualizer:
+                            element = self.container_visualizer.push(value)
+                            if element:
+                                # Немедленное обновление сцены
+                                self.scene.update()
+                                self.view.viewport().update()
+                    else:
+                        self._log(f"❌ Стек переполнен!")
+                elif self.container_type == "queue":
+                    success = self.current_algorithm.enqueue(value)
+                    if success:
+                        self._log(f"✅ Добавлено в очередь: {value}")
+                        if self.container_visualizer:
+                            element = self.container_visualizer.push(value)
+                            if element:
+                                self.scene.update()
+                                self.view.viewport().update()
+                    else:
+                        self._log(f"❌ Очередь переполнена!")
+                elif self.container_type == "deque":
+                    if operation == "push_front":
+                        success = self.current_algorithm.push_front(value)
+                        if success:
+                            self._log(f"✅ Добавлено в начало дека: {value}")
+                            if self.container_visualizer:
+                                element = self.container_visualizer.push(value, "front")
+                                if element:
+                                    self.scene.update()
+                                    self.view.viewport().update()
+                        else:
+                            self._log(f"❌ Дек переполнен!")
+                    elif operation == "push_back":  # push_back
+                        success = self.current_algorithm.push_back(value)
+                        if success:
+                            self._log(f"✅ Добавлено в конец дека: {value}")
+                            if self.container_visualizer:
+                                element = self.container_visualizer.push(value, "back")
+                                if element:
+                                    self.scene.update()
+                                    self.view.viewport().update()
+                        else:
+                            self._log(f"❌ Дек переполнен!")
+                
+            elif operation in ["pop", "dequeue", "pop_front", "pop_back"]:
+                if self.container_type == "stack":
+                    # Подсвечиваем перед удалением
+                    if self.container_visualizer:
+                        self.container_visualizer.highlight_operation("pop")
+                    
+                    result = self.current_algorithm.pop()
+                    if result is not None:
+                        self._log(f"✅ Извлечено из стека: {result}")
+                        if self.container_visualizer:
+                            # Ждем немного для анимации подсветки, затем удаляем
+                            QTimer.singleShot(300, lambda: (
+                                self.container_visualizer.pop(),
+                                self.scene.update(),
+                                self.view.viewport().update()
+                            ))
+                    else:
+                        self._log(f"❌ Стек пуст!")
+                elif self.container_type == "queue":
+                    # Подсвечиваем перед удалением
+                    if self.container_visualizer:
+                        self.container_visualizer.highlight_operation("dequeue")
+                    
+                    result = self.current_algorithm.dequeue()
+                    if result is not None:
+                        self._log(f"✅ Извлечено из очереди: {result}")
+                        if self.container_visualizer:
+                            QTimer.singleShot(300, lambda: (
+                                self.container_visualizer.pop("front"),
+                                self.scene.update(),
+                                self.view.viewport().update()
+                            ))
+                    else:
+                        self._log(f"❌ Очередь пуста!")
+                elif self.container_type == "deque":
+                    if operation == "pop_front":
+                        # Подсвечиваем перед удалением
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("pop", position="front")
+                        
+                        result = self.current_algorithm.pop_front()
+                        if result is not None:
+                            self._log(f"✅ Извлечено из начала дека: {result}")
+                            if self.container_visualizer:
+                                QTimer.singleShot(300, lambda: (
+                                    self.container_visualizer.pop("front"),
+                                    self.scene.update(),
+                                    self.view.viewport().update()
+                                ))
+                        else:
+                            self._log(f"❌ Дек пуст!")
+                    elif operation == "pop_back":  # pop_back
+                        # Подсвечиваем перед удалением
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("pop", position="back")
+                        
+                        result = self.current_algorithm.pop_back()
+                        if result is not None:
+                            self._log(f"✅ Извлечено из конца дека: {result}")
+                            if self.container_visualizer:
+                                QTimer.singleShot(300, lambda: (
+                                    self.container_visualizer.pop("back"),
+                                    self.scene.update(),
+                                    self.view.viewport().update()
+                                ))
+                        else:
+                            self._log(f"❌ Дек пуст!")
+                
+            elif operation in ["peek", "front", "back"]:
+                if self.container_type == "stack":
+                    # Подсвечиваем элемент
+                    if self.container_visualizer:
+                        self.container_visualizer.highlight_operation("peek")
+                    
+                    result = self.current_algorithm.peek()
+                    if result is not None:
+                        self._log(f"👁 Верхний элемент стека: {result}")
+                    else:
+                        self._log(f"❌ Стек пуст!")
+                elif self.container_type == "queue":
+                    if operation == "front":
+                        # Подсвечиваем элемент
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("front")
+                        
+                        result = self.current_algorithm.front()
+                        if result is not None:
+                            self._log(f"👁 Первый элемент очереди: {result}")
+                        else:
+                            self._log(f"❌ Очередь пуста!")
+                    elif operation == "back":  # back
+                        # Подсвечиваем элемент
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("back")
+                        
+                        result = self.current_algorithm.back()
+                        if result is not None:
+                            self._log(f"👁 Последний элемент очереди: {result}")
+                        else:
+                            self._log(f"❌ Очередь пуста!")
+                elif self.container_type == "deque":
+                    if operation == "front":
+                        # Подсвечиваем элемент
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("front", position="front")
+                        
+                        result = self.current_algorithm.front()
+                        if result is not None:
+                            self._log(f"👁 Первый элемент дека: {result}")
+                        else:
+                            self._log(f"❌ Дек пуст!")
+                    elif operation == "back":  # back
+                        # Подсвечиваем элемент
+                        if self.container_visualizer:
+                            self.container_visualizer.highlight_operation("back", position="back")
+                        
+                        result = self.current_algorithm.back()
+                        if result is not None:
+                            self._log(f"👁 Последний элемент дека: {result}")
+                        else:
+                            self._log(f"❌ Дек пуст!")
+                
+            elif operation == "size":
+                if self.container_type == "stack":
+                    result = self.current_algorithm.size()
+                elif self.container_type == "queue":
+                    result = self.current_algorithm.size()
+                elif self.container_type == "deque":
+                    result = self.current_algorithm.size()
+                
+                self._log(f"📊 Размер {self.container_type}: {result}")
+                if self.container_visualizer:
+                    # Анимация подсветки всех элементов
+                    for elem in self.container_visualizer.elements:
+                        elem.bounce_animation()
+                
+            elif operation == "is_empty":
+                if self.container_type == "stack":
+                    result = self.current_algorithm.is_empty()
+                elif self.container_type == "queue":
+                    result = self.current_algorithm.is_empty()
+                elif self.container_type == "deque":
+                    result = self.current_algorithm.is_empty()
+                
+                status = "пуст(а)" if result else "не пуст(а)"
+                self._log(f"📋 {self.container_type.capitalize()} {status}")
+                if self.container_visualizer and result:
+                    # Если пусто, анимируем заголовок
+                    if hasattr(self.container_visualizer, 'title_text'):
+                        anim = QPropertyAnimation(self.container_visualizer.title_text, b"scale")
+                        anim.setDuration(500)
+                        anim.setStartValue(1.0)
+                        anim.setEndValue(1.1)
+                        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+                        anim.start()
+            
+            # Очищаем поле ввода
+            self.container_val_input.clear()
+            
+            # Немедленно обновляем сцену
+            self.scene.update()
+            self.view.viewport().update()
+            
+            # Подгоняем масштаб к содержимому
+            self._fit_to_content()
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при выполнении операции: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _clear_container(self):
+        """Очищает текущий контейнер."""
+        reply = QMessageBox.question(
+            self, "Подтверждение", 
+            "Вы уверены, что хотите очистить контейнер?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                if self.container_type == "stack":
+                    self.current_algorithm.clear()
+                elif self.container_type == "queue":
+                    self.current_algorithm.clear()
+                elif self.container_type == "deque":
+                    self.current_algorithm.clear()
+                
+                self._log("🗑️ Контейнер очищен")
+                
+                # Очищаем визуализацию и создаем заново
+                if self.container_visualizer:
+                    self.container_visualizer.clear()
+                    # Очищаем сцену и создаем интерфейс заново
+                    self.scene.clear()
+                    self.container_visualizer._create_interface()
+                    
+            except Exception as e:
+                self._log(f"❌ Ошибка при очистке контейнера: {str(e)}")
+
+    def _add_random_to_container(self):
+        """Добавляет случайные значения в контейнер с анимацией."""
+        try:
+            values = [random.randint(10, 99) for _ in range(3)]
+            
+            for i, value in enumerate(values):
+                if self.container_type == "stack":
+                    self.current_algorithm.push(value)
+                    if self.container_visualizer:
+                        # Задержка для последовательной анимации
+                        delay = i * 500
+                        QTimer.singleShot(delay, lambda v=value: (
+                            self.container_visualizer.push(v),
+                            self.scene.update(),
+                            self.view.viewport().update(),
+                            self._log(f"🎲 Добавлено: {v}")
+                        ))
+                elif self.container_type == "queue":
+                    self.current_algorithm.enqueue(value)
+                    if self.container_visualizer:
+                        delay = i * 500
+                        QTimer.singleShot(delay, lambda v=value: (
+                            self.container_visualizer.push(v),
+                            self.scene.update(),
+                            self.view.viewport().update(),
+                            self._log(f"🎲 Добавлено: {v}")
+                        ))
+                elif self.container_type == "deque":
+                    # Чередуем добавление в начало и конец
+                    if i % 2 == 0:
+                        self.current_algorithm.push_front(value)
+                        if self.container_visualizer:
+                            delay = i * 500
+                            QTimer.singleShot(delay, lambda v=value: (
+                                self.container_visualizer.push(v, "front"),
+                                self.scene.update(),
+                                self.view.viewport().update(),
+                                self._log(f"🎲 Добавлено в начало: {v}")
+                            ))
+                    else:
+                        self.current_algorithm.push_back(value)
+                        if self.container_visualizer:
+                            delay = i * 500
+                            QTimer.singleShot(delay, lambda v=value: (
+                                self.container_visualizer.push(v, "back"),
+                                self.scene.update(),
+                                self.view.viewport().update(),
+                                self._log(f"🎲 Добавлено в конец: {v}")
+                            ))
+            
+            # Обновляем сцену после всех анимаций
+            QTimer.singleShot(2000, lambda: (
+                self.scene.update(),
+                self.view.viewport().update(),
+                self._fit_to_content()
+            ))
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при добавлении случайных значений: {str(e)}")
+
+    def _render_container_initial_view(self):
+        """Отображает начальный вид для контейнера."""
+        self.scene.clear()
+        
+        if self.container_visualizer:
+            # Визуализатор сам создает интерфейс
+            self.container_visualizer._create_interface()
+        
+        self._log(f"📦 Инициализирован {self.container_type}")
+        # Немедленно обновляем отображение
+        self.scene.update()
+        self.view.viewport().update()
+
+    def _fit_to_content(self):
+        """Подгоняет масштаб к содержимому."""
+        self._schedule_zoom_reset()
+    
+    def _center_view(self):
+        """Центрирует вид."""
+        if self.scene and self.scene.items():
+            rect = self.scene.itemsBoundingRect()
+            if rect.isValid():
+                self.view.centerOn(rect.center())
+                self._log("🎯 Вид отцентрирован")
+
+    def closeEvent(self, event):
+        """Обработка закрытия приложения."""
+        self.engine.pause()
+        event.accept()
