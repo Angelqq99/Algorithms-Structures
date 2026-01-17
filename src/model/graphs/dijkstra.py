@@ -161,3 +161,4 @@ class Dijkstra(QObject):
     def step_generator(self):
         """Генератор шагов для движка."""
         return self.get_generator()
+        

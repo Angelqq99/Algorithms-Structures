@@ -957,6 +957,13 @@ class GraphEdgeItem(QGraphicsObject):
             self.update()
         except Exception as e:
             print(f"Error resetting edge highlight: {e}")
+    def reset_style(self):
+        """Сбрасывает стиль к первоначальному."""
+        self.highlight_color = None
+        self.set_thickness(1)
+        if hasattr(self, '_original_pen'):
+            self.setPen(self._original_pen)
+        self.update()
 
 
 class BTreeNodeItem(QGraphicsObject):

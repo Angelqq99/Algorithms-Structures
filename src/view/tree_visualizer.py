@@ -959,3 +959,23 @@ class TreeVisualizer:
             return root
         except Exception:
             return None
+    def reset_styles(self):
+        """Сбрасывает стили всех узлов дерева к стандартным."""
+        if not hasattr(self, 'value_to_node'):
+            return
+        
+        for node_item in self.value_to_node.values():
+            try:
+                # Сбрасываем цвет узла
+                if hasattr(node_item, 'reset_color'):
+                    node_item.reset_color()
+                elif hasattr(node_item, 'circleColor'):
+                    # Для TreeNodeItem
+                    node_item.circleColor = QColor("#5A9BD5")
+                    node_item.update()
+                elif hasattr(node_item, 'bg_color'):
+                    # Для BTreeNodeItem
+                    node_item.bg_color = QColor("#ffffff")
+                    node_item.update()
+            except Exception as e:
+                print(f"Error resetting node style: {e}")        

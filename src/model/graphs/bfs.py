@@ -1,4 +1,3 @@
-
 """
 Алгоритм обхода графа в ширину (BFS).
 """
@@ -10,98 +9,75 @@ class GraphBFS:
         self.graph = graph
         self.start = start_node
         self.steps = []
-        self.visited = set()
-        self.queue = deque()
+        self._create_compact_steps()
 
-    def _initialize_bfs(self):
-        """Инициализация BFS."""
-        self.steps = []
-        self.visited = set()
-        self.queue = deque()
+    def _create_compact_steps(self):
+        """Создает компактные шаги для быстрой визуализации."""
+        visited = {self.start}
+        queue = deque([self.start])
+        level = 0
         
-        # Инициализация
-        self.visited.add(self.start)
-        self.queue.append(self.start)
-        
-        # Шаг: инициализация
-        self.steps.append({
-            "type": "info",
-            "description": f"Инициализация BFS: начальный узел {self.start}"
-        })
-        
-        # Шаг: посещение начального узла
+        # Шаг 1: Старт
         self.steps.append({
             "type": "visit",
             "node": self.start,
-            "description": f"Посещен начальный узел {self.start}"
+            "description": f"🚀 Начальный узел: {self.start}"
         })
-
-    def _perform_bfs(self):
-        """Выполнение BFS."""
-        iteration = 0
         
-        while self.queue:
-            current = self.queue.popleft()
-            iteration += 1
+        while queue:
+            level_size = len(queue)
+            level_nodes = []
             
-            # Шаг: обработка текущего узла
-            self.steps.append({
-                "type": "info",
-                "description": f"Итерация {iteration}: обработка узла {current}"
-            })
-            
-            # Получаем соседей
-            neighbors = self.graph.get(current, {})
-            
-            for neighbor in neighbors:
-                # Шаг: проверка соседа
-                self.steps.append({
-                    "type": "discover",
-                    "from_node": current,
-                    "node": neighbor,
-                    "description": f"Проверка соседа {neighbor} из узла {current}"
-                })
+            for _ in range(level_size):
+                current = queue.popleft()
+                level_nodes.append(current)
                 
-                if neighbor not in self.visited:
-                    # Шаг: посещение нового узла
-                    self.visited.add(neighbor)
-                    self.queue.append(neighbor)
-                    
-                    self.steps.append({
-                        "type": "visit",
-                        "node": neighbor,
-                        "description": f"Найден новый узел {neighbor}, добавлен в очередь"
-                    })
-                else:
-                    # Шаг: узел уже посещен
-                    self.steps.append({
-                        "type": "info",
-                        "description": f"Узел {neighbor} уже посещен ранее"
-                    })
+                # Находим всех новых соседей
+                neighbors = self.graph.get(current, {})
+                new_neighbors = []
+                
+                for neighbor in neighbors:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+                        new_neighbors.append(neighbor)
+                
+                # Если есть новые соседи, добавляем ОДИН шаг для них всех
+                if new_neighbors:
+                    for neighbor in new_neighbors:
+                        self.steps.append({
+                            "type": "discover",
+                            "from_node": current,
+                            "node": neighbor,
+                            "description": f"🔍 {current} → {neighbor}",
+                            "weight": neighbors.get(neighbor, 1)
+                        })
+                        
+                        self.steps.append({
+                            "type": "visit",
+                            "node": neighbor,
+                            "description": f"✅ Посещен: {neighbor}"
+                        })
             
-            # Шаг: завершение обработки узла
-            self.steps.append({
-                "type": "info",
-                "description": f"Завершена обработка узла {current}"
-            })
+            # Шаг: завершение уровня (опционально, можно убрать для скорости)
+            if level_nodes:
+                self.steps.append({
+                    "type": "info",
+                    "description": f"📊 Уровень {level} завершен: {len(level_nodes)} узлов"
+                })
+            
+            level += 1
         
-        # Шаг: завершение алгоритма
+        # Финальный шаг
         self.steps.append({
             "type": "complete",
-            "description": f"BFS завершен. Посещено узлов: {len(self.visited)}",
-            "visited_count": len(self.visited),
-            "visited_nodes": list(self.visited)
+            "description": f"✅ BFS завершен!",
+            "visited_nodes": sorted(visited),
+            "total_nodes": len(visited),
+            "total_levels": level - 1
         })
 
     def step_generator(self):
-        """Генератор шагов BFS."""
-        if not self.steps:
-            self._initialize_bfs()
-            self._perform_bfs()
-        
         for step in self.steps:
             yield step
-
-    def get_generator(self):
-        """Возвращает генератор шагов."""
-        return self.step_generator()
+    

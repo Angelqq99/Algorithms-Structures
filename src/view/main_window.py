@@ -28,7 +28,6 @@ from model.trees.heap import BinaryHeap
 from model.graphs.bfs import GraphBFS
 from model.graphs.dfs import GraphDFS
 from model.graphs.dijkstra import Dijkstra
-from model.graphs.kruskal import GraphKruskal
 from model.hashtable.hashtable import HashTable
 
 from view.tree_visualizer import TreeVisualizer
@@ -1445,8 +1444,7 @@ class MainWindow(QMainWindow):
         self.graph_algo_combo.addItems([
             "BFS (обход в ширину)",
             "DFS (обход в глубину)",
-            "Dijkstra (кратчайший путь)",
-            "Kruskal (мин. остовное дерево)"
+            "Dijkstra (кратчайший путь)"
         ])
         self.graph_algo_combo.setStyleSheet("""
             QComboBox {
@@ -1713,7 +1711,25 @@ class MainWindow(QMainWindow):
         
         quick_actions.setLayout(quick_layout)
         self.operations_layout.addWidget(quick_actions)
-
+    def _clear_interactive_panel_children(self):
+        """Очищает все дочерние элементы интерактивной панели."""
+        # Удаляем все виджеты из operations_layout
+        while self.operations_layout.count():
+            item = self.operations_layout.takeAt(0)
+            if item.widget():
+                widget = item.widget()
+                widget.setParent(None)
+                widget.deleteLater()
+            elif item.layout():
+                # Рекурсивно очищаем вложенные layout
+                self._clear_layout_recursive(item.layout())
+        
+        # Сбрасываем ссылки на виджеты
+        self.container_val_input = None
+        self.container_ops_combo = None
+        self.container_execute_btn = None
+        self.container_clear_btn = None
+        self.container_random_btn = None
     def _create_tree_interactive_panel(self):
         """Создает панель интерактивных операций для деревьев."""
         # Двойная проверка категории
@@ -2167,6 +2183,9 @@ class MainWindow(QMainWindow):
             if self.zoom_reset_timer.isActive():
                 self.zoom_reset_timer.stop()
             
+            # Получаем текущую категорию
+            category = self.category_combo.currentText()
+            
             # 2. Очищаем контейнеры ПЕРЕД очисткой сцены
             if hasattr(self, 'container_visualizer') and self.container_visualizer:
                 try:
@@ -2177,28 +2196,44 @@ class MainWindow(QMainWindow):
                 self.container_type = None
             
             # 3. Очищаем визуализаторы графов ПЕРЕД очисткой сцены
-            if hasattr(self, 'graph_visualizer'):
+            # Для графов НЕ очищаем визуализатор полностью, только сбрасываем подсветку
+            if category == "Графы":
+                if hasattr(self, 'graph_visualizer'):
+                    try:
+                        self.graph_visualizer.reset_highlights()  # Только сброс подсветки
+                    except Exception as e:
+                        print(f"Warning resetting graph visualizer highlights: {e}")
+            else:
+                if hasattr(self, 'graph_visualizer'):
+                    try:
+                        self.graph_visualizer.clear()  # Для не-графов очищаем полностью
+                    except Exception as e:
+                        print(f"Warning clearing graph visualizer: {e}")
+            
+            # 4. Очищаем визуализатор деревьев
+            if hasattr(self, 'tree_visualizer'):
                 try:
-                    self.graph_visualizer.clear()
+                    self.tree_visualizer.clear()
                 except Exception as e:
-                    print(f"Warning clearing graph visualizer: {e}")
+                    print(f"Warning clearing tree visualizer: {e}")
             
-            # 4. Теперь очищаем сцену
-            if hasattr(self, 'scene'):
-                self.scene.clear()
+            # 5. Теперь очищаем сцену (кроме графов)
+            if category != "Графы":
+                if hasattr(self, 'scene'):
+                    self.scene.clear()
             
-            # 5. Скрываем специфичные виджеты
+            # 6. Скрываем специфичные виджеты
             self.temp_arrays_widget.hide()
             self.temp_arrays_widget.clear()
             
-            # 6. Сброс состояния хэш-таблицы
+            # 7. Сброс состояния хэш-таблицы
             self.hashtable_cells = []
             self.hashtable_stats = {}
             self.hashtable_display_mode = "initial"
             self.hashtable_scroll_enabled = False
             self.current_hashtable_data = []
             
-            # 7. Сброс других состояний
+            # 8. Сброс других состояний
             self.current_algorithm = None
             self.is_auto_mode = False
             self.is_animating = False
@@ -2217,16 +2252,15 @@ class MainWindow(QMainWindow):
             self._split_lines = []
             self.animation_queue = []
             
-            # 8. Отключаем кнопку просмотра цепочек
+            # 9. Отключаем кнопку просмотра цепочек
             self.view_chains_btn.setEnabled(False)
             
-            # 9. Восстанавливаем кнопки
+            # 10. Восстанавливаем кнопки
             self.auto_btn.show()
             self.pause_btn.hide()
             self.start_btn.setEnabled(True)
             
-            # 10. Восстанавливаем начальный вид
-            category = self.category_combo.currentText()
+            # 11. Восстанавливаем начальный вид
             if category == "Структуры данных":
                 # Для структур данных просто очищаем сцену
                 self._log("📦 Контейнер сброшен")
@@ -2239,11 +2273,15 @@ class MainWindow(QMainWindow):
                 except ValueError:
                     pass
             elif category == "Графы":
-                # Для графов пытаемся восстановить построенный граф
-                if self.graph_data:
-                    self._build_graph(skip_log=True)
+                # Для графов НЕ перестраиваем граф, только сбрасываем подсветку
+                if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                    self._log("♻ Подсветка графа сброшена")
                 else:
-                    self._log("🕸️ Граф еще не построен")
+                    # Если граф не был визуализирован, пытаемся построить
+                    if self.graph_data:
+                        self._build_graph(skip_log=True)
+                    else:
+                        self._log("🕸️ Граф еще не построен")
             else:
                 # Для всех остальных - массив
                 text = self.data_input.text()
@@ -2254,7 +2292,7 @@ class MainWindow(QMainWindow):
                     if hasattr(self, 'current_data'):
                         self._render_array(self.current_data)
             
-            # 11. Обновляем сцену и вид
+            # 12. Обновляем сцену и вид
             if hasattr(self, 'scene'):
                 self.scene.update()
             if hasattr(self, 'view'):
@@ -2262,8 +2300,9 @@ class MainWindow(QMainWindow):
             
             self._log("♻ Алгоритм сброшен. Можно запустить заново.")
             
-            # 12. Планируем сброс зума
-            self._schedule_zoom_reset()
+            # 13. Планируем сброс зума (только если не графы или граф пустой)
+            if category != "Графы" or not self.graph_data:
+                self._schedule_zoom_reset()
             
         except Exception as e:
             print(f"Error resetting algorithm: {e}")
@@ -2374,53 +2413,51 @@ class MainWindow(QMainWindow):
                 self._log("❌ Сначала постройте граф")
                 QMessageBox.warning(self, "Ошибка", "Сначала постройте граф (нажмите 'Построить граф')")
                 return False
+            self._reset_graph_visualization()
+            # ИСПРАВЛЕНИЕ: Всегда используем узел из поля ввода
+            start_node_text = ""
+            if hasattr(self, 'graph_start_input') and self.graph_start_input:
+                start_node_text = self.graph_start_input.text().strip()
             
-            # Получаем начальный узел из интерактивной панели
-            start_node_text = self.graph_start_input.text().strip() if hasattr(self, 'graph_start_input') and self.graph_start_input else ""
+            # Если поле пустое, показываем ошибку
             if not start_node_text:
-                # Используем первый узел графа по умолчанию
-                start_node = list(self.graph_data.keys())[0] if self.graph_data else None
-                if not start_node:
-                    self._log("❌ Граф не содержит узлов")
+                QMessageBox.warning(self, "Ошибка", "Введите начальный узел в поле 'Начальный узел'")
+                return False
+            
+            try:
+                start_node = int(start_node_text)
+                if start_node not in self.graph_data:
+                    self._log(f"❌ Узел {start_node} не найден в графе")
+                    QMessageBox.warning(self, "Ошибка", f"Узел {start_node} не найден в графе")
                     return False
-            else:
-                try:
-                    start_node = int(start_node_text)
-                    if start_node not in self.graph_data:
-                        self._log(f"❌ Узел {start_node} не найден в графе")
-                        QMessageBox.warning(self, "Ошибка", f"Узел {start_node} не найден в графе")
-                        return False
-                except ValueError:
-                    QMessageBox.warning(self, "Ошибка", "Введите корректный номер узла")
-                    return False
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Введите корректный номер узла")
+                return False
             
             # Определяем, какой алгоритм был выбран в правой панели
+            algorithm_text = ""
             if hasattr(self, 'graph_algo_combo') and self.graph_algo_combo:
                 algorithm_text = self.graph_algo_combo.currentText()
-                
-                if "BFS" in algorithm_text:
-                    self.current_algorithm = GraphBFS(self.graph_data, start_node)
-                elif "DFS" in algorithm_text:
-                    self.current_algorithm = GraphDFS(self.graph_data, start_node)
-                elif "Dijkstra" in algorithm_text:
-                    self.current_algorithm = Dijkstra(self.graph_data, start_node)
-                elif "Kruskal" in algorithm_text:
-                    self.current_algorithm = GraphKruskal(self.graph_data)
-                else:
-                    self._log("❌ Неизвестный алгоритм графа")
-                    return False
+            
+            # ИСПРАВЛЕНИЕ: Используем СУЩЕСТВУЮЩИЙ graph_data БЕЗ копирования
+            if "BFS" in algorithm_text:
+                self.current_algorithm = GraphBFS(self.graph_data, start_node)  # НЕ копируем!
+            elif "DFS" in algorithm_text:
+                self.current_algorithm = GraphDFS(self.graph_data, start_node)   # НЕ копируем!
+            elif "Dijkstra" in algorithm_text:
+                self.current_algorithm = Dijkstra(self.graph_data, start_node)   # НЕ копируем!
             else:
-                # Если интерактивная панель не создана, используем BFS по умолчанию
-                self.current_algorithm = GraphBFS(self.graph_data, start_node)
+                # По умолчанию используем BFS
+                self.current_algorithm = GraphBFS(self.graph_data, start_node)   # НЕ копируем!
             
             # Загружаем алгоритм в движок
             self.engine.load_algorithm(self.current_algorithm)
             
-            # Сбрасываем подсветку графа перед запуском
+            # Сбрасываем подсветку графа перед запуском (только цвета, не структуру)
             self._reset_graph_visualization()
             
             self._log(f"🚀 Алгоритм загружен. Начальный узел: {start_node}")
-            return True  # Возвращаем True для разрешения запуска
+            return True
             
         else:
             # Оригинальная логика для других категорий
@@ -2592,9 +2629,10 @@ class MainWindow(QMainWindow):
                         self._log(f"🕸️ {direction_text} граф построен ({len(graph_data)} узлов, {self.graph_layout} компоновка)")
                         self._log("ℹ️ Выберите алгоритм в правой панели для выполнения")
                     
-                    # ОБНОВЛЯЕМ поле начального узла
-                    if arr:
+                    # ОБНОВЛЯЕМ поле начального узла ТОЛЬКО ЕСЛИ ОНО ПУСТОЕ
+                    if arr and (not hasattr(self, 'graph_start_input') or not self.graph_start_input.text().strip()):
                         self.graph_start_input.setText(str(arr[0]))
+                        
                 else:
                     if not skip_log:
                         self._log("❌ Ошибка при построении графа")
@@ -2671,21 +2709,53 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Ошибка", "Сначала постройте граф")
                 return
             
-            # Устанавливаем начальный узел
+            # Устанавливаем начальный узел ИЗ ПОЛЯ ВВОДА
             start_node_text = self.graph_start_input.text().strip()
-            if start_node_text:
-                try:
-                    start_node = int(start_node_text)
-                    if start_node not in self.graph_data:
-                        self._log(f"❌ Узел {start_node} не найден в графе")
-                        return
-                    self.start_node_value = start_node
-                except ValueError:
-                    QMessageBox.warning(self, "Ошибка", "Введите корректный номер узла")
+            if not start_node_text:
+                self._log("❌ Введите начальный узел")
+                QMessageBox.warning(self, "Ошибка", "Введите начальный узел в поле 'Начальный узел'")
+                return
+            
+            try:
+                start_node = int(start_node_text)
+                if start_node not in self.graph_data:
+                    self._log(f"❌ Узел {start_node} не найден в графе")
+                    QMessageBox.warning(self, "Ошибка", f"Узел {start_node} не найден в графе")
                     return
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Введите корректный номер узла")
+                return
+            
+            # Сбрасываем текущий алгоритм ПЕРЕД запуском нового
+            self.engine.pause()
+            self.engine.generator = None
+            self.current_algorithm = None
+            self.is_auto_mode = False
+            self.algorithm_completed = False
             
             # Сбрасываем подсветку перед запуском
             self._reset_graph_visualization()
+            
+            # Определяем, какой алгоритм был выбран в правой панели
+            algorithm_text = ""
+            if hasattr(self, 'graph_algo_combo') and self.graph_algo_combo:
+                algorithm_text = self.graph_algo_combo.currentText()
+            
+            # ИСПРАВЛЕНИЕ: Используем СУЩЕСТВУЮЩИЙ graph_data с указанным стартовым узлом
+            if "BFS" in algorithm_text:
+                self.current_algorithm = GraphBFS(self.graph_data, start_node)
+            elif "DFS" in algorithm_text:
+                self.current_algorithm = GraphDFS(self.graph_data, start_node)
+            elif "Dijkstra" in algorithm_text:
+                self.current_algorithm = Dijkstra(self.graph_data, start_node)
+            else:
+                # По умолчанию используем BFS
+                self.current_algorithm = GraphBFS(self.graph_data, start_node)
+            
+            # Загружаем алгоритм в движок
+            self.engine.load_algorithm(self.current_algorithm)
+            
+            self._log(f"🚀 Алгоритм загружен. Начальный узел: {start_node}")
             
             # Запускаем алгоритм через стандартный механизм
             if self._start_algorithm():
@@ -2702,97 +2772,44 @@ class MainWindow(QMainWindow):
         """Сбрасывает визуализацию графа перед новым алгоритмом."""
         try:
             if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                # ТОЛЬКО сбрасываем стили, НЕ перестраиваем граф
                 self.graph_visualizer.reset_highlights()
-                self._log("♻ Подсветка графа сброшена")
+                
+                # Сбрасываем стили всех узлов
+                for node_item in self.graph_visualizer.nodes.values():
+                    if hasattr(node_item, 'reset_style'):
+                        node_item.reset_style()
+                    else:
+                        # Если нет reset_style, просто сбрасываем цвет
+                        node_item.setBrush(QBrush(QColor("#FFFFFF")))
+                        node_item.setPen(QPen(QColor("#000000"), 1))
+                
+                # Сбрасываем стили всех ребер
+                for edge_item in self.graph_visualizer.edges.values():
+                    if hasattr(edge_item, 'reset_style'):
+                        edge_item.reset_style()
+                    else:
+                        # Если нет reset_style, просто сбрасываем цвет
+                        edge_item.setPen(QPen(QColor("#000000"), 1))
+                
+                # Очищаем все временные метки (веса, расстояния)
+                for item in list(self.scene.items()):
+                    if isinstance(item, QGraphicsTextItem) and "distance" in item.toPlainText().lower():
+                        self.scene.removeItem(item)
+                
+                self._log("♻ Подсветка графа сброшена. Граф готов для нового алгоритма.")
+            else:
+                self._log("ℹ️ Граф еще не построен")
         except Exception as e:
-            print(f"Error resetting graph visualization: {e}")
-    def _run_bfs(self, start_node):
-        """Запускает BFS на графе."""
-        try:
-            
-            # Создаем алгоритм BFS
-            self.current_algorithm = GraphBFS(self.graph_data, start_node)
-            
-            # Загружаем в движок
-            self.engine.load_algorithm(self.current_algorithm)
-            
-            # Запускаем автоматический режим
-            self._start_auto_mode()
-            
-            self._log(f"🚀 BFS запущен с начального узла {start_node}")
-            
-        except Exception as e:
-            self._log(f"❌ Ошибка при запуске BFS: {str(e)}")
+            self._log(f"❌ Ошибка при сбросе визуализации графа: {str(e)}")
 
-    def _run_dfs(self, start_node):
-        """Запускает DFS на графе."""
-        try:
-            
-            # Создаем алгоритм DFS
-            self.current_algorithm = GraphDFS(self.graph_data, start_node)
-            
-            # Загружаем в движок
-            self.engine.load_algorithm(self.current_algorithm)
-            
-            # Запускаем автоматический режим
-            self._start_auto_mode()
-            
-            self._log(f"🚀 DFS запущен с начального узла {start_node}")
-            
-        except Exception as e:
-            self._log(f"❌ Ошибка при запуске DFS: {str(e)}")
-
-    def _run_dijkstra(self, start_node):
-        """Запускает алгоритм Дейкстры на графе."""
-        try:
-            
-            # Создаем алгоритм Дейкстры
-            self.current_algorithm = Dijkstra(self.graph_data, start_node)
-            
-            # Загружаем в движок
-            self.engine.load_algorithm(self.current_algorithm)
-            
-            # Запускаем автоматический режим
-            self._start_auto_mode()
-            
-            self._log(f"🚀 Алгоритм Дейкстры запущен с начального узла {start_node}")
-            
-        except Exception as e:
-            self._log(f"❌ Ошибка при запуске алгоритма Дейкстры: {str(e)}")
-
-    def _run_kruskal(self):
-        """Запускает алгоритм Крускала на графе."""
-        try:
-            # Проверяем, что граф неориентированный
-            if self.graph_directed:
-                self._log("❌ Алгоритм Крускала работает только с неориентированными графами")
-                QMessageBox.warning(self, "Ошибка", "Алгоритм Крускала работает только с неориентированными графами")
-                return
-            
-            # Создаем алгоритм Крускала
-            self.current_algorithm = GraphKruskal(self.graph_data)
-            
-            # Загружаем в движок
-            self.engine.load_algorithm(self.current_algorithm)
-            
-            # Сбрасываем подсветку графа перед запуском
-            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
-                self.graph_visualizer.reset_highlights()
-            
-            # Запускаем автоматический режим
-            self._start_auto_mode()
-            
-            self._log(f"🚀 Алгоритм Крускала запущен")
-            
-        except Exception as e:
-            self._log(f"❌ Ошибка при запуске алгоритма Крускала: {str(e)}")
 
     def _reset_graph_algorithm(self):
-        """Сбрасывает текущий алгоритм графа."""
+        """Сбрасывает текущий алгоритм графа, но сохраняет граф."""
         try:
             self.engine.pause()
             self.engine.generator = None
-            self.current_algorithm = None
+            self.current_algorithm = None  # Сбрасываем только алгоритм
             self.is_auto_mode = False
             self.algorithm_completed = False
             
@@ -2805,10 +2822,18 @@ class MainWindow(QMainWindow):
             self.pause_btn.hide()
             self.start_btn.setEnabled(True)
             
-            # Перестраиваем граф
-            if self.graph_data:
-                self._build_graph(skip_log=True)
-                self._log("♻ Алгоритм графа сброшен. Граф восстановлен.")
+            # ВАЖНО: НЕ перестраиваем граф, только сбрасываем стили
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                # Сбрасываем стили узлов и ребер
+                for node_item in self.graph_visualizer.nodes.values():
+                    if hasattr(node_item, 'reset_style'):
+                        node_item.reset_style()
+                
+                for edge_item in self.graph_visualizer.edges.values():
+                    if hasattr(edge_item, 'reset_style'):
+                        edge_item.reset_style()
+                
+                self._log("♻ Алгоритм графа сброшен. Граф готов для нового алгоритма.")
             else:
                 self._log("♻ Алгоритм графа сброшен.")
                 
@@ -3208,10 +3233,10 @@ class MainWindow(QMainWindow):
             is_heap = isinstance(self.current_algorithm, BinaryHeap) if self.current_algorithm else False
             
             # Отладочная информация
-            if is_heap:
-                self._log(f"📊 Получены данные кучи. Корень: {tree_data.get('value', 'N/A')}")
-            else:
-                self._log(f"📊 Получены данные дерева: {tree_data}")
+            #if is_heap:
+                #self._log(f"📊 Получены данные кучи. Корень: {tree_data.get('value', 'N/A')}")
+            #else:
+                #elf._log(f"📊 Получены данные дерева: {tree_data}")
             
             # Используем визуализатор
             if is_heap:
@@ -3356,9 +3381,10 @@ class MainWindow(QMainWindow):
             if tree_data:
                 self._last_tree_data = tree_data
                 self._log(action.get("description", "Вставка узла в дерево"))
+                # ВАЖНО: Добавить отрисовку дерева!
+                self._render_tree(tree_data)
             
             self._schedule_next_action(int(600 * speed_factor))
-        
         elif t == "traversal":
             node_sequence = action.get("nodes", [])
             if self._last_tree_data:
@@ -3369,6 +3395,13 @@ class MainWindow(QMainWindow):
             self._schedule_next_action(int(len(node_sequence) * 500 * speed_factor))
         
         elif t == "graph_init":
+            success = self.graph_visualizer.process_action(action)
+            if success:
+                graph_info = self.graph_visualizer.get_graph_info()
+                action["graph_info"] = graph_info
+                self._log(f"🕸️ Инициализирован граф для {action.get('algorithm', 'алгоритма')}")
+            else:
+                self._log("❌ Ошибка при создании графа")
             self._schedule_next_action(int(800 * speed_factor))
             
         elif t == "visit":
@@ -3416,35 +3449,6 @@ class MainWindow(QMainWindow):
                     self._log(f"📊 Обновлено расстояние до узла {node_index}: {old_distance} → {new_distance}")
             self._schedule_next_action(int(600 * speed_factor))
             
-        elif t == "accept_edge":
-            u = action.get('u')
-            v = action.get('v')
-            weight = action.get('weight')
-            
-            # Подсвечиваем принятое ребро (MST)
-            if hasattr(self, 'graph_visualizer'):
-                edge_key = self.graph_visualizer._get_edge_key(u, v)
-                edge_item = self.graph_visualizer.edges.get(edge_key)
-                if edge_item:
-                    edge_item.highlight(self.color_palette["graph_mst"])
-            
-            self._log(action.get("description", f"Ребро {u}-{v} добавлено в MST"))
-            self._schedule_next_action(int(600 * speed_factor))
-            
-        elif t == "reject_edge":
-            u = action.get('u')
-            v = action.get('v')
-            weight = action.get('weight')
-            
-            # Подсвечиваем отвергнутое ребро
-            if hasattr(self, 'graph_visualizer'):
-                edge_key = self.graph_visualizer._get_edge_key(u, v)
-                edge_item = self.graph_visualizer.edges.get(edge_key)
-                if edge_item:
-                    edge_item.highlight(self.color_palette["graph_rejected"])
-            
-            self._log(action.get("description", f"Ребро {u}-{v} отвергнуто (образует цикл)"))
-            self._schedule_next_action(int(400 * speed_factor))   
         # === ОБРАБОТЧИКИ ДЛЯ MERGESORT ===
         elif t == "split":
             left = action.get("left", 0)
@@ -4041,48 +4045,14 @@ class MainWindow(QMainWindow):
             
             self._schedule_next_action(int(700 * speed_factor))
             
-        elif t == "complete" and self.container_visualizer:
-            self.container_visualizer.process_action(action)
-            self._log("✅ Все операции с контейнером выполнены")
-            self.is_animating = False
-            self.algorithm_completed = True
-            
-            if self.is_auto_mode:
-                self._pause_auto_mode()
-            
-            self.inspector.update_info(action)
-            return
         elif t == "complete":
-            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
-                success = self.graph_visualizer.process_action(action)
-                if success:
-                    if "mst_weight" in action:
-                        self._log(f"✅ Алгоритм Крускала завершен. Вес MST: {action['mst_weight']}")
-                    else:
-                        self._log("✅ Алгоритм успешно завершён!")
-            else:
-                # При завершении помечаем все элементы как отсортированные
-                all_indices = list(range(len(self.visual_items)))
-                self._mark_as_sorted(all_indices)
-                
-                # Запускаем финальную анимацию
-                self._animate_completion()
-                self._log("✅ Алгоритм успешно завершён!")
+            # 1. Обработка контейнеров
+            if self.container_visualizer:
+                self.container_visualizer.process_action(action)
+                self._log("✅ Все операции с контейнером выполнены")
             
-            # Скрываем виджет временных массивов
-            self.temp_arrays_widget.hide()
-            self.temp_arrays_widget.clear()
-            
-            self.is_animating = False
-            self.algorithm_completed = True
-            
-            if self.is_auto_mode:
-                self._pause_auto_mode()
-            
-            self.inspector.update_info(action)
-            return    
-        elif t == "complete":
-            if self.algorithm_combo.currentText() == "HashTable":
+            # 2. Обработка хэш-таблиц
+            elif self.algorithm_combo.currentText() == "HashTable":
                 # Сохраняем статистику
                 self.hashtable_stats = {
                     "table": action.get("table", []),
@@ -4112,14 +4082,19 @@ class MainWindow(QMainWindow):
                 
                 # Завершаем анимацию
                 self._schedule_next_action(100)
-                
+            
+            # 3. Обработка деревьев
             elif self._last_tree_data:
                 self._render_tree(self._last_tree_data)
                 self._log("🌳 Построение дерева завершено")
+            
+            # 4. Обработка графов
             elif hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
                 success = self.graph_visualizer.process_action(action)
                 if success:
                     self._log("✅ Алгоритм успешно завершён!")
+            
+            # 5. Обработка массивов (сортировки)
             else:
                 # При завершении помечаем все элементы как отсортированные
                 all_indices = list(range(len(self.visual_items)))
@@ -4129,7 +4104,7 @@ class MainWindow(QMainWindow):
                 self._animate_completion()
                 self._log("✅ Алгоритм успешно завершён!")
             
-            # Скрываем виджет временных массивов
+            # Скрываем виджет временных массивов (для всех алгоритмов)
             self.temp_arrays_widget.hide()
             self.temp_arrays_widget.clear()
             
@@ -4141,10 +4116,6 @@ class MainWindow(QMainWindow):
             
             self.inspector.update_info(action)
             return
-            
-        # Обновление инспектора с расширенной информацией
-        self.inspector.update_info(action)
-
     def _draw_split_line(self, mid, left, right):
         """Рисует линию разделения между подмассивами."""
         try:
@@ -4980,30 +4951,27 @@ class MainWindow(QMainWindow):
                         result_str = "\n".join(f"Узел: {keys}" for keys in result)
                     
                     self._log(f"📊 {traversal_name}:\n{result_str}")
-                    
-                    # Визуализируем обход
                     tree_data = tree._get_tree_structure_list()
                     if tree_data:
                         self._update_btree_visualization(tree_data, animate=False)
-                        
-                        # Для BFS показываем обход по уровням
-                        if traversal_type == "bfs":
-                            self._highlight_btree_traversal(result)
-                        else:
-                            # Для других обходов - просто показываем дерево
-                            self._log(f"🌳 B-дерево отображено для обхода {traversal_name}")
+                    # Для B-дерева просто подсвечиваем узлы без перестройки
+                    if traversal_type == "bfs":
+                        self._highlight_btree_traversal(result)
+                    else:
+                        # Просто показываем результат в логе
+                        self._log(f"🌳 B-дерево: {traversal_name} выполнен")
                 else:
                     # Для обычных деревьев
                     result_str = " → ".join(map(str, result))
                     self._log(f"📊 {traversal_name}: {result_str}")
                     
-                    # Визуализируем обход
-                    if hasattr(tree, '_get_tree_structure'):
-                        tree_data = tree._get_tree_structure(tree.root)
-                        if tree_data:
-                            self._render_tree(tree_data)
-                            # Подсвечиваем узлы в порядке обхода
-                            self._highlight_traversal(result)
+                    # ЗАМЕНА: Не перестраиваем дерево, а просто подсвечиваем узлы
+                    if hasattr(self, 'tree_visualizer'):
+                        # Сбрасываем цвета всех узлов
+                        self.tree_visualizer.reset_styles()
+                        
+                        # Подсвечиваем узлы в порядке обхода с анимацией
+                        self._animate_traversal_highlight(result, traversal_name)
             else:
                 self._log("📊 Дерево пустое")
                 
@@ -5011,6 +4979,42 @@ class MainWindow(QMainWindow):
             self._log(f"❌ Ошибка при обходе: {str(e)}")
             import traceback
             traceback.print_exc()
+
+    def _animate_traversal_highlight(self, nodes, traversal_name):
+        """Анимированное подсвечивание узлов обхода."""
+        if not nodes or not hasattr(self, 'tree_visualizer'):
+            return
+        
+        # Цвета для подсветки
+        highlight_color = QColor("#FFD700")  # Золотой для текущего
+        
+        # Сбрасываем все подсветки
+        self.tree_visualizer.reset_styles()
+        
+        # Последовательно подсвечиваем каждый узел
+        for i, node_value in enumerate(nodes):
+            delay = i * 500  # 500ms между узлами
+            
+            # Запланировать подсветку этого узла
+            QTimer.singleShot(delay, lambda val=node_value, idx=i: 
+                            self._highlight_traversal_node(val, idx, highlight_color, len(nodes)))
+        
+        # Последний узел подсвечиваем дольше
+        last_delay = len(nodes) * 500
+        QTimer.singleShot(last_delay + 1000, self.tree_visualizer.reset_styles)
+
+    def _highlight_traversal_node(self, node_value, index, color, total_nodes):
+        """Подсвечивает один узел обхода."""
+        try:
+            if hasattr(self, 'tree_visualizer'):
+                # Подсвечиваем узел
+                self.tree_visualizer.highlight_node_by_value(node_value, color)
+                
+                # Обновляем лог для текущего узла
+                progress = f"({index + 1}/{total_nodes})"
+                self._log(f"📍 {progress} Узел: {node_value}")
+        except Exception as e:
+            print(f"Error highlighting node: {e}")
     
     def _bfs_btree_improved(self, btree):
         """Улучшенный BFS для B-дерева."""

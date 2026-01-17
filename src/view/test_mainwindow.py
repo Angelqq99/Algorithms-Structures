@@ -1,3 +1,882 @@
+import faulthandler
+faulthandler.enable()
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
+    QComboBox, QPushButton, QLineEdit, QLabel, QSlider, QTextEdit,
+    QFrame, QSizePolicy, QSpacerItem, QGraphicsView, QGraphicsScene,
+    QProgressBar, QMessageBox, QCheckBox, QGraphicsLineItem, QGraphicsTextItem,
+    QGraphicsObject, QGraphicsRectItem,
+    QGridLayout, QGroupBox, QScrollArea, QDialog, QTableWidget, QTableWidgetItem,
+    QHeaderView, QAbstractItemView, QApplication,QButtonGroup,QRadioButton
+)
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty, QRectF, pyqtSignal, QEasingCurve, QObject, QPointF
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QClipboard
+from controller.engine import Engine
+from model.sorting.quicksort import QuickSort
+from model.sorting.mergesort import MergeSort
+from model.sorting.bubblesort import BubbleSort
+from model.sorting.insertionsort import InsertionSort
+from model.sorting.selectionsort import SelectionSort
+from model.sorting.shellsort import ShellSort
+from model.trees.bst import BST
+from model.trees.avl import AVLTree
+from model.trees.red_black_tree import RedBlackTree
+from model.trees.splay_tree import SplayTree
+from model.trees.treap import Treap
+from model.trees.b_tree import BTree
+from model.trees.heap import BinaryHeap
+from model.graphs.bfs import GraphBFS
+from model.graphs.dfs import GraphDFS
+from model.graphs.dijkstra import Dijkstra
+from model.hashtable.hashtable import HashTable
+
+from view.tree_visualizer import TreeVisualizer
+from view.graph_visualizer import GraphVisualizer
+from view.tree_layout import CenteredTreeLayout, CompactTreeLayout
+from view.scene_items import ArrayCircleItem, ZoomableGraphicsView, TreeNodeItem, BTreeNodeItem, TreeConnectionItem
+from view.inspector import Inspector
+
+from model.containers.stack import Stack
+from model.containers.queue import Queue
+from model.containers.deque import Deque
+from view.container_visualizer import ContainerVisualizer
+
+import random
+import json
+import math
+from datetime import datetime
+import re
+
+
+class TempArraysWidget(QFrame):
+    """Виджет для отображения временных массивов MergeSort."""
+    def __init__(self):
+        super().__init__()
+        self.setMinimumHeight(220)
+        self.setMaximumHeight(350)
+        
+        # Состояние
+        self.left_array = []
+        self.right_array = []
+        
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(12, 12, 12, 12)
+        self.layout.setSpacing(8)
+        
+        # Заголовок
+        title = QLabel("📊 ВРЕМЕННЫЕ МАССИВЫ MERGESORT")
+        title.setStyleSheet("""
+            font-weight: bold; 
+            color: #2c3e50; 
+            font-size: 14px;
+            qproperty-alignment: AlignCenter;
+        """)
+        self.layout.addWidget(title)
+        
+        # Разделитель
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #e0e0e0; margin: 5px 0;")
+        separator.setFixedHeight(1)
+        self.layout.addWidget(separator)
+        
+        # Основной контейнер для массивов
+        arrays_container = QWidget()
+        arrays_layout = QHBoxLayout(arrays_container)
+        arrays_layout.setSpacing(30)
+        arrays_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # === ЛЕВЫЙ МАССИВ ===
+        left_widget = QWidget()
+        left_widget.setFixedWidth(200)
+        
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(5)
+        
+        # Заголовок левого массива
+        left_title = QLabel("ЛЕВЫЙ МАССИВ (L)")
+        left_title.setStyleSheet("""
+            font-weight: bold; 
+            color: #4ECDC4; 
+            font-size: 13px;
+            qproperty-alignment: AlignCenter;
+            padding-bottom: 5px;
+        """)
+        left_layout.addWidget(left_title)
+        
+        # Контейнер для элементов левого массива
+        self.left_scroll_area = QScrollArea()
+        self.left_scroll_area.setWidgetResizable(True)
+        self.left_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.left_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.left_scroll_area.setFixedHeight(120)
+        self.left_scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+            }
+        """)
+        
+        self.left_elements_widget = QWidget()
+        self.left_elements_layout = QHBoxLayout(self.left_elements_widget)
+        self.left_elements_layout.setSpacing(10)
+        self.left_elements_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.left_elements_layout.setContentsMargins(10, 10, 10, 10)
+        
+        self.left_scroll_area.setWidget(self.left_elements_widget)
+        left_layout.addWidget(self.left_scroll_area)
+        
+        # Счетчик элементов слева
+        self.left_count_label = QLabel("Элементов: 0")
+        self.left_count_label.setStyleSheet("""
+            color: #4ECDC4; 
+            font-size: 11px;
+            qproperty-alignment: AlignCenter;
+        """)
+        left_layout.addWidget(self.left_count_label)
+        
+        arrays_layout.addWidget(left_widget)
+        
+        # === РАЗДЕЛИТЕЛЬ ===
+        vertical_separator = QFrame()
+        vertical_separator.setFrameShape(QFrame.Shape.VLine)
+        vertical_separator.setStyleSheet("background-color: #e0e0e0;")
+        vertical_separator.setFixedWidth(1)
+        arrays_layout.addWidget(vertical_separator)
+        
+        # === ПРАВЫЙ МАССИВ ===
+        right_widget = QWidget()
+        right_widget.setFixedWidth(200)
+        
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(5)
+        
+        # Заголовок правого массива
+        right_title = QLabel("ПРАВЫЙ МАССИВ (R)")
+        right_title.setStyleSheet("""
+            font-weight: bold; 
+            color: #FF6B6B; 
+            font-size: 13px;
+            qproperty-alignment: AlignCenter;
+            padding-bottom: 5px;
+        """)
+        right_layout.addWidget(right_title)
+        
+        # Контейнер для элементов правого массива
+        self.right_scroll_area = QScrollArea()
+        self.right_scroll_area.setWidgetResizable(True)
+        self.right_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.right_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.right_scroll_area.setFixedHeight(120)
+        self.right_scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+            }
+        """)
+        
+        self.right_elements_widget = QWidget()
+        self.right_elements_layout = QHBoxLayout(self.right_elements_widget)
+        self.right_elements_layout.setSpacing(10)
+        self.right_elements_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.right_elements_layout.setContentsMargins(10, 10, 10, 10)
+        
+        self.right_scroll_area.setWidget(self.right_elements_widget)
+        right_layout.addWidget(self.right_scroll_area)
+        
+        # Счетчик элементов справа
+        self.right_count_label = QLabel("Элементов: 0")
+        self.right_count_label.setStyleSheet("""
+            color: #FF6B6B; 
+            font-size: 11px;
+            qproperty-alignment: AlignCenter;
+        """)
+        right_layout.addWidget(self.right_count_label)
+        
+        arrays_layout.addWidget(right_widget)
+        
+        self.layout.addWidget(arrays_container)
+        
+        # === ИНФОРМАЦИОННАЯ ПАНЕЛЬ ===
+        info_container = QWidget()
+        info_layout = QVBoxLayout(info_container)
+        info_layout.setContentsMargins(0, 10, 0, 0)
+        info_layout.setSpacing(3)
+        
+        # Основная информация
+        self.info_label = QLabel("Ожидание слияния...")
+        self.info_label.setStyleSheet("""
+            color: #2c3e50; 
+            font-size: 12px;
+            font-weight: bold;
+            qproperty-alignment: AlignCenter;
+        """)
+        info_layout.addWidget(self.info_label)
+        
+        # Дополнительная информация
+        self.detail_label = QLabel("")
+        self.detail_label.setStyleSheet("""
+            color: #666; 
+            font-size: 10px;
+            qproperty-alignment: AlignCenter;
+        """)
+        info_layout.addWidget(self.detail_label)
+        
+        self.layout.addWidget(info_container)
+        
+        # Инициализируем пустое состояние
+        self._clear_arrays()
+    
+    def update_arrays(self, left_array, right_array):
+        """Обновляет отображение временных массивов."""
+        # Сохраняем массивы
+        self.left_array = left_array if left_array is not None else []
+        self.right_array = right_array if right_array is not None else []
+        
+        # Очищаем контейнеры
+        self._clear_layout(self.left_elements_layout)
+        self._clear_layout(self.right_elements_layout)
+        
+        # Обновляем счетчики
+        self.left_count_label.setText(f"Элементов: {len(self.left_array)}")
+        self.right_count_label.setText(f"Элементов: {len(self.right_array)}")
+        
+        # Отображаем левый массив
+        if self.left_array and len(self.left_array) > 0:
+            for i, value in enumerate(self.left_array):
+                element_widget = self._create_element_widget(value, "#4ECDC4", i)
+                self.left_elements_layout.addWidget(element_widget)
+        else:
+            empty_label = QLabel("(нет элементов)")
+            empty_label.setStyleSheet("color: #aaa; font-style: italic; font-size: 12px;")
+            empty_label.setFixedHeight(80)
+            self.left_elements_layout.addWidget(empty_label)
+        
+        # Отображаем правый массив
+        if self.right_array and len(self.right_array) > 0:
+            for i, value in enumerate(self.right_array):
+                element_widget = self._create_element_widget(value, "#FF6B6B", i)
+                self.right_elements_layout.addWidget(element_widget)
+        else:
+            empty_label = QLabel("(нет элементов)")
+            empty_label.setStyleSheet("color: #aaa; font-style: italic; font-size: 12px;")
+            empty_label.setFixedHeight(80)
+            self.right_elements_layout.addWidget(empty_label)
+        
+        # Обновляем информационные метки
+        self._update_info_labels()
+        
+        # Принудительное обновление layout
+        self.left_elements_widget.adjustSize()
+        self.right_elements_widget.adjustSize()
+        
+        # Прокрутка к началу
+        self.left_scroll_area.horizontalScrollBar().setValue(0)
+        self.right_scroll_area.horizontalScrollBar().setValue(0)
+    
+    def _create_element_widget(self, value, color, index):
+        """Создает виджет для отображения элемента массива."""
+        container = QWidget()
+        container.setFixedSize(60, 80)
+        
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(3)
+        
+        # Индекс элемента
+        index_label = QLabel(f"[{index}]")
+        index_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        index_label.setFixedHeight(15)
+        index_label.setStyleSheet(f"""
+            QLabel {{
+                color: {color};
+                font-size: 9px;
+                font-weight: normal;
+                background: transparent;
+                border: none;
+                margin: 0;
+                padding: 0;
+            }}
+        """)
+        layout.addWidget(index_label)
+        
+        # Круг с значением
+        circle_label = QLabel(str(value))
+        circle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        circle_label.setFixedSize(45, 45)
+        circle_label.setStyleSheet(f"""
+            QLabel {{
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                background-color: {color};
+                border-radius: 22px;
+                border: 2px solid {self._darken_color(color)};
+                qproperty-alignment: AlignCenter;
+                margin: 0;
+                padding: 0;
+            }}
+        """)
+        layout.addWidget(circle_label, 0, Qt.AlignmentFlag.AlignHCenter)
+        
+        # Значение под кругом
+        value_label = QLabel(str(value))
+        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        value_label.setFixedHeight(15)
+        value_label.setStyleSheet(f"""
+            QLabel {{
+                color: {color};
+                font-size: 11px;
+                font-weight: bold;
+                background: transparent;
+                border: none;
+                margin: 0;
+                padding: 0;
+            }}
+        """)
+        layout.addWidget(value_label)
+        
+        return container
+    
+    def _darken_color(self, color_hex):
+        """Затемняет цвет для границы."""
+        if color_hex == "#4ECDC4":
+            return "#2E8B57"
+        elif color_hex == "#FF6B6B":
+            return "#C0392B"
+        else:
+            return "#333333"
+    
+    def _update_info_labels(self):
+        """Обновляет информационные метки."""
+        left_count = len(self.left_array)
+        right_count = len(self.right_array)
+        total = left_count + right_count
+        
+        if total == 0:
+            self.info_label.setText("Ожидание слияния...")
+            self.detail_label.setText("")
+        else:
+            self.info_label.setText(f"Слияние {left_count} + {right_count} элементов")
+            if left_count > 0 and right_count > 0:
+                self.detail_label.setText(f"Сравниваются элементы из обоих массивов")
+            elif left_count > 0:
+                self.detail_label.setText(f"Используются только элементы левого массива")
+            else:
+                self.detail_label.setText(f"Используются только элементы правого массива")
+    
+    def _clear_layout(self, layout):
+        """Очищает layout от всех виджетов."""
+        if layout:
+            for i in reversed(range(layout.count())):
+                item = layout.takeAt(i)
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
+                else:
+                    if item.layout():
+                        self._clear_layout(item.layout())
+    
+    def _clear_arrays(self):
+        """Очищает массивы и отображение."""
+        self.left_array = []
+        self.right_array = []
+        
+        self._clear_layout(self.left_elements_layout)
+        self._clear_layout(self.right_elements_layout)
+        
+        # Добавляем заглушки
+        left_empty = QLabel("(нет элементов)")
+        left_empty.setStyleSheet("color: #ccc; font-style: italic; font-size: 12px;")
+        left_empty.setFixedHeight(80)
+        self.left_elements_layout.addWidget(left_empty)
+        
+        right_empty = QLabel("(нет элементов)")
+        right_empty.setStyleSheet("color: #ccc; font-style: italic; font-size: 12px;")
+        right_empty.setFixedHeight(80)
+        self.right_elements_layout.addWidget(right_empty)
+        
+        # Обновляем метки
+        self.left_count_label.setText("Элементов: 0")
+        self.right_count_label.setText("Элементов: 0")
+        self._update_info_labels()
+    
+    def clear(self):
+        """Очищает виджет."""
+        self._clear_arrays()
+
+
+class HashTableCell(QGraphicsObject):
+    """
+    Полная ячейка хэш-таблицы с индексом и значением.
+    Все элементы создаются как дочерние для обеспечения целостности позиции.
+    """
+    def __init__(self, x, y, width, height, index, value=None, chain_length=0, is_probing=False, full_chain=None):
+        super().__init__()
+        # Основные параметры ячейки
+        self._rect = QRectF(0, 0, width, height)
+        self.setPos(x, y)
+        
+        self.index = index
+        self.value = value
+        self.chain_length = chain_length
+        self.is_probing = is_probing
+        self.is_collision = False
+        self.is_occupied = value is not None
+        
+        # Для хранения полной цепочки (для метода цепочек)
+        self.full_chain = full_chain if full_chain is not None else []
+        
+        # Размеры внутренних областей
+        self.index_width = 100
+        self.value_width = width - self.index_width
+        
+        # Внутренние элементы
+        self.index_rect = None
+        self.index_text = None
+        self.value_rect = None
+        self.value_text = None
+        self.chain_text = None
+        
+        # Цвета
+        self.default_color = QColor("#ffffff")
+        self.occupied_color = QColor("#e8f4fd")
+        self.collision_color = QColor("#ffebee")
+        self.probing_color = QColor("#fff3e0")
+        self.chain_color = QColor("#e0f2f1")
+        
+        # Создаем все дочерние элементы
+        self._create_subitems()
+        self.setAcceptHoverEvents(True)
+        self.setZValue(1)
+        
+        # Инициализируем состояние
+        self._update_appearance()
+
+    def boundingRect(self):
+        """Возвращает ограничивающий прямоугольник всей ячейки."""
+        return self._rect
+    
+    def paint(self, painter, option, widget):
+        """Отрисовка (пустая, так как все элементы рисуются как дочерние)."""
+        pass
+    
+    def _create_subitems(self):
+        """Создает все дочерние графические элементы."""
+        # 1. ОБЛАСТЬ ИНДЕКСА (левая часть)
+        self.index_rect = QGraphicsRectItem(0, 0, self.index_width, self._rect.height(), self)
+        bg_color = QColor("#ecf0f1") if self.index % 2 == 0 else QColor("#bdc3c7")
+        self.index_rect.setBrush(QBrush(bg_color))
+        self.index_rect.setPen(QPen(QColor("#7f8c8d"), 1))
+        
+        # Текст индекса
+        self.index_text = QGraphicsTextItem(str(self.index), self)
+        self.index_text.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        self.index_text.setDefaultTextColor(QColor("#2c3e50"))
+        # Центрирование текста индекса
+        text_width = self.index_text.boundingRect().width()
+        text_x = (self.index_width - text_width) / 2
+        self.index_text.setPos(text_x, 12)
+        
+        # 2. ОБЛАСТЬ ЗНАЧЕНИЯ (правая часть)
+        self.value_rect = QGraphicsRectItem(self.index_width, 0, self.value_width, self._rect.height(), self)
+        self.value_rect.setPen(QPen(QColor("#7f8c8d"), 1))
+        
+        # Текст значения
+        self.value_text = QGraphicsTextItem("", self)
+        self.value_text.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        self.value_text.setDefaultTextColor(QColor("#2c3e50"))
+        
+        # Текст для отображения длины цепочки
+        self.chain_text = QGraphicsTextItem("", self)
+        self.chain_text.setFont(QFont("Arial", 10))
+        self.chain_text.setDefaultTextColor(QColor("#e74c3c"))
+    
+    def _update_appearance(self):
+        """Обновляет внешний вид всех элементов ячейки."""
+        # Обновляем цвет области значения
+        current_brush_color = self.default_color
+        border_color = QColor("#7f8c8d")
+        border_width = 1
+        
+        if self.is_probing:
+            current_brush_color = self.probing_color
+            border_color = QColor("#e67e22")
+            border_width = 2
+        elif self.is_collision:
+            current_brush_color = self.collision_color
+            border_color = QColor("#c0392b")
+            border_width = 2
+        elif self.chain_length > 1:
+            current_brush_color = self.chain_color
+            border_color = QColor("#16a085")
+        elif self.is_occupied:
+            current_brush_color = self.occupied_color
+            border_color = QColor("#2980b9")
+        
+        self.value_rect.setBrush(QBrush(current_brush_color))
+        pen = QPen(border_color, border_width)
+        self.value_rect.setPen(pen)
+        
+        # Обновляем текст значения
+        if self.value is not None:
+            self.value_text.setPlainText(str(self.value))
+            # Центрируем текст значения
+            text_width = self.value_text.boundingRect().width()
+            text_x = self.index_width + (self.value_width - text_width) / 2
+            self.value_text.setPos(text_x, 12)
+        else:
+            self.value_text.setPlainText("")
+        
+        # Обновляем текст цепочки
+        if self.chain_length > 1:
+            self.chain_text.setPlainText(f"+{self.chain_length-1} в списке")
+            chain_x = self.index_width + self.value_width - 60
+            self.chain_text.setPos(chain_x, 35)
+        else:
+            self.chain_text.setPlainText("")
+        
+        # Обновляем цвет текста индекса для контраста
+        bg_color = QColor("#ecf0f1") if self.index % 2 == 0 else QColor("#bdc3c7")
+        brightness = bg_color.red() * 0.299 + bg_color.green() * 0.587 + bg_color.blue() * 0.114
+        text_color = QColor("#2c3e50") if brightness > 128 else QColor("#ffffff")
+        self.index_text.setDefaultTextColor(text_color)
+    
+    def set_value(self, value, chain_length=0, full_chain=None):
+        """Устанавливает значение ячейки и обновляет отображение."""
+        self.value = value
+        self.chain_length = chain_length
+        self.is_occupied = value is not None
+        
+        if full_chain is not None:
+            self.full_chain = full_chain
+        elif value is not None and chain_length == 1:
+            # Если одно значение без явной цепочки, создаем цепочку из одного элемента
+            self.full_chain = [value]
+        
+        self._update_appearance()
+    
+    def set_collision(self, is_collision=True):
+        """Устанавливает состояние коллизии."""
+        self.is_collision = is_collision
+        self._update_appearance()
+    
+    def set_probing(self, is_probing=True):
+        """Устанавливает состояние пробирования."""
+        self.is_probing = is_probing
+        self._update_appearance()
+    
+    def hoverEnterEvent(self, event):
+        """Обработка наведения мыши."""
+        try:
+            tooltip = f"Индекс: {self.index}\n"
+            if self.value is not None:
+                tooltip += f"Значение: {self.value}\n"
+                if hasattr(self, 'full_chain') and self.full_chain and len(self.full_chain) > 1:
+                    tooltip += f"Длина цепочки: {len(self.full_chain)}"
+            else:
+                tooltip += "Значение: Пусто"
+            self.setToolTip(tooltip)
+        except Exception as e:
+            print(f"Error in hoverEnterEvent: {e}")
+            self.setToolTip(f"Индекс: {self.index}")
+        
+        super().hoverEnterEvent(event)
+
+
+class ChainsViewerDialog(QDialog):
+    """Диалог для просмотра всех цепочек в хэш-таблице."""
+    
+    def __init__(self, hashtable_data, parent=None):
+        super().__init__(parent)
+        self.hashtable_data = hashtable_data
+        self.setWindowTitle("🔗 Просмотр всех цепочек")
+        self.setMinimumSize(600, 500)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f8f9fa;
+            }
+        """)
+        
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        """Настройка интерфейса диалога."""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        # Заголовок
+        title_label = QLabel("Все цепочки в хэш-таблице")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 18px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 10px;
+                background-color: #e8f4fd;
+                border-radius: 8px;
+                border: 2px solid #5A9BD5;
+            }
+        """)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # Статистика
+        stats = self._calculate_statistics()
+        stats_label = QLabel(
+            f"📊 Статистика:\n"
+            f"• Всего цепочек: {stats['total_chains']}\n"
+            f"• Макс. длина цепочки: {stats['max_chain_length']}\n"
+            f"• Средняя длина: {stats['avg_chain_length']:.2f}\n"
+            f"• Пустых ячеек: {stats['empty_cells']}"
+        )
+        stats_label.setStyleSheet("""
+            QLabel {
+                font-size: 12px;
+                color: #5A9BD5;
+                padding: 10px;
+                background-color: #f0f8ff;
+                border-radius: 5px;
+                border: 1px solid #d0e0ff;
+            }
+        """)
+        layout.addWidget(stats_label)
+        
+        # Таблица цепочек
+        self.table = QTableWidget()
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Индекс", "Длина цепочки", "Элементы"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        
+        # Заполняем таблицу
+        self._populate_table()
+        
+        # Настройка стиля таблицы
+        self.table.setStyleSheet("""
+            QTableWidget {
+                border: 2px solid #d0d0d0;
+                border-radius: 5px;
+                background-color: white;
+                gridline-color: #e0e0e0;
+            }
+            QHeaderView::section {
+                background-color: #5A9BD5;
+                color: white;
+                padding: 8px;
+                font-weight: bold;
+                border: none;
+            }
+            QTableWidget::item {
+                padding: 6px;
+                border-bottom: 1px solid #f0f0f0;
+            }
+            QTableWidget::item:selected {
+                background-color: #e0f0ff;
+                color: #2c3e50;
+            }
+        """)
+        
+        layout.addWidget(self.table)
+        
+        # Кнопки
+        button_layout = QHBoxLayout()
+        
+        # Кнопка копирования
+        copy_btn = QPushButton("📋 Копировать все цепочки")
+        copy_btn.clicked.connect(self._copy_all_chains)
+        copy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4ECDC4;
+                color: white;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #3dbcb3;
+            }
+            QPushButton:pressed {
+                background-color: #2eaba2;
+            }
+        """)
+        
+        # Кнопка закрытия
+        close_btn = QPushButton("✖ Закрыть")
+        close_btn.clicked.connect(self.close)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B6B;
+                color: white;
+                border-radius: 6px;
+                padding: 10px 30px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #e55a5a;
+            }
+            QPushButton:pressed {
+                background-color: #d44a4a;
+            }
+        """)
+        
+        button_layout.addWidget(copy_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        
+    def _calculate_statistics(self):
+        """Вычисляет статистику по цепочкам."""
+        total_chains = 0
+        max_length = 0
+        total_length = 0
+        empty_cells = 0
+        
+        for i, cell_data in enumerate(self.hashtable_data):
+            if isinstance(cell_data, list):
+                if cell_data:  # Не пустой список
+                    length = len(cell_data)
+                    total_chains += 1
+                    total_length += length
+                    if length > max_length:
+                        max_length = length
+                else:
+                    empty_cells += 1
+            else:  # Одиночное значение или None
+                if cell_data is None:
+                    empty_cells += 1
+                else:
+                    total_chains += 1
+                    total_length += 1
+                    if 1 > max_length:
+                        max_length = 1
+        
+        avg_length = total_length / total_chains if total_chains > 0 else 0
+        
+        return {
+            'total_chains': total_chains,
+            'max_chain_length': max_length,
+            'avg_chain_length': avg_length,
+            'empty_cells': empty_cells
+        }
+    
+    def _populate_table(self):
+        """Заполняет таблицу данными о цепочках."""
+        chain_count = 0
+        
+        for i, cell_data in enumerate(self.hashtable_data):
+            chain_items = []
+            
+            if isinstance(cell_data, list):
+                if cell_data:  # Не пустой список
+                    chain_items = cell_data
+                else:
+                    continue  # Пропускаем пустые списки
+            elif cell_data is not None:  # Одиночное значение
+                chain_items = [cell_data]
+            else:
+                continue  # Пропускаем None
+            
+            # Добавляем строку в таблицу
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            
+            # Индекс
+            index_item = QTableWidgetItem(str(i))
+            index_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            index_item.setBackground(QColor("#f0f8ff"))
+            self.table.setItem(row, 0, index_item)
+            
+            # Длина цепочки
+            length_item = QTableWidgetItem(str(len(chain_items)))
+            length_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            # Цвет в зависимости от длины
+            if len(chain_items) == 1:
+                length_item.setBackground(QColor("#e8f4fd"))
+            elif len(chain_items) <= 3:
+                length_item.setBackground(QColor("#fff3e0"))
+            else:
+                length_item.setBackground(QColor("#ffebee"))
+                
+            self.table.setItem(row, 1, length_item)
+            
+            # Элементы цепочки
+            elements_text = ", ".join(str(item) for item in chain_items)
+            elements_item = QTableWidgetItem(elements_text)
+            elements_item.setBackground(QColor("#f9f9f9"))
+            self.table.setItem(row, 2, elements_item)
+            
+            chain_count += 1
+        
+        # Автонастройка ширины столбцов
+        self.table.resizeColumnsToContents()
+        
+        # Если нет цепочек
+        if chain_count == 0:
+            self.table.setRowCount(1)
+            empty_item = QTableWidgetItem("Нет цепочек в таблице")
+            empty_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty_item.setForeground(QColor("#999"))
+            self.table.setItem(0, 0, empty_item)
+            self.table.setSpan(0, 0, 1, 3)
+    
+    def _copy_all_chains(self):
+        """Копирует все цепочки в текстовном формате."""
+        try:
+            text = "Все цепочки в хэш-таблице:\n\n"
+            
+            for i, cell_data in enumerate(self.hashtable_data):
+                chain_items = []
+                
+                if isinstance(cell_data, list):
+                    if cell_data:
+                        chain_items = cell_data
+                    else:
+                        continue
+                elif cell_data is not None:
+                    chain_items = [cell_data]
+                else:
+                    continue
+                
+                text += f"Индекс {i} (длина: {len(chain_items)}):\n"
+                for j, item in enumerate(chain_items):
+                    text += f"  {j+1}. {item}\n"
+                text += "\n"
+            
+            # Копируем в буфер обмена
+            clipboard = QApplication.clipboard()
+            clipboard.setText(text)
+            
+            # Показываем уведомление
+            QMessageBox.information(
+                self, 
+                "Скопировано", 
+                "Все цепочки скопированы в буфер обмена!"
+            )
+            
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                f"Не удалось скопировать данные: {str(e)}"
+            )
+
+
 class MainWindow(QMainWindow):
     """Главное окно визуализатора алгоритмов"""
     
@@ -35,6 +914,11 @@ class MainWindow(QMainWindow):
         self.container_visualizer = None
         self.container_type = None
         
+        # Для графов
+        self.graph_data = None
+        self.graph_directed = False
+        self.graph_layout = "Spring"
+        
         # Для отложенной отрисовки деревьев
         self._pending_tree_data = []
         self._last_tree_data = None
@@ -54,9 +938,6 @@ class MainWindow(QMainWindow):
         
         # Виджет временных массивов
         self.temp_arrays_widget = TempArraysWidget()
-
-        # Направленность графа по умолчанию
-        self.graph_directed = False
 
         # Добавляем таймер для отложенного сброса зума
         self.zoom_reset_timer = QTimer()
@@ -106,6 +987,13 @@ class MainWindow(QMainWindow):
             "merge_left": "#4ECDC4",    # Бирюзовый - левый массив MergeSort
             "merge_right": "#FF6B6B",   # Красный - правый массив MergeSort
             "merge_target": "#7EE081",  # Светло-зеленый - целевая позиция MergeSort
+            
+            # Графовые цвета
+            "graph_visited": "#7EE081",     # Зеленый - посещенный узел
+            "graph_discovered": "#F9C80E",  # Желтый - обнаруженный узел
+            "graph_path": "#FF6B6B",        # Красный - путь
+            "graph_mst": "#4ECDC4",         # Бирюзовый - ребро MST
+            "graph_rejected": "#95A5A6",    # Серый - отвергнутое ребро
             
             # Вспомогательные
             "highlight": "#FFD700",     # Желтый - временная подсветка
@@ -176,24 +1064,57 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(QLabel("Данные:"))
         self.data_input = QLineEdit()
         self.data_input.setPlaceholderText("Введите данные через запятую: 5,2,8,1")
-
-        # Для графов добавляем выбор компоновки и направленности
+        
+        # Настройки графа
         self.graph_settings_label = QLabel("Настройки графа:")
         self.graph_settings_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         
-        self.directed_label = QLabel("Направленность:")
-        self.directed_checkbox = QCheckBox("Ориентированный граф")
-        self.directed_checkbox.setChecked(self.graph_directed)
+        # Направленность графа
+        self.directed_label = QLabel("Направленность графа:")
+        directed_layout = QHBoxLayout()
+        self.directed_button_group = QButtonGroup(self)
+        self.directed_undirected = QRadioButton("Неориентированный")
+        self.directed_directed = QRadioButton("Ориентированный")
+        self.directed_undirected.setChecked(True)
+        self.directed_button_group.addButton(self.directed_undirected)
+        self.directed_button_group.addButton(self.directed_directed)
+        directed_layout.addWidget(self.directed_undirected)
+        directed_layout.addWidget(self.directed_directed)
         
+        # Компоновка графа
         self.graph_layout_label = QLabel("Компоновка графа:")
         self.graph_layout_combo = QComboBox()
         self.graph_layout_combo.addItems(["Пружинная", "Круговая", "Древовидная"])
         
+        # Кнопка построения графа
+        self.build_graph_btn = QPushButton("🕸️ Построить граф")
+        self.build_graph_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9B59B6;
+                color: white;
+                border-radius: 6px;
+                padding: 8px;
+                font-weight: bold;
+                border: none;
+                margin-top: 5px;
+            }
+            QPushButton:hover { 
+                background-color: #8E44AD; 
+            }
+            QPushButton:pressed { 
+                background-color: #7D3C98; 
+            }
+        """)
+        self.build_graph_btn.clicked.connect(self._build_graph)
+        
+        # Скрываем настройки графов по умолчанию
         self.graph_settings_label.hide()
         self.directed_label.hide()
-        self.directed_checkbox.hide()
+        self.directed_undirected.hide()
+        self.directed_directed.hide()
         self.graph_layout_label.hide()
         self.graph_layout_combo.hide()
+        self.build_graph_btn.hide()
         
         # Настройки хэш-таблицы
         self.hashtable_settings_label = QLabel("Настройки хэш-таблицы:")
@@ -313,9 +1234,10 @@ class MainWindow(QMainWindow):
         
         left_layout.addWidget(self.graph_settings_label)
         left_layout.addWidget(self.directed_label)
-        left_layout.addWidget(self.directed_checkbox)
+        left_layout.addLayout(directed_layout)
         left_layout.addWidget(self.graph_layout_label)
         left_layout.addWidget(self.graph_layout_combo)
+        left_layout.addWidget(self.build_graph_btn)
         
         left_layout.addWidget(self.hashtable_settings_label)
         left_layout.addWidget(self.hash_function_label)
@@ -491,6 +1413,158 @@ class MainWindow(QMainWindow):
         
         return panel
 
+    def _create_graph_interactive_panel(self):
+        """Создает панель интерактивных операций для графов."""
+        # Очищаем контейнер полностью
+        self._clear_interactive_panel_children()
+        
+        # Обновляем информационную метку
+        self.info_label.setText("ℹ️ Выполняйте алгоритмы на построенном графе")
+        
+        # Выбор начального узла
+        start_layout = QHBoxLayout()
+        start_layout.addWidget(QLabel("Начальный узел:"))
+        self.graph_start_input = QLineEdit()
+        self.graph_start_input.setPlaceholderText("Введите номер узла...")
+        self.graph_start_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        start_layout.addWidget(self.graph_start_input)
+        self.operations_layout.addLayout(start_layout)
+        
+        # Выбор алгоритма
+        algo_layout = QHBoxLayout()
+        algo_layout.addWidget(QLabel("Алгоритм:"))
+        self.graph_algo_combo = QComboBox()
+        self.graph_algo_combo.addItems([
+            "BFS (обход в ширину)",
+            "DFS (обход в глубину)",
+            "Dijkstra (кратчайший путь)"
+        ])
+        self.graph_algo_combo.setStyleSheet("""
+            QComboBox {
+                padding: 8px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        algo_layout.addWidget(self.graph_algo_combo)
+        self.operations_layout.addLayout(algo_layout)
+        
+        # Кнопка выполнения
+        self.graph_execute_btn = QPushButton("Запустить алгоритм")
+        self.graph_execute_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9B59B6;
+                color: white;
+                border-radius: 6px;
+                padding: 12px;
+                font-weight: bold;
+                font-size: 14px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #8E44AD;
+            }
+            QPushButton:pressed {
+                background-color: #7D3C98;
+            }
+        """)
+        self.graph_execute_btn.clicked.connect(self._on_graph_algorithm_execute)
+        self.operations_layout.addWidget(self.graph_execute_btn)
+        
+        # Панель быстрых действий
+        quick_actions = QGroupBox("Быстрые действия")
+        quick_actions.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        
+        quick_layout = QHBoxLayout()
+        
+        # Кнопки быстрых действий
+        self.graph_reset_btn = QPushButton("♻ Сброс алгоритма")
+        self.graph_reset_btn.clicked.connect(self._reset_graph_algorithm)
+        self.graph_reset_btn.setToolTip("Сбросить текущий алгоритм")
+        
+        self.graph_clear_btn = QPushButton("🗑️ Очистить граф")
+        self.graph_clear_btn.clicked.connect(self._clear_graph)
+        self.graph_clear_btn.setToolTip("Удалить граф")
+        
+        # Стили кнопок быстрых действий
+        quick_button_style = """
+            QPushButton {
+                background-color: #5A9BD5;
+                color: white;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4B89C6;
+            }
+            QPushButton:pressed {
+                background-color: #3A6FA3;
+            }
+        """
+        
+        for btn in [self.graph_reset_btn, self.graph_clear_btn]:
+            btn.setStyleSheet(quick_button_style)
+            btn.setMinimumHeight(35)
+            quick_layout.addWidget(btn)
+        
+        quick_actions.setLayout(quick_layout)
+        self.operations_layout.addWidget(quick_actions)
+
+    def _clear_interactive_panel_children(self):
+        """Очищает все дочерние элементы интерактивной панели."""
+        # Удаляем все виджеты из operations_layout
+        while self.operations_layout.count():
+            item = self.operations_layout.takeAt(0)
+            if item.widget():
+                widget = item.widget()
+                widget.setParent(None)
+                widget.deleteLater()
+            elif item.layout():
+                # Рекурсивно очищаем вложенные layout
+                self._clear_layout_recursive(item.layout())
+        
+        # Сбрасываем ссылки на виджеты
+        self.graph_start_input = None
+        self.graph_algo_combo = None
+        self.graph_execute_btn = None
+        self.graph_reset_btn = None
+        self.graph_clear_btn = None
+
+    def _clear_layout_recursive(self, layout):
+        """Рекурсивно очищает layout и все его дочерние элементы."""
+        if layout:
+            for i in reversed(range(layout.count())):
+                item = layout.takeAt(i)
+                if item.widget():
+                    widget = item.widget()
+                    widget.setParent(None)
+                    widget.deleteLater()
+                elif item.layout():
+                    self._clear_layout_recursive(item.layout())
+
     def _create_container_interactive_panel(self, container_type):
         """Создает панель интерактивных операций для контейнеров."""
         # Очищаем контейнер полностью
@@ -637,38 +1711,6 @@ class MainWindow(QMainWindow):
         
         quick_actions.setLayout(quick_layout)
         self.operations_layout.addWidget(quick_actions)
-
-    def _clear_interactive_panel_children(self):
-        """Очищает все дочерние элементы интерактивной панели."""
-        # Удаляем все виджеты из operations_layout
-        while self.operations_layout.count():
-            item = self.operations_layout.takeAt(0)
-            if item.widget():
-                widget = item.widget()
-                widget.setParent(None)
-                widget.deleteLater()
-            elif item.layout():
-                # Рекурсивно очищаем вложенные layout
-                self._clear_layout_recursive(item.layout())
-        
-        # Сбрасываем ссылки на виджеты
-        self.container_val_input = None
-        self.container_ops_combo = None
-        self.container_execute_btn = None
-        self.container_clear_btn = None
-        self.container_random_btn = None
-
-    def _clear_layout_recursive(self, layout):
-        """Рекурсивно очищает layout и все его дочерние элементы."""
-        if layout:
-            for i in reversed(range(layout.count())):
-                item = layout.takeAt(i)
-                if item.widget():
-                    widget = item.widget()
-                    widget.setParent(None)
-                    widget.deleteLater()
-                elif item.layout():
-                    self._clear_layout_recursive(item.layout())
 
     def _create_tree_interactive_panel(self):
         """Создает панель интерактивных операций для деревьев."""
@@ -867,19 +1909,21 @@ class MainWindow(QMainWindow):
         self.table_size_slider.valueChanged.connect(
             lambda v: self.table_size_value.setText(str(v))
         )
-        self.directed_checkbox.stateChanged.connect(self._on_directed_changed)
+        self.directed_undirected.toggled.connect(lambda: self._on_directed_changed(False))
+        self.directed_directed.toggled.connect(lambda: self._on_directed_changed(True))
 
-    def _on_directed_changed(self, state):
+
+    def _on_directed_changed(self, is_directed):
         """Обработка изменения направленности графа."""
-        self.graph_directed = (state == Qt.CheckState.Checked.value)
-        self.graph_visualizer.set_directed(self.graph_directed)
+        self.graph_directed = is_directed
+        self.graph_visualizer.set_directed(is_directed)
         
-        direction_text = "ориентированный" if self.graph_directed else "неориентированный"
-        self._log(f"📊 Граф изменен на {direction_text}")
+        direction_text = "ориентированный" if is_directed else "неориентированный"
+        self._log(f"📊 Граф установлен как {direction_text}")
         
-        if self.current_algorithm and self.algorithm_combo.currentText() in ["BFS", "DFS", "Dijkstra"]:
-            self._reset_algorithm()
-            self._log("♻ Настройки графа изменены. Алгоритм сброшен.")
+        # Если граф уже построен, перестраиваем его с новой направленностью
+        if self.graph_data:
+            self._build_graph()
 
     def _on_algorithm_changed(self, algorithm_name):
         """Обработка изменения алгоритма."""
@@ -898,6 +1942,9 @@ class MainWindow(QMainWindow):
         elif category == "Деревья":
             # Для деревьев создаем соответствующую панель
             self._create_tree_interactive_panel()
+        elif category == "Графы":
+            # Для графов создаем панель интерактивных операций
+            self._create_graph_interactive_panel()
         else:
             # Для других категорий очищаем панель
             self._clear_interactive_panel()
@@ -918,7 +1965,7 @@ class MainWindow(QMainWindow):
         elif category == "Деревья":
             self.algorithm_combo.addItems(["BST", "AVL", "RedBlackTree", "SplayTree", "Treap", "BTree","Heap"])
         elif category == "Графы":
-            self.algorithm_combo.addItems(["BFS", "DFS", "Dijkstra"])
+            self.algorithm_combo.addItems(["Graph"])
         elif category == "Хэш-таблицы":
             self.algorithm_combo.addItems(["HashTable"])
         elif category == "Структуры данных":
@@ -940,12 +1987,23 @@ class MainWindow(QMainWindow):
         self.temp_arrays_widget.hide()
         self.temp_arrays_widget.clear()
         
-        # 3. Скрываем настройки графов
-        self.graph_settings_label.hide()
-        self.directed_label.hide()
-        self.directed_checkbox.hide()
-        self.graph_layout_label.hide()
-        self.graph_layout_combo.hide()
+        # 3. Скрываем/показываем настройки графов
+        if category == "Графы":
+            self.graph_settings_label.show()
+            self.directed_label.show()
+            self.directed_undirected.show()
+            self.directed_directed.show()
+            self.graph_layout_label.show()
+            self.graph_layout_combo.show()
+            self.build_graph_btn.show()
+        else:
+            self.graph_settings_label.hide()
+            self.directed_label.hide()
+            self.directed_undirected.hide()
+            self.directed_directed.hide()
+            self.graph_layout_label.hide()
+            self.graph_layout_combo.hide()
+            self.build_graph_btn.hide()
         
         # 4. Скрываем настройки хэш-таблицы
         self.hashtable_settings_label.hide()
@@ -971,13 +2029,7 @@ class MainWindow(QMainWindow):
         self._initialize_algorithm_combo()
         
         # 9. Показываем только нужные виджеты для текущей категории
-        if category == "Графы":
-            self.graph_settings_label.show()
-            self.directed_label.show()
-            self.directed_checkbox.show()
-            self.graph_layout_label.show()
-            self.graph_layout_combo.show()
-        elif category == "Хэш-таблицы":
+        if category == "Хэш-таблицы":
             self.hashtable_settings_label.show()
             self.hash_function_label.show()
             self.hash_function_combo.show()
@@ -993,6 +2045,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(100, self._create_tree_interactive_panel)
         elif category == "Структуры данных":
             QTimer.singleShot(100, self._create_container_panel_for_current_algo)
+        elif category == "Графы":
+            QTimer.singleShot(100, self._create_graph_interactive_panel)
         else:
             self._clear_interactive_panel()
         
@@ -1002,6 +2056,8 @@ class MainWindow(QMainWindow):
         # 12. Для структур данных показываем сообщение
         if category == "Структуры данных":
             self._log("📦 Выберите структуру данных для интерактивных операций")
+        elif category == "Графы":
+            self._log("🕸️ Постройте граф, затем выберите алгоритм в правой панели")
 
     def _create_container_panel_for_current_algo(self):
         """Создает панель для текущего алгоритма контейнера."""
@@ -1033,14 +2089,16 @@ class MainWindow(QMainWindow):
             self.container_visualizer._create_interface()
             self._log("🔄 Дек создан. Используйте интерактивные операции справа.")
 
+
     def _start_auto_mode(self):
         """Запуск автоматического режима."""
         category = self.category_combo.currentText()
         
-        # Для структур данных отключаем автоматический режим
+        # === ИСПРАВЛЕНИЕ: Для графов РАЗРЕШАЕМ выполнение ===
         if category == "Структуры данных":
             self._log("ℹ️ Для структур данных используйте интерактивные операции справа")
             return
+        # Для графов и других категорий - разрешаем
         
         if self.algorithm_completed or not self.current_algorithm:
             if not self._start_algorithm():
@@ -1070,10 +2128,16 @@ class MainWindow(QMainWindow):
         """Шаг в ручном режиме."""
         category = self.category_combo.currentText()
         
-        # Для структур данных отключаем запуск через Engine
-        if category == "Структуры данных":
+        # === ИСПРАВЛЕНИЕ: Для графов РАЗРЕШАЕМ выполнение ===
+        if category == "Графы":
+            # Проверяем, что алгоритм загружен
+            if not self.current_algorithm:
+                if not self._start_algorithm():
+                    return
+        elif category == "Структуры данных":
             self._log("ℹ️ Для структур данных используйте интерактивные операции справа")
             return
+        # Для других категорий обычная логика
         
         if self.algorithm_completed or not self.current_algorithm:
             if not self._start_algorithm():
@@ -1101,6 +2165,9 @@ class MainWindow(QMainWindow):
             if self.zoom_reset_timer.isActive():
                 self.zoom_reset_timer.stop()
             
+            # Получаем текущую категорию
+            category = self.category_combo.currentText()
+            
             # 2. Очищаем контейнеры ПЕРЕД очисткой сцены
             if hasattr(self, 'container_visualizer') and self.container_visualizer:
                 try:
@@ -1111,28 +2178,44 @@ class MainWindow(QMainWindow):
                 self.container_type = None
             
             # 3. Очищаем визуализаторы графов ПЕРЕД очисткой сцены
-            if hasattr(self, 'graph_visualizer'):
+            # Для графов НЕ очищаем визуализатор полностью, только сбрасываем подсветку
+            if category == "Графы":
+                if hasattr(self, 'graph_visualizer'):
+                    try:
+                        self.graph_visualizer.reset_highlights()  # Только сброс подсветки
+                    except Exception as e:
+                        print(f"Warning resetting graph visualizer highlights: {e}")
+            else:
+                if hasattr(self, 'graph_visualizer'):
+                    try:
+                        self.graph_visualizer.clear()  # Для не-графов очищаем полностью
+                    except Exception as e:
+                        print(f"Warning clearing graph visualizer: {e}")
+            
+            # 4. Очищаем визуализатор деревьев
+            if hasattr(self, 'tree_visualizer'):
                 try:
-                    self.graph_visualizer.clear()
+                    self.tree_visualizer.clear()
                 except Exception as e:
-                    print(f"Warning clearing graph visualizer: {e}")
+                    print(f"Warning clearing tree visualizer: {e}")
             
-            # 4. Теперь очищаем сцену
-            if hasattr(self, 'scene'):
-                self.scene.clear()
+            # 5. Теперь очищаем сцену (кроме графов)
+            if category != "Графы":
+                if hasattr(self, 'scene'):
+                    self.scene.clear()
             
-            # 5. Скрываем специфичные виджеты
+            # 6. Скрываем специфичные виджеты
             self.temp_arrays_widget.hide()
             self.temp_arrays_widget.clear()
             
-            # 6. Сброс состояния хэш-таблицы
+            # 7. Сброс состояния хэш-таблицы
             self.hashtable_cells = []
             self.hashtable_stats = {}
             self.hashtable_display_mode = "initial"
             self.hashtable_scroll_enabled = False
             self.current_hashtable_data = []
             
-            # 7. Сброс других состояний
+            # 8. Сброс других состояний
             self.current_algorithm = None
             self.is_auto_mode = False
             self.is_animating = False
@@ -1151,16 +2234,15 @@ class MainWindow(QMainWindow):
             self._split_lines = []
             self.animation_queue = []
             
-            # 8. Отключаем кнопку просмотра цепочек
+            # 9. Отключаем кнопку просмотра цепочек
             self.view_chains_btn.setEnabled(False)
             
-            # 9. Восстанавливаем кнопки
+            # 10. Восстанавливаем кнопки
             self.auto_btn.show()
             self.pause_btn.hide()
             self.start_btn.setEnabled(True)
             
-            # 10. Восстанавливаем начальный вид
-            category = self.category_combo.currentText()
+            # 11. Восстанавливаем начальный вид
             if category == "Структуры данных":
                 # Для структур данных просто очищаем сцену
                 self._log("📦 Контейнер сброшен")
@@ -1172,6 +2254,16 @@ class MainWindow(QMainWindow):
                     self._render_hashtable_initial_view(arr)
                 except ValueError:
                     pass
+            elif category == "Графы":
+                # Для графов НЕ перестраиваем граф, только сбрасываем подсветку
+                if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                    self._log("♻ Подсветка графа сброшена")
+                else:
+                    # Если граф не был визуализирован, пытаемся построить
+                    if self.graph_data:
+                        self._build_graph(skip_log=True)
+                    else:
+                        self._log("🕸️ Граф еще не построен")
             else:
                 # Для всех остальных - массив
                 text = self.data_input.text()
@@ -1182,7 +2274,7 @@ class MainWindow(QMainWindow):
                     if hasattr(self, 'current_data'):
                         self._render_array(self.current_data)
             
-            # 11. Обновляем сцену и вид
+            # 12. Обновляем сцену и вид
             if hasattr(self, 'scene'):
                 self.scene.update()
             if hasattr(self, 'view'):
@@ -1190,8 +2282,9 @@ class MainWindow(QMainWindow):
             
             self._log("♻ Алгоритм сброшен. Можно запустить заново.")
             
-            # 12. Планируем сброс зума
-            self._schedule_zoom_reset()
+            # 13. Планируем сброс зума (только если не графы или граф пустой)
+            if category != "Графы" or not self.graph_data:
+                self._schedule_zoom_reset()
             
         except Exception as e:
             print(f"Error resetting algorithm: {e}")
@@ -1215,16 +2308,18 @@ class MainWindow(QMainWindow):
             self.current_data = data.copy()
             
             # Рендерим в зависимости от выбранной категории
-            category = self.category_combo.currentText()
             if category == "Хэш-таблицы":
                 self._render_hashtable_initial_view(data)
+            elif category == "Графы":
+                # Для графов просто обновляем поле ввода
+                self._log(f"🎲 Сгенерированы {count} случайных чисел для графа")
             else:
                 self._render_array(data)
-            
-            self._log(f"🎲 Сгенерированы {count} случайных чисел")
+                self._log(f"🎲 Сгенерированы {count} случайных чисел")
         
         self._reset_algorithm()
         self._schedule_zoom_reset()
+
 
     def _schedule_zoom_reset(self):
         """Запланировать сброс зума с небольшой задержкой."""
@@ -1292,6 +2387,59 @@ class MainWindow(QMainWindow):
             
             self._log(f"📦 {algo_name} создан. Используйте интерактивные операции справа.")
             return False  # Возвращаем False, так как для контейнеров не нужен запуск через Engine
+        
+        elif category == "Графы":
+            # === ИСПРАВЛЕННЫЙ БЛОК ДЛЯ ГРАФОВ ===
+            # Для графов проверяем, что граф построен
+            if not self.graph_data:
+                self._log("❌ Сначала постройте граф")
+                QMessageBox.warning(self, "Ошибка", "Сначала постройте граф (нажмите 'Построить граф')")
+                return False
+            self._reset_graph_visualization()
+            # ИСПРАВЛЕНИЕ: Всегда используем узел из поля ввода
+            start_node_text = ""
+            if hasattr(self, 'graph_start_input') and self.graph_start_input:
+                start_node_text = self.graph_start_input.text().strip()
+            
+            # Если поле пустое, показываем ошибку
+            if not start_node_text:
+                QMessageBox.warning(self, "Ошибка", "Введите начальный узел в поле 'Начальный узел'")
+                return False
+            
+            try:
+                start_node = int(start_node_text)
+                if start_node not in self.graph_data:
+                    self._log(f"❌ Узел {start_node} не найден в графе")
+                    QMessageBox.warning(self, "Ошибка", f"Узел {start_node} не найден в графе")
+                    return False
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Введите корректный номер узла")
+                return False
+            
+            # Определяем, какой алгоритм был выбран в правой панели
+            algorithm_text = ""
+            if hasattr(self, 'graph_algo_combo') and self.graph_algo_combo:
+                algorithm_text = self.graph_algo_combo.currentText()
+            
+            # ИСПРАВЛЕНИЕ: Используем СУЩЕСТВУЮЩИЙ graph_data БЕЗ копирования
+            if "BFS" in algorithm_text:
+                self.current_algorithm = GraphBFS(self.graph_data, start_node)  # НЕ копируем!
+            elif "DFS" in algorithm_text:
+                self.current_algorithm = GraphDFS(self.graph_data, start_node)   # НЕ копируем!
+            elif "Dijkstra" in algorithm_text:
+                self.current_algorithm = Dijkstra(self.graph_data, start_node)   # НЕ копируем!
+            else:
+                # По умолчанию используем BFS
+                self.current_algorithm = GraphBFS(self.graph_data, start_node)   # НЕ копируем!
+            
+            # Загружаем алгоритм в движок
+            self.engine.load_algorithm(self.current_algorithm)
+            
+            # Сбрасываем подсветку графа перед запуском (только цвета, не структуру)
+            self._reset_graph_visualization()
+            
+            self._log(f"🚀 Алгоритм загружен. Начальный узел: {start_node}")
+            return True
             
         else:
             # Оригинальная логика для других категорий
@@ -1339,9 +2487,6 @@ class MainWindow(QMainWindow):
                     "Treap": lambda: Treap(arr.copy()),
                     "BTree": lambda: BTree(arr.copy()),
                     "Heap": lambda: BinaryHeap(arr.copy(), heap_type='max'),
-                    "BFS": lambda: GraphBFS(graph_data, arr[0] if arr else 0),
-                    "DFS": lambda: GraphDFS(graph_data, arr[0] if arr else 0),
-                    "Dijkstra": lambda: Dijkstra(graph_data, arr[0] if arr else 0),
                     "HashTable": lambda: self._create_hashtable(arr.copy())
                 }
 
@@ -1357,31 +2502,7 @@ class MainWindow(QMainWindow):
                             self.temp_arrays_widget.hide()
                         
                         # Обработка для разных типов алгоритмов
-                        if algo_name in ["BFS", "DFS", "Dijkstra"]:
-                            self.scene.clear()
-                            
-                            self.graph_visualizer.node_values = {val: val for val in arr}
-                            
-                            if self.graph_layout_combo:
-                                layout_name = self.graph_layout_combo.currentText()
-                                layout_map = {
-                                    "Пружинная": "Spring", 
-                                    "Круговая": "Circular",
-                                    "Древовидная": "Tree"
-                                }
-                                
-                                if layout_name in layout_map:
-                                    selected_layout = layout_map[layout_name]
-                                    success = self.graph_visualizer.set_layout_algorithm(selected_layout)
-                                    if success:
-                                        self._log(f"📐 Установлена компоновка: {layout_name}")
-                            
-                            self.graph_visualizer.set_directed(self.graph_directed)
-                            
-                            direction_text = "ориентированный" if self.graph_directed else "неориентированный"
-                            self._log(f"🕸️ Подготовка {direction_text} графа для алгоритма {algo_name}...")
-                        
-                        elif algo_name == "HashTable":
+                        if algo_name == "HashTable":
                             # Для хэш-таблицы отображаем начальный вид
                             self._render_hashtable_initial_view(arr)
                             self._log(f"🔑 Подготовка хэш-таблицы с параметрами: " +
@@ -1440,7 +2561,288 @@ class MainWindow(QMainWindow):
         return HashTable(data, size=table_size, 
                         hash_function=hash_func, 
                         collision_method=collision_method)
+    def _build_graph(self, skip_log=False):
+        """Строит граф из введенных данных."""
+        try:
+            text = self.data_input.text()
+            if not text:
+                if not skip_log:
+                    QMessageBox.warning(self, "Ошибка", "Введите данные для построения графа")
+                return
+            
+            try:
+                arr = [int(x.strip()) for x in text.split(",") if x.strip()]
+                if len(arr) < 1:
+                    if not skip_log:
+                        QMessageBox.warning(self, "Ошибка", "Введите хотя бы 1 число")
+                    return
+                
+                # Сохраняем данные
+                self.current_data = arr.copy()
+                
+                # Создаем граф из данных
+                graph_data = self._create_tree_graph(arr, directed=self.graph_directed)
+                self.graph_data = graph_data
+                
+                # Получаем настройки компоновки
+                layout_name = self.graph_layout_combo.currentText()
+                layout_map = {
+                    "Пружинная": "Spring",
+                    "Круговая": "Circular",
+                    "Древовидная": "Tree"
+                }
+                
+                # Устанавливаем компоновку
+                if layout_name in layout_map:
+                    selected_layout = layout_map[layout_name]
+                    success = self.graph_visualizer.set_layout_algorithm(selected_layout)
+                    if success:
+                        self.graph_layout = selected_layout
+                
+                # Создаем граф в визуализаторе
+                success = self.graph_visualizer.create_graph(
+                    graph_data, 
+                    is_directed=self.graph_directed
+                )
+                
+                if success:
+                    direction_text = "ориентированный" if self.graph_directed else "неориентированный"
+                    if not skip_log:
+                        self._log(f"🕸️ {direction_text} граф построен ({len(graph_data)} узлов, {self.graph_layout} компоновка)")
+                        self._log("ℹ️ Выберите алгоритм в правой панели для выполнения")
+                    
+                    # ОБНОВЛЯЕМ поле начального узла ТОЛЬКО ЕСЛИ ОНО ПУСТОЕ
+                    if arr and (not hasattr(self, 'graph_start_input') or not self.graph_start_input.text().strip()):
+                        self.graph_start_input.setText(str(arr[0]))
+                        
+                else:
+                    if not skip_log:
+                        self._log("❌ Ошибка при построении графа")
+                        
+            except ValueError:
+                if not skip_log:
+                    QMessageBox.warning(self, "Ошибка", "Вводите только числа через запятую")
+                    
+        except Exception as e:
+            if not skip_log:
+                self._log(f"❌ Ошибка при построении графа: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
+    def _create_tree_graph(self, arr, weight_mode="diff", min_weight=1, max_weight=10, directed=False):
+        """Создает древовидный граф."""
+        graph = {}
+        if not arr:
+            return graph
+
+        nodes = list(dict.fromkeys(arr))
+
+        def make_weight(a, b):
+            if weight_mode == "diff":
+                return max(min_weight, abs(int(a) - int(b)))
+            elif weight_mode == "uniform":
+                return max(1, int(min_weight))
+            elif weight_mode == "random":
+                return random.randint(min_weight, max_weight)
+            else:
+                return max(1, abs(int(a) - int(b)))
+
+        for v in nodes:
+            graph[v] = {}
+
+        if len(nodes) == 1:
+            return graph
+
+        root = nodes[0]
+        remaining_nodes = nodes[1:]
+        
+        level_nodes = [root]
+        
+        while remaining_nodes:
+            next_level = []
+            for parent in level_nodes:
+                if not remaining_nodes:
+                    break
+                    
+                num_children = min(2, len(remaining_nodes))
+                for _ in range(num_children):
+                    if not remaining_nodes:
+                        break
+                    child = remaining_nodes.pop(0)
+                    
+                    w = make_weight(parent, child)
+                    graph[parent][child] = w
+                    
+                    if not directed:
+                        graph[child][parent] = w
+                    
+                    next_level.append(child)
+            
+            level_nodes = next_level
+
+        return graph
+
+    def _on_graph_algorithm_execute(self):
+        """Выполнение выбранного алгоритма на графе."""
+        try:
+            # Проверяем, что граф построен
+            if not self.graph_data:
+                self._log("❌ Сначала постройте граф")
+                QMessageBox.warning(self, "Ошибка", "Сначала постройте граф")
+                return
+            
+            # Устанавливаем начальный узел ИЗ ПОЛЯ ВВОДА
+            start_node_text = self.graph_start_input.text().strip()
+            if not start_node_text:
+                self._log("❌ Введите начальный узел")
+                QMessageBox.warning(self, "Ошибка", "Введите начальный узел в поле 'Начальный узел'")
+                return
+            
+            try:
+                start_node = int(start_node_text)
+                if start_node not in self.graph_data:
+                    self._log(f"❌ Узел {start_node} не найден в графе")
+                    QMessageBox.warning(self, "Ошибка", f"Узел {start_node} не найден в графе")
+                    return
+            except ValueError:
+                QMessageBox.warning(self, "Ошибка", "Введите корректный номер узла")
+                return
+            
+            # Сбрасываем текущий алгоритм ПЕРЕД запуском нового
+            self.engine.pause()
+            self.engine.generator = None
+            self.current_algorithm = None
+            self.is_auto_mode = False
+            self.algorithm_completed = False
+            
+            # Сбрасываем подсветку перед запуском
+            self._reset_graph_visualization()
+            
+            # Определяем, какой алгоритм был выбран в правой панели
+            algorithm_text = ""
+            if hasattr(self, 'graph_algo_combo') and self.graph_algo_combo:
+                algorithm_text = self.graph_algo_combo.currentText()
+            
+            # ИСПРАВЛЕНИЕ: Используем СУЩЕСТВУЮЩИЙ graph_data с указанным стартовым узлом
+            if "BFS" in algorithm_text:
+                self.current_algorithm = GraphBFS(self.graph_data, start_node)
+            elif "DFS" in algorithm_text:
+                self.current_algorithm = GraphDFS(self.graph_data, start_node)
+            elif "Dijkstra" in algorithm_text:
+                self.current_algorithm = Dijkstra(self.graph_data, start_node)
+            else:
+                # По умолчанию используем BFS
+                self.current_algorithm = GraphBFS(self.graph_data, start_node)
+            
+            # Загружаем алгоритм в движок
+            self.engine.load_algorithm(self.current_algorithm)
+            
+            self._log(f"🚀 Алгоритм загружен. Начальный узел: {start_node}")
+            
+            # Запускаем алгоритм через стандартный механизм
+            if self._start_algorithm():
+                # Запускаем автоматический режим
+                self._start_auto_mode()
+            else:
+                self._log("❌ Не удалось запустить алгоритм")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при выполнении алгоритма: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    def _reset_graph_visualization(self):
+        """Сбрасывает визуализацию графа перед новым алгоритмом."""
+        try:
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                # ТОЛЬКО сбрасываем стили, НЕ перестраиваем граф
+                self.graph_visualizer.reset_highlights()
+                
+                # Сбрасываем стили всех узлов
+                for node_item in self.graph_visualizer.nodes.values():
+                    if hasattr(node_item, 'reset_style'):
+                        node_item.reset_style()
+                    else:
+                        # Если нет reset_style, просто сбрасываем цвет
+                        node_item.setBrush(QBrush(QColor("#FFFFFF")))
+                        node_item.setPen(QPen(QColor("#000000"), 1))
+                
+                # Сбрасываем стили всех ребер
+                for edge_item in self.graph_visualizer.edges.values():
+                    if hasattr(edge_item, 'reset_style'):
+                        edge_item.reset_style()
+                    else:
+                        # Если нет reset_style, просто сбрасываем цвет
+                        edge_item.setPen(QPen(QColor("#000000"), 1))
+                
+                # Очищаем все временные метки (веса, расстояния)
+                for item in list(self.scene.items()):
+                    if isinstance(item, QGraphicsTextItem) and "distance" in item.toPlainText().lower():
+                        self.scene.removeItem(item)
+                
+                self._log("♻ Подсветка графа сброшена. Граф готов для нового алгоритма.")
+            else:
+                self._log("ℹ️ Граф еще не построен")
+        except Exception as e:
+            self._log(f"❌ Ошибка при сбросе визуализации графа: {str(e)}")
+
+
+    def _reset_graph_algorithm(self):
+        """Сбрасывает текущий алгоритм графа, но сохраняет граф."""
+        try:
+            self.engine.pause()
+            self.engine.generator = None
+            self.current_algorithm = None  # Сбрасываем только алгоритм
+            self.is_auto_mode = False
+            self.algorithm_completed = False
+            
+            # Сбрасываем подсветку графа
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                self.graph_visualizer.reset_highlights()
+            
+            # Восстанавливаем кнопки
+            self.auto_btn.show()
+            self.pause_btn.hide()
+            self.start_btn.setEnabled(True)
+            
+            # ВАЖНО: НЕ перестраиваем граф, только сбрасываем стили
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                # Сбрасываем стили узлов и ребер
+                for node_item in self.graph_visualizer.nodes.values():
+                    if hasattr(node_item, 'reset_style'):
+                        node_item.reset_style()
+                
+                for edge_item in self.graph_visualizer.edges.values():
+                    if hasattr(edge_item, 'reset_style'):
+                        edge_item.reset_style()
+                
+                self._log("♻ Алгоритм графа сброшен. Граф готов для нового алгоритма.")
+            else:
+                self._log("♻ Алгоритм графа сброшен.")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при сбросе алгоритма графа: {str(e)}")
+
+    def _clear_graph(self):
+        """Очищает граф."""
+        reply = QMessageBox.question(
+            self, "Подтверждение", 
+            "Вы уверены, что хотите очистить граф?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.graph_data = None
+                self.graph_visualizer.clear()
+                self.current_algorithm = None
+                
+                self._log("🗑️ Граф очищен")
+                
+                # Сбрасываем интерфейс
+                self._reset_algorithm()
+                
+            except Exception as e:
+                self._log(f"❌ Ошибка при очистке графа: {str(e)}")
     def _create_table_header(self, start_x, start_y, width, height):
         """Создает заголовок таблицы."""
         index_width = 100
@@ -1974,24 +3376,24 @@ class MainWindow(QMainWindow):
             self._schedule_next_action(int(len(node_sequence) * 500 * speed_factor))
         
         elif t == "graph_init":
-            success = self.graph_visualizer.process_action(action)
-            if success:
-                graph_info = self.graph_visualizer.get_graph_info()
-                action["graph_info"] = graph_info
-                self._log(f"🕸️ Инициализирован граф для {action.get('algorithm', 'алгоритма')}")
-            else:
-                self._log("❌ Ошибка при создании графа")
             self._schedule_next_action(int(800 * speed_factor))
             
         elif t == "visit":
-            node_index = action.get('node')
+            node_index = action.get("node")
+            # ПРОВЕРКА: если это граф, используем graph_visualizer
             if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                print(f"  Graph VISIT: {node_index}")
                 success = self.graph_visualizer.process_action(action)
                 if success:
-                    if node_index in self.graph_visualizer.adjacency_list:
-                        action["connections"] = self.graph_visualizer.adjacency_list[node_index]
-                    self._log(f"📍 Посещен узел: {node_index}")
+                    # Логируем информацию о посещении
+                    distance = action.get('distance', '')
+                    desc = action.get('description', f'Посещен узел {node_index}')
+                    if distance != '':
+                        self._log(f"📍 {desc} (расстояние: {distance})")
+                    else:
+                        self._log(f"📍 {desc}")
             elif node_index < len(self.visual_items):
+                # Это массив, а не граф
                 self._mark_as_current(node_index)
                 self._log(f"📍 Посещен элемент: {node_index}")
             self._schedule_next_action(int(600 * speed_factor))
@@ -1999,21 +3401,23 @@ class MainWindow(QMainWindow):
         elif t == "discover":
             from_node = action.get('from_node')
             to_node = action.get('node')
+            # ПРОВЕРКА: если это граф, используем graph_visualizer
             if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                print(f"  Graph DISCOVER: {from_node} -> {to_node}")
                 success = self.graph_visualizer.process_action(action)
                 if success:
-                    edge_key = self.graph_visualizer._get_edge_key(from_node, to_node)
-                    edge_item = self.graph_visualizer.edges.get(edge_key)
-                    if edge_item and hasattr(edge_item, 'weight'):
-                        action["edge_weight"] = edge_item.weight
-                    self._log(f"🔍 Обнаружен узел {to_node} из узла {from_node}")
+                    weight = action.get('weight', 1)
+                    desc = action.get('description', f'Обнаружен узел {to_node}')
+                    self._log(f"🔍 {desc}")
             self._schedule_next_action(int(600 * speed_factor))
             
         elif t == "update_distance":
             node_index = action.get('node')
             new_distance = action.get('new_distance')
-            old_distance = action.get('old_distance', 'неизвестно')
+            old_distance = action.get('old_distance', '∞')
+            # ПРОВЕРКА: если это граф, используем graph_visualizer
             if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                print(f"  Graph UPDATE_DISTANCE: {node_index} ({old_distance} -> {new_distance})")
                 success = self.graph_visualizer.process_action(action)
                 if success:
                     self._log(f"📊 Обновлено расстояние до узла {node_index}: {old_distance} → {new_distance}")
@@ -2626,7 +4030,32 @@ class MainWindow(QMainWindow):
             
             self.inspector.update_info(action)
             return
+        elif t == "complete":
+            if hasattr(self, 'graph_visualizer') and self.graph_visualizer.nodes:
+                success = self.graph_visualizer.process_action(action)
+                if success:
+                    self._log("✅ Алгоритм успешно завершён!")
+            else:
+                # При завершении помечаем все элементы как отсортированные
+                all_indices = list(range(len(self.visual_items)))
+                self._mark_as_sorted(all_indices)
+                
+                # Запускаем финальную анимацию
+                self._animate_completion()
+                self._log("✅ Алгоритм успешно завершён!")
             
+            # Скрываем виджет временных массивов
+            self.temp_arrays_widget.hide()
+            self.temp_arrays_widget.clear()
+            
+            self.is_animating = False
+            self.algorithm_completed = True
+            
+            if self.is_auto_mode:
+                self._pause_auto_mode()
+            
+            self.inspector.update_info(action)
+            return    
         elif t == "complete":
             if self.algorithm_combo.currentText() == "HashTable":
                 # Сохраняем статистику
@@ -3527,29 +4956,24 @@ class MainWindow(QMainWindow):
                     
                     self._log(f"📊 {traversal_name}:\n{result_str}")
                     
-                    # Визуализируем обход
-                    tree_data = tree._get_tree_structure_list()
-                    if tree_data:
-                        self._update_btree_visualization(tree_data, animate=False)
-                        
-                        # Для BFS показываем обход по уровням
-                        if traversal_type == "bfs":
-                            self._highlight_btree_traversal(result)
-                        else:
-                            # Для других обходов - просто показываем дерево
-                            self._log(f"🌳 B-дерево отображено для обхода {traversal_name}")
+                    # Для B-дерева просто подсвечиваем узлы без перестройки
+                    if traversal_type == "bfs":
+                        self._highlight_btree_traversal(result)
+                    else:
+                        # Просто показываем результат в логе
+                        self._log(f"🌳 B-дерево: {traversal_name} выполнен")
                 else:
                     # Для обычных деревьев
                     result_str = " → ".join(map(str, result))
                     self._log(f"📊 {traversal_name}: {result_str}")
                     
-                    # Визуализируем обход
-                    if hasattr(tree, '_get_tree_structure'):
-                        tree_data = tree._get_tree_structure(tree.root)
-                        if tree_data:
-                            self._render_tree(tree_data)
-                            # Подсвечиваем узлы в порядке обхода
-                            self._highlight_traversal(result)
+                    # ЗАМЕНА: Не перестраиваем дерево, а просто подсвечиваем узлы
+                    if hasattr(self, 'tree_visualizer'):
+                        # Сбрасываем цвета всех узлов
+                        self.tree_visualizer.reset_styles()
+                        
+                        # Подсвечиваем узлы в порядке обхода с анимацией
+                        self._animate_traversal_highlight(result, traversal_name)
             else:
                 self._log("📊 Дерево пустое")
                 
@@ -3557,6 +4981,42 @@ class MainWindow(QMainWindow):
             self._log(f"❌ Ошибка при обходе: {str(e)}")
             import traceback
             traceback.print_exc()
+
+    def _animate_traversal_highlight(self, nodes, traversal_name):
+        """Анимированное подсвечивание узлов обхода."""
+        if not nodes or not hasattr(self, 'tree_visualizer'):
+            return
+        
+        # Цвета для подсветки
+        highlight_color = QColor("#FFD700")  # Золотой для текущего
+        
+        # Сбрасываем все подсветки
+        self.tree_visualizer.reset_styles()
+        
+        # Последовательно подсвечиваем каждый узел
+        for i, node_value in enumerate(nodes):
+            delay = i * 500  # 500ms между узлами
+            
+            # Запланировать подсветку этого узла
+            QTimer.singleShot(delay, lambda val=node_value, idx=i: 
+                            self._highlight_traversal_node(val, idx, highlight_color, len(nodes)))
+        
+        # Последний узел подсвечиваем дольше
+        last_delay = len(nodes) * 500
+        QTimer.singleShot(last_delay + 1000, self.tree_visualizer.reset_styles)
+
+    def _highlight_traversal_node(self, node_value, index, color, total_nodes):
+        """Подсвечивает один узел обхода."""
+        try:
+            if hasattr(self, 'tree_visualizer'):
+                # Подсвечиваем узел
+                self.tree_visualizer.highlight_node_by_value(node_value, color)
+                
+                # Обновляем лог для текущего узла
+                progress = f"({index + 1}/{total_nodes})"
+                self._log(f"📍 {progress} Узел: {node_value}")
+        except Exception as e:
+            print(f"Error highlighting node: {e}")
     
     def _bfs_btree_improved(self, btree):
         """Улучшенный BFS для B-дерева."""

@@ -119,12 +119,9 @@ class GraphVisualizer:
             traceback.print_exc()
 
     def _get_edge_key(self, u, v):
-        """Возвращает нормализованный ключ ребра."""
-        # Для неориентированных графов всегда сортируем
-        if not self.is_directed:
-            return tuple(sorted((u, v)))
-        else:
-            return (u, v)  # Для ориентированных графов порядок важен
+        """Создает ключ для ребра (независимо от направления)."""
+        # Для неориентированного графа порядок не важен
+        return tuple(sorted([str(u), str(v)]))
 
     def _analyze_graph_structure(self, graph_data):
         """Анализирует структуру графа для выбора лучшего алгоритма компоновки."""
@@ -552,32 +549,28 @@ class GraphVisualizer:
         return self.edge_weights.get(edge_key, 1)  # По умолчанию вес 1
 
     def reset_highlights(self):
-        """Сбрасывает все подсветки к исходному состоянию."""
-        try:
-            print("Resetting all highlights")
-            
-            # Сбрасываем подсветку узлов
-            for node_item in self.nodes.values():
-                if hasattr(node_item, 'reset_highlight'):
-                    node_item.reset_highlight()
+        """Сбрасывает подсветку всех узлов и ребер графа."""
+        # Сбрасываем подсветку узлов
+        for node_item in self.nodes.values():
+            if hasattr(node_item, 'reset_highlight'):
+                node_item.reset_highlight()
+            else:
+                # Простой сброс цвета для узлов без метода reset_highlight
+                if hasattr(node_item, 'highlight_color'):
+                    node_item.highlight_color = None
+                if hasattr(node_item, 'default_color'):
+                    node_item.highlight(node_item.default_color)
+        
+        # Сбрасываем подсветку ребер
+        for edge_item in self.edges.values():
+            if hasattr(edge_item, 'reset_highlight'):
+                edge_item.reset_highlight()
+            else:
+                # Простой сброс цвета для ребер без метода reset_highlight
+                if hasattr(edge_item, 'default_color'):
+                    edge_item.setPen(QPen(edge_item.default_color, 2))
                 else:
-                    # Fallback: устанавливаем стандартный цвет
-                    node_item.highlight("#5A9BD5")  # Изменено с setBrush на highlight
-                        
-            # Сбрасываем подсветку ребер
-            for edge_item in self.edges.values():
-                if hasattr(edge_item, 'reset_highlight'):
-                    edge_item.reset_highlight()
-                else:
-                    # Fallback: устанавливаем стандартный цвет и толщину
-                    edge_item.highlight("#2c3e50")  # Изменено с setPen на highlight
-                    if hasattr(edge_item, 'set_dashed'):
-                        edge_item.set_dashed(False)
-                            
-            print("Highlights reset successfully")
-            
-        except Exception as e:
-            print(f"Error resetting highlights: {e}")
+                    edge_item.setPen(QPen(QColor("#7f8c8d"), 2))
 
     def animate_graph_layout_change(self, new_layout_name):
         """Анимирует переход к новой компоновке графа."""
@@ -625,3 +618,4 @@ class GraphVisualizer:
             import traceback
             traceback.print_exc()
             return False
+    

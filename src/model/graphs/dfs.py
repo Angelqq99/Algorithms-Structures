@@ -1,8 +1,6 @@
-
 """
-Алгоритм обхода графа в глубину (DFS).
+Алгоритм обхода графа в глубину (DFS) - рекурсивная версия.
 """
-
 
 class GraphDFS:
     def __init__(self, graph, start_node):
@@ -10,97 +8,68 @@ class GraphDFS:
         self.start = start_node
         self.steps = []
         self.visited = set()
-        self.stack = []
+        self._recursive_dfs(start_node, 0)
 
-    def _initialize_dfs(self):
-        """Инициализация DFS."""
-        self.steps = []
-        self.visited = set()
-        self.stack = []
-        
-        # Инициализация
-        self.visited.add(self.start)
-        self.stack.append(self.start)
-        
-        # Шаг: инициализация
-        self.steps.append({
-            "type": "info",
-            "description": f"Инициализация DFS: начальный узел {self.start}"
-        })
-        
-        # Шаг: посещение начального узла
+    def _recursive_dfs(self, node, depth):
+        """Рекурсивный DFS с отслеживанием глубины."""
+        # Шаг: вход в узел
         self.steps.append({
             "type": "visit",
-            "node": self.start,
-            "description": f"Посещен начальный узел {self.start}"
+            "node": node,
+            "description": f"📍 Вход в узел {node} (глубина: {depth})",
+            "depth": depth
         })
-
-    def _perform_dfs(self):
-        """Выполнение DFS с использованием стека."""
-        iteration = 0
         
-        while self.stack:
-            current = self.stack.pop()
-            iteration += 1
-            
-            # Шаг: обработка текущего узла
+        self.visited.add(node)
+        
+        # Ищем соседей
+        neighbors = self.graph.get(node, {})
+        for neighbor in neighbors:
+            # Шаг: проверка соседа
             self.steps.append({
-                "type": "info",
-                "description": f"Итерация {iteration}: обработка узла {current}"
+                "type": "discover",
+                "from_node": node,
+                "node": neighbor,
+                "description": f"🔍 Проверка соседа {neighbor}",
+                "weight": neighbors.get(neighbor, 1)
             })
             
-            # Получаем соседей
-            neighbors = list(self.graph.get(current, {}).keys())
-            
-            for neighbor in neighbors:
-                # Шаг: проверка соседа
-                self.steps.append({
-                    "type": "discover",
-                    "from_node": current,
-                    "node": neighbor,
-                    "description": f"Проверка соседа {neighbor} из узла {current}"
-                })
+            if neighbor not in self.visited:
+                # Рекурсивный вызов
+                self._recursive_dfs(neighbor, depth + 1)
                 
-                if neighbor not in self.visited:
-                    # Шаг: посещение нового узла
-                    self.visited.add(neighbor)
-                    self.stack.append(neighbor)
-                    
-                    self.steps.append({
-                        "type": "visit",
-                        "node": neighbor,
-                        "description": f"Найден новый узел {neighbor}, добавлен в стек"
-                    })
-                else:
-                    # Шаг: узел уже посещен
-                    self.steps.append({
-                        "type": "info",
-                        "description": f"Узел {neighbor} уже посещен ранее"
-                    })
-            
-            # Шаг: завершение обработки узла
-            self.steps.append({
-                "type": "info",
-                "description": f"Завершена обработка узла {current}"
-            })
+                # Шаг: возврат из рекурсии (опционально)
+                self.steps.append({
+                    "type": "info",
+                    "description": f"↩️ Возврат к узлу {node}"
+                })
+            else:
+                # Шаг: уже посещен
+                self.steps.append({
+                    "type": "info",
+                    "description": f"⏭️ Сосед {neighbor} уже посещен"
+                })
         
-        # Шаг: завершение алгоритма
+        # Шаг: выход из узла
         self.steps.append({
-            "type": "complete",
-            "description": f"DFS завершен. Посещено узлов: {len(self.visited)}",
-            "visited_count": len(self.visited),
-            "visited_nodes": list(self.visited)
+            "type": "info",
+            "description": f"⬅️ Выход из узла {node}"
         })
 
     def step_generator(self):
-        """Генератор шагов DFS."""
-        if not self.steps:
-            self._initialize_dfs()
-            self._perform_dfs()
+        # Добавляем финальный шаг
+        final_steps = self.steps.copy()
+        final_steps.append({
+            "type": "complete",
+            "description": f"✅ Рекурсивный DFS завершен!",
+            "visited_nodes": sorted(self.visited),
+            "total_nodes": len(self.visited)
+        })
         
-        for step in self.steps:
+        for step in final_steps:
             yield step
 
     def get_generator(self):
         """Возвращает генератор шагов."""
         return self.step_generator()
+    
