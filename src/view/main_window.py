@@ -18,6 +18,8 @@ from model.sorting.bubblesort import BubbleSort
 from model.sorting.insertionsort import InsertionSort
 from model.sorting.selectionsort import SelectionSort
 from model.sorting.shellsort import ShellSort
+from model.compression.huffman import HuffmanCoding,create_example_texts
+from view.huffman_visualizer import HuffmanVisualizer
 from model.trees.bst import BST
 from model.trees.avl import AVLTree
 from model.trees.red_black_tree import RedBlackTree
@@ -934,6 +936,11 @@ class MainWindow(QMainWindow):
         self._is_rendering_tree = False
         self.graph_visualizer = GraphVisualizer(self.scene, self.view)
         self.container_visualizer = None
+        # Для алгоритма Хаффмана
+        self.huffman_visualizer = HuffmanVisualizer(self.scene)
+        self.huffman_codes_table = []
+        self.huffman_current_text = ""
+        self.huffman_examples = create_example_texts()
         self.inspector = Inspector()
         
         # Виджет временных массивов
@@ -1054,7 +1061,7 @@ class MainWindow(QMainWindow):
         # Категория и алгоритм
         left_layout.addWidget(QLabel("Категория:"))
         self.category_combo = QComboBox()
-        self.category_combo.addItems(["Сортировки", "Деревья", "Графы", "Хэш-таблицы", "Структуры данных"])
+        self.category_combo.addItems(["Сортировки", "Деревья", "Графы", "Хэш-таблицы", "Структуры данных","Сжатие данных"])
         
         left_layout.addWidget(QLabel("Алгоритм:"))
         self.algorithm_combo = QComboBox()
@@ -1988,6 +1995,8 @@ class MainWindow(QMainWindow):
             self.algorithm_combo.addItems(["HashTable"])
         elif category == "Структуры данных":
             self.algorithm_combo.addItems(["Stack", "Queue", "Deque"])
+        elif category == "Сжатие данных":
+            self.algorithm_combo.addItems(["Huffman Coding"])
 
     def _update_speed(self, value):
         """Изменение скорости во время работы."""
@@ -2065,6 +2074,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(100, self._create_container_panel_for_current_algo)
         elif category == "Графы":
             QTimer.singleShot(100, self._create_graph_interactive_panel)
+        elif category == "Сжатие данных":
+            QTimer.singleShot(100, self._create_huffman_interactive_panel)
         else:
             self._clear_interactive_panel()
         
@@ -2076,6 +2087,8 @@ class MainWindow(QMainWindow):
             self._log("📦 Выберите структуру данных для интерактивных операций")
         elif category == "Графы":
             self._log("🕸️ Постройте граф, затем выберите алгоритм в правой панели")
+        elif category == "Сжатие данных":
+            self._log("🔤 Выберите алгоритм сжатия данных")
 
     def _create_container_panel_for_current_algo(self):
         """Создает панель для текущего алгоритма контейнера."""
@@ -2458,7 +2471,28 @@ class MainWindow(QMainWindow):
             
             self._log(f"🚀 Алгоритм загружен. Начальный узел: {start_node}")
             return True
-            
+        elif category == "Сжатие данных":
+            if algo_name == "Huffman Coding":
+                # Для Хаффмана получаем текст из поля ввода
+                if hasattr(self, 'huffman_text_input'):
+                    text = self.huffman_text_input.toPlainText().strip()
+                else:
+                    text = self.data_input.text().strip()
+                
+                if not text:
+                    QMessageBox.warning(self, "Ошибка", "Введите текст для кодирования Хаффмана")
+                    return False
+                
+                self.huffman_current_text = text
+                self.current_algorithm = HuffmanCoding(text)
+                self.engine.load_algorithm(self.current_algorithm)
+                
+                # Показываем начальный вид - частоты символов
+                self.current_algorithm.calculate_frequencies()
+                self.huffman_visualizer.visualize_frequencies(self.current_algorithm.frequencies)
+                
+                self._log(f"🔤 Алгоритм Хаффмана загружен. Текст: {text[:50]}...")
+                return True    
         else:
             # Оригинальная логика для других категорий
             text = self.data_input.text()
@@ -3279,18 +3313,20 @@ class MainWindow(QMainWindow):
         finally:
             self._is_rendering_tree = False
 
-    def _count_tree_nodes(self, tree_data):
-        """Подсчитывает количество узлов в дереве."""
-        if not tree_data:
+
+    def _count_tree_nodes(self, tree_structure, max_depth=1000):
+        """Подсчитывает количество узлов в дереве с защитой от бесконечной рекурсии."""
+        if not tree_structure or max_depth <= 0:
             return 0
         
-        count = 1  # текущий узел
+        count = 1
+        # Рекурсивно считаем левое поддерево
+        if tree_structure.get("left"):
+            count += self._count_tree_nodes(tree_structure["left"], max_depth - 1)
         
-        if 'left' in tree_data and tree_data['left']:
-            count += self._count_tree_nodes(tree_data['left'])
-        
-        if 'right' in tree_data and tree_data['right']:
-            count += self._count_tree_nodes(tree_data['right'])
+        # Рекурсивно считаем правое поддерево
+        if tree_structure.get("right"):
+            count += self._count_tree_nodes(tree_structure["right"], max_depth - 1)
         
         return count
 
@@ -3448,7 +3484,73 @@ class MainWindow(QMainWindow):
                 if success:
                     self._log(f"📊 Обновлено расстояние до узла {node_index}: {old_distance} → {new_distance}")
             self._schedule_next_action(int(600 * speed_factor))
+               # ==================== ОБРАБОТЧИКИ ДЛЯ АЛГОРИТМА ХАФФМАНА ====================
+        elif t == "frequencies_calculated":
+            frequencies = action.get("frequencies", {})
+            self.huffman_visualizer.visualize_frequencies(frequencies)
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(800 * speed_factor))
             
+        elif t == "initial_nodes":
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))
+            
+        elif t == "nodes_selected":
+            self.huffman_visualizer.visualize_tree_building_step(action)
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(800 * speed_factor))
+            
+        elif t == "nodes_merged":
+            self.huffman_visualizer.visualize_tree_building_step(action)
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(700 * speed_factor))
+            
+        elif t == "heap_updated":
+            self.huffman_visualizer.visualize_tree_building_step(action)
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "tree_built":
+            # Получаем и отображаем дерево
+            if self.current_algorithm and hasattr(self.current_algorithm, 'get_tree_structure'):
+                tree_structure = self.current_algorithm.get_tree_structure()
+                if tree_structure:
+                    self.huffman_visualizer.visualize_huffman_tree(tree_structure, self.tree_visualizer)
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(800 * speed_factor))
+            
+        elif t == "code_generation_start":
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "traverse_left":
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "traverse_right":
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(400 * speed_factor))
+            
+        elif t == "code_assigned":
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(500 * speed_factor))
+            
+        elif t == "encoding_complete":
+            # Отображаем результат кодирования
+            if self.current_algorithm and hasattr(self.current_algorithm, 'get_compression_stats'):
+                stats = self.current_algorithm.get_compression_stats()
+                self.huffman_visualizer.visualize_encoding_result(stats)
+                
+                # Сохраняем таблицу кодов
+                self.huffman_codes_table = self.current_algorithm.get_codes_table()
+            
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(1000 * speed_factor))
+            
+        elif t == "decoding_complete":
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(600 * speed_factor))     
         # === ОБРАБОТЧИКИ ДЛЯ MERGESORT ===
         elif t == "split":
             left = action.get("left", 0)
@@ -4082,7 +4184,20 @@ class MainWindow(QMainWindow):
                 
                 # Завершаем анимацию
                 self._schedule_next_action(100)
-            
+                        # Завершение алгоритма Хаффмана
+            elif self.algorithm_combo.currentText() == "Huffman Coding":
+                # Показываем финальную статистику
+                if self.current_algorithm and hasattr(self.current_algorithm, 'get_compression_stats'):
+                    stats = self.current_algorithm.get_compression_stats()
+                    self._update_huffman_stats({
+                        "type": "text_encoded",
+                        "original_size": stats["original_size_bits"],
+                        "compressed_size": stats["compressed_size_bits"],
+                        "ratio": stats["compression_ratio"],
+                        "savings": stats["savings_percentage"]
+                    })
+                
+                self._log("✅ Алгоритм Хаффмана успешно завершён!")
             # 3. Обработка деревьев
             elif self._last_tree_data:
                 self._render_tree(self._last_tree_data)
@@ -5789,6 +5904,787 @@ class MainWindow(QMainWindow):
             if rect.isValid():
                 self.view.centerOn(rect.center())
                 self._log("🎯 Вид отцентрирован")
+     # ==================== МЕТОДЫ ДЛЯ ИНТЕРАКТИВНОЙ ПАНЕЛИ ХАФФМАНА ====================
+    
+    def _create_huffman_interactive_panel(self):
+        """Создает панель интерактивных операций для алгоритма Хаффмана."""
+        # Очищаем контейнер полностью
+        self._clear_interactive_panel_children()
+        
+        # Обновляем информационную метку
+        self.info_label.setText("ℹ️ Кодирование Хаффмана: сжатие данных без потерь")
+        
+        # Основной контейнер
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setSpacing(10)
+        
+        # === ПАНЕЛЬ ВВОДА ТЕКСТА ===
+        input_group = QGroupBox("📝 Ввод текста")
+        input_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #5A9BD5;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #5A9BD5;
+            }
+        """)
+        
+        input_layout = QVBoxLayout()
+        
+        # Текстовое поле
+        self.huffman_text_input = QTextEdit()
+        self.huffman_text_input.setPlaceholderText("Введите текст для кодирования Хаффмана...")
+        self.huffman_text_input.setMaximumHeight(120)
+        self.huffman_text_input.setStyleSheet("""
+            QTextEdit {
+                padding: 10px;
+                border: 2px solid #5A9BD5;
+                border-radius: 6px;
+                font-size: 14px;
+                font-family: 'Arial';
+                background-color: #f8f9fa;
+            }
+            QTextEdit:focus {
+                border: 2px solid #3498DB;
+                background-color: #ffffff;
+            }
+        """)
+        input_layout.addWidget(self.huffman_text_input)
+        
+        # Панель примеров
+        examples_layout = QHBoxLayout()
+        examples_layout.addWidget(QLabel("Примеры:"))
+        
+        self.huffman_examples_combo = QComboBox()
+        for example in self.huffman_examples:
+            self.huffman_examples_combo.addItem(example["name"])
+        
+        self.huffman_examples_combo.setStyleSheet("""
+            QComboBox {
+                padding: 6px;
+                border: 1px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 12px;
+                background-color: white;
+            }
+        """)
+        examples_layout.addWidget(self.huffman_examples_combo)
+        
+        load_example_btn = QPushButton("📥 Загрузить пример")
+        load_example_btn.clicked.connect(self._load_huffman_example)
+        load_example_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #5A9BD5;
+                color: white;
+                border-radius: 6px;
+                padding: 8px 15px;
+                font-size: 12px;
+                font-weight: bold;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #4B89C6;
+            }
+            QPushButton:pressed {
+                background-color: #3A6FA3;
+            }
+        """)
+        examples_layout.addWidget(load_example_btn)
+        examples_layout.addStretch()
+        
+        input_layout.addLayout(examples_layout)
+        input_group.setLayout(input_layout)
+        layout.addWidget(input_group)
+        
+        # === ПАНЕЛЬ ОПЕРАЦИЙ ===
+        ops_group = QGroupBox("⚙️ Операции")
+        ops_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #4ECDC4;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #4ECDC4;
+            }
+        """)
+        
+        ops_grid = QGridLayout()
+        
+        # Кнопка анализа частот
+        self.huffman_analyze_btn = QPushButton("📊 Анализ частот")
+        self.huffman_analyze_btn.clicked.connect(self._huffman_analyze_frequencies)
+        self.huffman_analyze_btn.setToolTip("Анализировать частоты символов в тексте")
+        
+        # Кнопка построения дерева
+        self.huffman_build_tree_btn = QPushButton("🌳 Построить дерево")
+        self.huffman_build_tree_btn.clicked.connect(self._huffman_build_tree)
+        self.huffman_build_tree_btn.setToolTip("Построить дерево Хаффмана")
+        
+        # Кнопка генерации кодов
+        self.huffman_generate_codes_btn = QPushButton("🔤 Сгенерировать коды")
+        self.huffman_generate_codes_btn.clicked.connect(self._huffman_generate_codes)
+        self.huffman_generate_codes_btn.setToolTip("Сгенерировать коды Хаффмана")
+        
+        # Кнопка кодирования
+        self.huffman_encode_btn = QPushButton("🔒 Закодировать текст")
+        self.huffman_encode_btn.clicked.connect(self._huffman_encode_text)
+        self.huffman_encode_btn.setToolTip("Закодировать текст с использованием кодов Хаффмана")
+        
+        # Кнопка декодирования
+        self.huffman_decode_btn = QPushButton("🔓 Декодировать текст")
+        self.huffman_decode_btn.clicked.connect(self._huffman_decode_text)
+        self.huffman_decode_btn.setToolTip("Декодировать текст")
+        
+        # Кнопка полного процесса
+        self.huffman_full_process_btn = QPushButton("🚀 Полный процесс")
+        self.huffman_full_process_btn.clicked.connect(self._huffman_full_process)
+        self.huffman_full_process_btn.setToolTip("Выполнить полный процесс кодирования Хаффмана")
+        
+        # Стили для кнопок операций
+        ops_button_style = """
+            QPushButton {
+                background-color: #4ECDC4;
+                color: white;
+                border-radius: 8px;
+                padding: 12px;
+                font-size: 13px;
+                font-weight: bold;
+                border: 2px solid #2eaba2;
+                min-height: 45px;
+            }
+            QPushButton:hover {
+                background-color: #3dbcb3;
+                border: 2px solid #1d9a91;
+            }
+            QPushButton:pressed {
+                background-color: #2eaba2;
+            }
+            QPushButton:disabled {
+                background-color: #b0d0cd;
+                color: #e0f0ee;
+                border: 2px solid #a0c0bd;
+            }
+        """
+        
+        # Специальный стиль для кнопки полного процесса
+        full_process_style = """
+            QPushButton {
+                background-color: #9B59B6;
+                color: white;
+                border-radius: 8px;
+                padding: 15px;
+                font-size: 14px;
+                font-weight: bold;
+                border: 2px solid #8E44AD;
+                min-height: 50px;
+            }
+            QPushButton:hover {
+                background-color: #8E44AD;
+                border: 2px solid #7D3C98;
+            }
+            QPushButton:pressed {
+                background-color: #7D3C98;
+            }
+        """
+        
+        # Применяем стили
+        for btn in [self.huffman_analyze_btn, self.huffman_build_tree_btn, 
+                    self.huffman_generate_codes_btn, self.huffman_encode_btn,
+                    self.huffman_decode_btn]:
+            btn.setStyleSheet(ops_button_style)
+        
+        self.huffman_full_process_btn.setStyleSheet(full_process_style)
+        
+        # Размещаем кнопки в сетке
+        ops_grid.addWidget(self.huffman_analyze_btn, 0, 0)
+        ops_grid.addWidget(self.huffman_build_tree_btn, 0, 1)
+        ops_grid.addWidget(self.huffman_generate_codes_btn, 1, 0)
+        ops_grid.addWidget(self.huffman_encode_btn, 1, 1)
+        ops_grid.addWidget(self.huffman_decode_btn, 2, 0)
+        ops_grid.addWidget(self.huffman_full_process_btn, 2, 1)
+        
+        ops_group.setLayout(ops_grid)
+        layout.addWidget(ops_group)
+        
+        # === ПАНЕЛЬ СТАТИСТИКИ ===
+        self.huffman_stats_label = QLabel("ℹ️ Введите текст и выполните операции")
+        self.huffman_stats_label.setStyleSheet("""
+            QLabel {
+                color: #2c3e50;
+                font-size: 12px;
+                padding: 15px;
+                background-color: #f0f8ff;
+                border-radius: 8px;
+                border: 2px solid #d0e0ff;
+                margin-top: 10px;
+            }
+        """)
+        self.huffman_stats_label.setWordWrap(True)
+        self.huffman_stats_label.setMinimumHeight(80)
+        layout.addWidget(self.huffman_stats_label)
+        
+        # === ПАНЕЛЬ БЫСТРЫХ ДЕЙСТВИЙ ===
+        quick_group = QGroupBox("⚡ Быстрые действия")
+        quick_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #FFD166;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 10px 0 10px;
+                color: #FFD166;
+            }
+        """)
+        
+        quick_layout = QHBoxLayout()
+        
+        # Кнопка очистки
+        self.huffman_clear_btn = QPushButton("🗑️ Очистить всё")
+        self.huffman_clear_btn.clicked.connect(self._clear_huffman)
+        self.huffman_clear_btn.setToolTip("Очистить все данные")
+        
+        # Кнопка экспорта
+        self.huffman_export_btn = QPushButton("💾 Экспорт кодов")
+        self.huffman_export_btn.clicked.connect(self._export_huffman_codes)
+        self.huffman_export_btn.setToolTip("Экспортировать таблицу кодов")
+        
+        # Кнопка копирования результата
+        self.huffman_copy_btn = QPushButton("📋 Копировать код")
+        self.huffman_copy_btn.clicked.connect(self._copy_huffman_code)
+        self.huffman_copy_btn.setToolTip("Копировать закодированный текст")
+        
+        # Стили для быстрых кнопок
+        quick_button_style = """
+            QPushButton {
+                background-color: #FFD166;
+                color: #2c3e50;
+                border-radius: 6px;
+                padding: 10px 15px;
+                font-size: 12px;
+                font-weight: bold;
+                border: 2px solid #E6B84F;
+                min-height: 40px;
+            }
+            QPushButton:hover {
+                background-color: #E6B84F;
+                border: 2px solid #D4A847;
+            }
+            QPushButton:pressed {
+                background-color: #D4A847;
+            }
+        """
+        
+        for btn in [self.huffman_clear_btn, self.huffman_export_btn, self.huffman_copy_btn]:
+            btn.setStyleSheet(quick_button_style)
+            quick_layout.addWidget(btn)
+        
+        quick_group.setLayout(quick_layout)
+        layout.addWidget(quick_group)
+        
+        layout.addStretch()
+        
+        # Добавляем контейнер в operations_layout
+        self.operations_layout.addWidget(container)
+        
+        # Инициализируем состояние кнопок
+        self._update_huffman_buttons_state()
+    
+    def _on_huffman_example_selected(self, index):
+        """Обработка выбора примера текста."""
+        if 0 <= index < len(self.huffman_examples):
+            example = self.huffman_examples[index]
+            self.huffman_text_input.setPlainText(example["text"])
+            self.huffman_current_text = example["text"]
+    
+    def _load_huffman_example(self):
+        """Загружает выбранный пример текста."""
+        index = self.huffman_examples_combo.currentIndex()
+        if 0 <= index < len(self.huffman_examples):
+            example = self.huffman_examples[index]
+            self.huffman_text_input.setPlainText(example["text"])
+            self.huffman_current_text = example["text"]
+            self._log(f"📖 Загружен пример: {example['name']}")
+            self._log(f"📝 {example['description']}")
+            self._update_huffman_buttons_state()
+    
+    def _huffman_analyze_frequencies(self):
+        """Анализирует частоты символов в тексте."""
+        text = self.huffman_text_input.toPlainText().strip()
+        
+        if not text:
+            QMessageBox.warning(self, "Ошибка", "Введите текст для анализа")
+            return
+        
+        self.huffman_current_text = text
+        self.current_algorithm = HuffmanCoding(text)
+        
+        # Вычисляем частоты
+        frequencies = self.current_algorithm.calculate_frequencies()
+        
+        # Визуализируем частоты
+        self.huffman_visualizer.visualize_frequencies(frequencies)
+        self._fit_to_content()
+        
+        # Обновляем статистику
+        stats_text = (
+            f"📊 Анализ частот завершен:\n\n"
+            f"• Всего символов: {len(text)}\n"
+            f"• Уникальных символов: {len(frequencies)}\n"
+            f"• Энтропия (теоретическая): {self._calculate_entropy(frequencies, len(text)):.2f} бит/символ\n"
+            f"• Сжатие возможно до: ≤ {len(text) * self._calculate_entropy(frequencies, len(text)):.0f} бит"
+        )
+        self.huffman_stats_label.setText(stats_text)
+        
+        # Включаем следующую кнопку
+        self.huffman_build_tree_btn.setEnabled(True)
+        self._log(f"📊 Проанализирован текст: {len(text)} символов, {len(frequencies)} уникальных")
+    
+    def _huffman_build_tree(self):
+        """Строит дерево Хаффмана."""
+        try:
+            if not self.current_algorithm:
+                QMessageBox.warning(self, "Ошибка", "Сначала проанализируйте текст")
+                return
+            
+            # Проверяем размер текста
+            text_len = len(self.huffman_current_text)
+            
+            # Строим дерево
+            self.current_algorithm.build_huffman_tree()
+            tree_structure = self.current_algorithm.get_tree_structure()
+            
+            if tree_structure:
+                # Визуализируем дерево
+                success = self.huffman_visualizer.visualize_huffman_tree(
+                    tree_structure, 
+                    self.tree_visualizer if hasattr(self, 'tree_visualizer') else None
+                )
+                
+                if success:
+                    self._fit_to_content()
+                    
+                    # Обновляем статистику
+                    tree_height = self._calculate_tree_height(tree_structure)
+                    stats_text = (
+                        f"🌳 Дерево Хаффмана построено:\n\n"
+                        f"• Корень: {tree_structure.get('frequency', 0)}\n"
+                        f"• Узлов: {self.huffman_visualizer._count_tree_nodes(tree_structure)}\n"
+                        f"• Высота: {tree_height}\n"
+                        f"• Уникальных символов: {len(self.current_algorithm.frequencies)}"
+                    )
+                    self.huffman_stats_label.setText(stats_text)
+                    
+                    self.huffman_generate_codes_btn.setEnabled(True)
+                    self._log("🌳 Дерево Хаффмана построено!")
+                else:
+                    self._log("⚠️ Дерево визуализировано в упрощенном формате")
+            else:
+                self._log("❌ Не удалось построить дерево")
+            
+            self._update_huffman_buttons_state()
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка: {str(e)}")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+    
+    def _huffman_generate_codes(self):
+        """Генерирует коды Хаффмана."""
+        if not self.current_algorithm:
+            QMessageBox.warning(self, "Ошибка", "Сначала постройте дерево")
+            return
+        
+        if not hasattr(self.current_algorithm, 'root') or not self.current_algorithm.root:
+            QMessageBox.warning(self, "Ошибка", "Сначала постройте дерево")
+            return
+        
+        try:
+            # Генерируем коды - используем правильный метод
+            if hasattr(self.current_algorithm, 'generate_huffman_codes_iterative'):
+                self.current_algorithm.generate_huffman_codes_iterative()
+            else:
+                # Альтернативный вариант
+                self.current_algorithm.generate_huffman_codes_recursive()
+            
+            # Получаем таблицу кодов
+            if hasattr(self.current_algorithm, 'get_codes_table'):
+                self.huffman_codes_table = self.current_algorithm.get_codes_table()
+            else:
+                # Создаем таблицу кодов вручную
+                self.huffman_codes_table = []
+                for symbol, code in self.current_algorithm.codes.items():
+                    freq = self.current_algorithm.frequencies.get(symbol, 0)
+                    self.huffman_codes_table.append({
+                        "symbol": symbol,
+                        "code": code,
+                        "frequency": freq,
+                        "savings": 8 - len(code)
+                    })
+            
+            # Визуализируем таблицу кодов
+            if hasattr(self, 'huffman_visualizer'):
+                self.huffman_visualizer.visualize_codes_table(self.huffman_codes_table)
+                self._fit_to_content()
+            
+            # Включаем кнопки
+            if hasattr(self, 'huffman_encode_btn'):
+                self.huffman_encode_btn.setEnabled(True)
+            if hasattr(self, 'huffman_decode_btn'):
+                self.huffman_decode_btn.setEnabled(True)
+            
+            # Обновляем статистику
+            if self.huffman_codes_table:
+                total_freq = sum(item["frequency"] for item in self.huffman_codes_table)
+                if total_freq > 0:
+                    avg_length = sum(len(item["code"]) * item["frequency"] for item in self.huffman_codes_table) / total_freq
+                else:
+                    avg_length = 0
+                    
+                stats_text = (
+                    f"🔤 Коды Хаффмана сгенерированы:\n\n"
+                    f"• Всего кодов: {len(self.huffman_codes_table)}\n"
+                    f"• Средняя длина кода: {avg_length:.2f} бит/символ\n"
+                    f"• Макс. длина кода: {max(len(item['code']) for item in self.huffman_codes_table)} бит\n"
+                    f"• Мин. длина кода: {min(len(item['code']) for item in self.huffman_codes_table)} бит"
+                )
+            else:
+                stats_text = "❌ Не удалось сгенерировать коды"
+            
+            if hasattr(self, 'huffman_stats_label'):
+                self.huffman_stats_label.setText(stats_text)
+            
+            if hasattr(self, '_log'):
+                self._log("🔤 Сгенерированы коды Хаффмана")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка при генерации кодов: {str(e)}")
+            print(f"Error generating Huffman codes: {e}")
+    
+    def _huffman_encode_text(self):
+        """Кодирует текст с использованием кодов Хаффмана."""
+        if not self.current_algorithm or not hasattr(self.current_algorithm, 'encode_text'):
+            QMessageBox.warning(self, "Ошибка", "Сначала сгенерируйте коды")
+            return
+        
+        # Кодируем текст
+        encoded_text = self.current_algorithm.encode_text()
+        
+        # Получаем статистику
+        stats = self.current_algorithm.get_compression_stats()
+        
+        # Визуализируем результат кодирования
+        self.huffman_visualizer.visualize_encoding_result(stats)
+        self._fit_to_content()
+        
+        # Обновляем статистику
+        stats_text = (
+            f"✅ Текст закодирован!\n\n"
+            f"• Оригинальный размер: {stats['original_size_bits']} бит\n"
+            f"• Сжатый размер: {stats['compressed_size_bits']} бит\n"
+            f"• Экономия: {stats['savings_percentage']:.1f}%\n"
+            f"• Коэффициент сжатия: {stats['compression_ratio']:.2f}:1"
+        )
+        self.huffman_stats_label.setText(stats_text)
+        
+        self._log(f"✅ Текст закодирован! Экономия: {stats['savings_percentage']:.1f}%")
+    
+    def _huffman_decode_text(self):
+        """Декодирует текст."""
+        if not self.current_algorithm or not hasattr(self.current_algorithm, 'decode_text'):
+            QMessageBox.warning(self, "Ошибка", "Сначала закодируйте текст")
+            return
+        
+        # Декодируем текст
+        decoded_text = self.current_algorithm.decode_text()
+        
+        # Проверяем корректность
+        is_correct = decoded_text == self.huffman_current_text
+        
+        if is_correct:
+            self._log("✅ Декодирование успешно! Текст восстановлен без ошибок.")
+            QMessageBox.information(self, "Успех", "Текст успешно декодирован и соответствует оригиналу!")
+        else:
+            self._log("❌ Ошибка декодирования! Текст не соответствует оригиналу.")
+            QMessageBox.warning(self, "Ошибка", "Декодированный текст не совпадает с оригиналом")
+    
+    def _huffman_full_process(self):
+        """Выполняет полный процесс (безопасно)."""
+        text = self.huffman_text_input.toPlainText().strip()
+        
+        if not text:
+            QMessageBox.warning(self, "Ошибка", "Введите текст")
+            return
+        
+        try:
+            # Проверяем размер
+            if len(text) > 500:
+                reply = QMessageBox.question(
+                    self, "Внимание",
+                    f"Текст большой ({len(text)} символов).\n"
+                    f"Рекомендуется использовать текст до 500 символов.\n\n"
+                    f"Продолжить?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.No:
+                    return
+            
+            self.huffman_current_text = text
+            
+            # Создаем алгоритм
+            self.current_algorithm = HuffmanCoding(text)
+            
+            # Выполняем шаги
+            self._log("🚀 Начало полного процесса Хаффмана...")
+            
+            # 1. Анализ частот
+            frequencies = self.current_algorithm.calculate_frequencies()
+            self.huffman_visualizer.visualize_frequencies(frequencies)
+            self._fit_to_content()
+            QApplication.processEvents()  # Обновляем GUI
+            
+            # 2. Построение дерева
+            self.current_algorithm.build_huffman_tree()
+            tree_structure = self.current_algorithm.get_tree_structure()
+            
+            if tree_structure:
+                if hasattr(self, 'tree_visualizer'):
+                    try:
+                        self.tree_visualizer.clear()
+                    except:
+                        pass
+                
+                # Используем наш визуализатор напрямую, без tree_visualizer
+                # если он вызывает проблемы
+                success = self.huffman_visualizer.visualize_huffman_tree(
+                    tree_structure, 
+                    self.tree_visualizer if hasattr(self, 'tree_visualizer') else None
+                )
+                
+                if success:
+                    self._center_on_tree()
+                QApplication.processEvents()
+            
+            # 3. Генерация кодов
+            self.current_algorithm.generate_huffman_codes_iterative()
+            codes_table = self.current_algorithm.get_codes_table()
+            
+            if codes_table:
+                self.huffman_codes_table = codes_table
+                self.huffman_visualizer.visualize_codes_table(codes_table)
+                self._fit_to_content()
+                QApplication.processEvents()
+            
+            # 4. Кодирование
+            self.current_algorithm.encode_text()
+            stats = self.current_algorithm.get_compression_stats()
+            
+            if stats:
+                self.huffman_visualizer.visualize_encoding_result(stats)
+                self._fit_to_content()
+                
+                # Статистика
+                stats_text = (
+                    f"✅ Полный процесс завершен!\n\n"
+                    f"• Символов: {len(text)}\n"
+                    f"• Уникальных: {stats['unique_symbols']}\n"
+                    f"• Экономия: {stats['savings_percentage']:.1f}%\n"
+                    f"• Сжатие: {stats['compression_ratio']:.2f}:1"
+                )
+                self.huffman_stats_label.setText(stats_text)
+                
+                self._log(f"✅ Полный процесс завершен! Экономия: {stats['savings_percentage']:.1f}%")
+            
+            # Обновляем кнопки
+            self._update_huffman_buttons_state()
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка в полном процессе: {str(e)}")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+    
+    def _clear_huffman(self):
+        """Очищает все данные Хаффмана."""
+        reply = QMessageBox.question(
+            self, "Подтверждение",
+            "Очистить все данные кодирования Хаффмана?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Очищаем поля ввода
+            self.huffman_text_input.clear()
+            
+            # Очищаем данные
+            self.huffman_codes_table = []
+            self.huffman_current_text = ""
+            self.current_algorithm = None
+            
+            # Очищаем сцену
+            self.scene.clear()
+            
+            # Сбрасываем кнопки
+            self._update_huffman_buttons_state()
+            
+            # Сбрасываем статистику
+            self.huffman_stats_label.setText("ℹ️ Введите текст и выполните операции")
+            
+            self._log("🗑️ Данные Хаффмана очищены")
+    
+    def _export_huffman_codes(self):
+        """Экспортирует таблицу кодов Хаффмана."""
+        if not self.huffman_codes_table:
+            QMessageBox.warning(self, "Ошибка", "Нет данных для экспорта")
+            return
+        
+        # Создаем текст для экспорта
+        export_text = "=" * 50 + "\n"
+        export_text += "ТАБЛИЦА КОДОВ ХАФФМАНА\n"
+        export_text += "=" * 50 + "\n\n"
+        export_text += f"Текст: {self.huffman_current_text[:50]}...\n"
+        export_text += f"Длина: {len(self.huffman_current_text)} символов\n"
+        export_text += f"Уникальных символов: {len(self.huffman_codes_table)}\n"
+        export_text += "\n" + "=" * 50 + "\n"
+        export_text += "СИМВОЛ | КОД | ЧАСТОТА | БИТ/СИМВОЛ | ЭКОНОМИЯ\n"
+        export_text += "-" * 50 + "\n"
+        
+        total_freq = sum(item["frequency"] for item in self.huffman_codes_table)
+        total_savings = 0
+        
+        for item in sorted(self.huffman_codes_table, key=lambda x: (-x["frequency"], x["code"])):
+            symbol = item["symbol"]
+            if symbol == " ":
+                symbol_display = "[space]"
+            elif symbol == "\n":
+                symbol_display = "\\n"
+            elif symbol == "\t":
+                symbol_display = "\\t"
+            else:
+                symbol_display = symbol
+            
+            savings = item["savings"]
+            total_savings += savings * item["frequency"]
+            
+            export_text += f"'{symbol_display}'\t{item['code']}\t{item['frequency']} ({item['frequency']/total_freq:.1%})\t8 → {len(item['code'])}\t{savings:+d} бит\n"
+        
+        export_text += "\n" + "=" * 50 + "\n"
+        export_text += "СТАТИСТИКА:\n"
+        export_text += f"• Общая экономия: {total_savings} бит\n"
+        export_text += f"• Средняя длина кода: {sum(len(item['code']) * item['frequency'] for item in self.huffman_codes_table) / total_freq:.2f} бит/символ\n"
+        export_text += f"• Теоретический предел сжатия: {total_freq * 8 - total_savings} бит\n"
+        export_text += "=" * 50
+        
+        # Копируем в буфер обмена
+        clipboard = QApplication.clipboard()
+        clipboard.setText(export_text)
+        
+        QMessageBox.information(self, "Экспорт", "Таблица кодов скопирована в буфер обмена")
+        self._log("📋 Таблица кодов экспортирована")
+    
+    def _copy_huffman_code(self):
+        """Копирует закодированный текст."""
+        if not self.current_algorithm or not hasattr(self.current_algorithm, 'encoded_text'):
+            QMessageBox.warning(self, "Ошибка", "Нет закодированного текста")
+            return
+        
+        encoded_text = self.current_algorithm.encoded_text
+        if not encoded_text:
+            QMessageBox.warning(self, "Ошибка", "Сначала закодируйте текст")
+            return
+        
+        clipboard = QApplication.clipboard()
+        clipboard.setText(encoded_text)
+        
+        QMessageBox.information(self, "Копирование", "Закодированный текст скопирован в буфер обмена")
+        self._log("📋 Закодированный текст скопирован")
+    
+    def _update_huffman_buttons_state(self):
+        """Обновляет состояние кнопок Хаффмана."""
+        has_text = bool(self.huffman_text_input.toPlainText().strip())
+        has_algorithm = bool(self.current_algorithm)
+        
+        # Базовые кнопки
+        self.huffman_analyze_btn.setEnabled(has_text)
+        self.huffman_full_process_btn.setEnabled(has_text)
+        
+        # Зависимые кнопки (изначально выключены)
+        self.huffman_build_tree_btn.setEnabled(False)
+        self.huffman_generate_codes_btn.setEnabled(False)
+        self.huffman_encode_btn.setEnabled(False)
+        self.huffman_decode_btn.setEnabled(False)
+        self.huffman_export_btn.setEnabled(False)
+        self.huffman_copy_btn.setEnabled(False)
+        
+        if has_algorithm:
+            # Проверяем состояние алгоритма
+            if hasattr(self.current_algorithm, 'frequencies') and self.current_algorithm.frequencies:
+                self.huffman_build_tree_btn.setEnabled(True)
+            
+            if hasattr(self.current_algorithm, 'root') and self.current_algorithm.root:
+                self.huffman_generate_codes_btn.setEnabled(True)
+            
+            if hasattr(self.current_algorithm, 'codes') and self.current_algorithm.codes:
+                self.huffman_encode_btn.setEnabled(True)
+                self.huffman_decode_btn.setEnabled(True)
+                self.huffman_export_btn.setEnabled(True)
+            
+            if hasattr(self.current_algorithm, 'encoded_text') and self.current_algorithm.encoded_text:
+                self.huffman_copy_btn.setEnabled(True)
+    
+    def _calculate_entropy(self, frequencies, total_chars):
+        """Вычисляет энтропию Шеннона."""
+        if total_chars == 0:
+            return 0
+        
+        entropy = 0
+        for freq in frequencies.values():
+            probability = freq / total_chars
+            if probability > 0:
+                entropy -= probability * math.log2(probability)
+        
+        return entropy
+    
+    def _calculate_tree_height(self, tree_structure):
+        """Вычисляет высоту дерева."""
+        if not tree_structure:
+            return 0
+        
+        left_height = self._calculate_tree_height(tree_structure.get("left"))
+        right_height = self._calculate_tree_height(tree_structure.get("right"))
+        
+        return 1 + max(left_height, right_height)
+    
+    def _calculate_average_path_length(self, tree_structure, current_depth=0):
+        """Вычисляет среднюю длину пути в дереве."""
+        if not tree_structure:
+            return 0
+        
+        # Если это лист (символ)
+        if tree_structure.get("is_leaf"):
+            frequency = tree_structure.get("frequency", 1)
+            return current_depth * frequency
+        
+        # Рекурсивно вычисляем для левого и правого поддеревьев
+        left_length = self._calculate_average_path_length(tree_structure.get("left"), current_depth + 1)
+        right_length = self._calculate_average_path_length(tree_structure.get("right"), current_depth + 1)
+        
+        return left_length + right_length               
 
     def closeEvent(self, event):
         """Обработка закрытия приложения."""
