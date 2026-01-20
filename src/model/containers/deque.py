@@ -19,7 +19,7 @@ class Deque(BaseAlgorithm):
         """
         super().__init__(commands)
         self.deque = deque()
-        self.max_size = 10  # Максимальный размер для визуализации
+        self.max_size = 2000  # Максимальный размер для визуализации
     
     def step_generator(self):
         """Генератор шагов для визуализации"""
@@ -215,3 +215,12 @@ class Deque(BaseAlgorithm):
     
     def __str__(self):
         return f"Deque({list(self.deque)})"
+    def get_info(self):
+        return {
+            "type": "Deque",
+            "size": len(self._items),
+            "empty": self.is_empty(),
+            "front": self.front() if not self.is_empty() else None,
+            "back": self.back() if not self.is_empty() else None,
+            "items": self._items.copy()
+        }

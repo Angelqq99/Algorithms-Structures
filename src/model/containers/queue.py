@@ -17,7 +17,7 @@ class Queue(BaseAlgorithm):
         """
         super().__init__(commands)
         self.queue = deque()
-        self.max_size = 10  # Максимальный размер для визуализации
+        self.max_size = 2000  # Максимальный размер для визуализации
     
     def step_generator(self):
         """Генератор шагов для визуализации"""
@@ -169,3 +169,12 @@ class Queue(BaseAlgorithm):
     
     def __str__(self):
         return f"Queue({list(self.queue)})"
+    def get_info(self):
+        return {
+            "type": "Queue",
+            "size": len(self._items),
+            "empty": self.is_empty(),
+            "front": self.front() if not self.is_empty() else None,
+            "back": self.back() if not self.is_empty() else None,
+            "items": self._items.copy()
+        }

@@ -218,9 +218,9 @@ class ContainerVisualizer:
         self.ELEMENT_HEIGHT = 70
         self.SPACING = 20
         
-        # Позиционирование - теперь ближе к центру
-        self.START_X = -150  # Ближе к центру
-        self.START_Y = -150  # Ближе к центру
+        # Позиционирование
+        self.START_X = -150
+        self.START_Y = -80  # Сдвинуто выше, чтобы освободить место для статуса
         
         # Цвета интерфейса
         self.BG_COLOR = QColor("#F8F9FA")
@@ -237,6 +237,12 @@ class ContainerVisualizer:
     
     def _create_interface(self):
         """Создает интерфейс контейнера"""
+        # Расположение элементов сверху вниз:
+        # 1. Заголовок (самый верх)
+        # 2. Статусная строка (ниже заголовка)
+        # 3. Заголовок таблицы
+        # 4. Сама таблица элементов
+        
         # Заголовок
         titles = {
             "stack": "📚 СТЕК (LIFO)",
@@ -247,22 +253,29 @@ class ContainerVisualizer:
         self.title_text = QGraphicsTextItem(titles[self.container_type])
         self.title_text.setFont(QFont("Arial", 24, QFont.Weight.Bold))
         self.title_text.setDefaultTextColor(QColor("#2c3e50"))
-        self.title_text.setPos(self.START_X, self.START_Y - 100)
+        self.title_text.setPos(self.START_X, self.START_Y - 150)  # Самый верх
         self.scene.addItem(self.title_text)
+        
+        # Статусная строка - прямо под заголовком
+        self.status_text = QGraphicsTextItem("Готов к операциям...")
+        self.status_text.setFont(QFont("Arial", 14))
+        self.status_text.setDefaultTextColor(QColor("#5A9BD5"))
+        self.status_text.setPos(self.START_X, self.START_Y - 100)  # Под заголовком, но над таблицей
+        self.scene.addItem(self.status_text)
+        
+        # Информационный текст для дополнительной информации
+        self.info_text = QGraphicsTextItem("")
+        self.info_text.setFont(QFont("Arial", 12))
+        self.info_text.setDefaultTextColor(QColor("#666"))
+        self.info_text.setPos(self.START_X, self.START_Y - 80)
+        self.scene.addItem(self.info_text)
         
         # Заголовок таблицы
         self.header_text = QGraphicsTextItem("Структура данных:")
         self.header_text.setFont(QFont("Arial", 16, QFont.Weight.Bold))
         self.header_text.setDefaultTextColor(QColor("#2c3e50"))
-        self.header_text.setPos(self.START_X, self.START_Y - 50)
+        self.header_text.setPos(self.START_X, self.START_Y - 50)  # Ниже статуса
         self.scene.addItem(self.header_text)
-        
-        # Статусная строка
-        self.status_text = QGraphicsTextItem("Готов к операциям...")
-        self.status_text.setFont(QFont("Arial", 14))
-        self.status_text.setDefaultTextColor(QColor("#5A9BD5"))
-        self.status_text.setPos(self.START_X, self.START_Y + 350)  # Ниже
-        self.scene.addItem(self.status_text)
         
         # Создаем начальную таблицу заголовков
         self._create_table_header()
@@ -338,12 +351,30 @@ class ContainerVisualizer:
         except Exception as e:
             print(f"Warning in container visualizer clear: {e}")
     
-    def _update_status(self, message, is_error=False):
-        """Обновляет статусную строку"""
+    def _update_status(self, message, is_error=False, additional_info=""):
+        """Обновляет статусную строку и дополнительную информацию"""
         if self.status_text:
             self.status_text.setPlainText(message)
             color = QColor("#FF6B6B") if is_error else QColor("#5A9BD5")
             self.status_text.setDefaultTextColor(color)
+            
+            # Анимация обновления статуса
+            self._animate_status_update()
+        
+        if self.info_text:
+            self.info_text.setPlainText(additional_info)
+    
+    def _animate_status_update(self):
+        """Анимация обновления статусной строки"""
+        if self.status_text:
+            anim = QPropertyAnimation(self.status_text, b"scale")
+            anim.setDuration(300)
+            anim.setStartValue(1.0)
+            anim.setKeyValueAt(0.5, 1.05)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+            anim.start()
+            self.animations.append(anim)
     
     def _get_element_position(self, index):
         """Вычисляет позицию элемента по индексу"""
@@ -415,9 +446,6 @@ class ContainerVisualizer:
     
     def push(self, value, position="back"):
         """Добавляет элемент в контейнер с анимацией"""
-        # if len(self.elements) >= 8:  # Ограничение для визуализации
-        #     self._update_status("❌ Контейнер переполнен!", True)
-        #     return None
         
         # Определяем индекс для нового элемента
         if self.container_type == "stack" or position == "back":
@@ -486,13 +514,16 @@ class ContainerVisualizer:
         # Обновляем позиции других элементов
         QTimer.singleShot(300, lambda: self._animate_all_elements(0 if position == "front" else len(self.elements)-1))
         
-        # Обновляем статус
+        # Обновляем статус с дополнительной информацией
         operations = {
             "stack": f"📥 Push({value}) - элемент добавлен сверху",
             "queue": f"📥 Enqueue({value}) - элемент добавлен в конец",
-            "deque": f"➡️ Push_{position}({value})" if position == "back" else f"⬅️ Push_{position}({value})"
+            "deque": f"➡️ Push_back({value})" if position == "back" else f"⬅️ Push_front({value})"
         }
-        self._update_status(operations[self.container_type])
+        size = len(self.elements)
+        operation_msg = operations[self.container_type]
+        additional = f"Всего элементов: {size}"
+        self._update_status(operation_msg, False, additional)
         
         # Центрируем вид
         QTimer.singleShot(900, self._center_view)
@@ -524,11 +555,12 @@ class ContainerVisualizer:
                 
                 # Получаем view из сцены (нужно передавать view отдельно)
                 # Эта функция будет вызываться из MainWindow
-            
+                pass
+    
     def pop(self, position="back"):
         """Удаляет элемент из контейнера с анимацией"""
         if not self.elements:
-            self._update_status("❌ Контейнер пуст!", True)
+            self._update_status("❌ Контейнер пуст!", True, "Нет элементов для удаления")
             return None
         
         # Определяем какой элемент удалять
@@ -572,13 +604,16 @@ class ContainerVisualizer:
             # Обновляем позиции оставшихся элементов
             QTimer.singleShot(100, lambda: self._animate_all_elements(0))
             
-            # Обновляем статус
+            # Обновляем статус с дополнительной информацией
             operations = {
                 "stack": f"📤 Pop() → {value} - элемент удален сверху",
                 "queue": f"📤 Dequeue() → {value} - элемент удален из начала",
-                "deque": f"➡️ Pop_{position}() → {value}" if position == "back" else f"⬅️ Pop_{position}() → {value}"
+                "deque": f"➡️ Pop_back() → {value}" if position == "back" else f"⬅️ Pop_front() → {value}"
             }
-            self._update_status(operations[self.container_type])
+            size_after = len(self.elements)
+            operation_msg = operations[self.container_type]
+            additional = f"Осталось элементов: {size_after}"
+            self._update_status(operation_msg, False, additional)
         
         # Запускаем удаление с задержкой
         QTimer.singleShot(500, perform_pop)
@@ -588,7 +623,7 @@ class ContainerVisualizer:
     def peek(self, position="front"):
         """Подсвечивает элемент для просмотра"""
         if not self.elements:
-            self._update_status("❌ Контейнер пуст!", True)
+            self._update_status("❌ Контейнер пуст!", True, "Нет элементов для просмотра")
             return None
         
         if self.container_type == "stack":
@@ -618,15 +653,17 @@ class ContainerVisualizer:
         element.set_operating(True, "#FFD700")
         element.bounce_animation()
         
-        # Обновляем статус
-        self._update_status(f"👁 {operation}: {value}")
+        # Обновляем статус с дополнительной информацией
+        size = len(self.elements)
+        additional = f"Всего элементов: {size}"
+        self._update_status(f"👁 {operation}: {value}", False, additional)
         
         return value
     
     def get_size(self):
         """Возвращает размер контейнера"""
         size = len(self.elements)
-        self._update_status(f"📊 Размер: {size} элементов")
+        self._update_status(f"📊 Размер: {size} элементов", False, f"Контейнер {'пуст' if size == 0 else 'не пуст'}")
         
         # Анимация всех элементов
         for elem in self.elements:
@@ -638,11 +675,10 @@ class ContainerVisualizer:
         """Проверяет, пуст ли контейнер"""
         is_empty = len(self.elements) == 0
         status = "пуст" if is_empty else "не пуст"
-        self._update_status(f"📋 Контейнер {status}")
+        self._update_status(f"📋 Контейнер {status}", False, f"Количество элементов: {len(self.elements)}")
         
         if is_empty and self.title_text:
             # Анимация заголовка
-            from PyQt6.QtCore import QPropertyAnimation
             anim = QPropertyAnimation(self.title_text, b"scale")
             anim.setDuration(500)
             anim.setStartValue(1.0)
@@ -702,12 +738,12 @@ class ContainerVisualizer:
             self.is_empty()
             
         elif action_type == "complete":
-            self._update_status("✅ Все операции выполнены!")
+            self._update_status("✅ Все операции выполнены!", False, f"Итоговый размер: {len(self.elements)}")
             
         return True
     
     def get_container_info(self):
-        """Возвращает информацию о контейнере"""
+        """Возвращает подробную информацию о контейнере."""
         values = [elem.value for elem in self.elements]
         
         info = {
@@ -723,6 +759,10 @@ class ContainerVisualizer:
             else:
                 info["front"] = values[0]
                 info["back"] = values[-1]
+        
+        # Добавляем визуальную информацию
+        info["visual_elements_count"] = len(self.elements)
+        info["status"] = self.status_text.toPlainText() if self.status_text else "Неизвестно"
         
         return info
     

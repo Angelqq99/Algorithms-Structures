@@ -5487,312 +5487,126 @@ class MainWindow(QMainWindow):
             self.tree_visualizer.highlight_node_by_value(self.current_algorithm.root.value, "#FFA500", 2000)
     
     def _on_container_operation_execute(self):
-        """Выполнение интерактивной операции с контейнером."""
+        """Выполнение операций с контейнером."""
+        if not self.current_algorithm:
+            self._log("❌ Нет активного контейнера для операций")
+            return
+        
+        # Получаем выбранную операцию
+        operation_text = self.container_ops_combo.currentText()
+        value_text = self.container_val_input.text().strip()
+        
         try:
-            # Проверяем, что контейнер инициализирован
-            if self.container_type is None or self.container_visualizer is None:
-                # Если нет, создаем его на основе выбранного алгоритма
-                algo_name = self.algorithm_combo.currentText()
-                if algo_name == "Stack":
-                    self.current_algorithm = Stack([])
-                    self.container_type = "stack"
-                    self.container_visualizer = ContainerVisualizer(self.scene, "stack")
-                    # Очищаем сцену и показываем интерфейс контейнера
-                    self.scene.clear()
-                    self.container_visualizer._create_interface()
-                elif algo_name == "Queue":
-                    self.current_algorithm = Queue([])
-                    self.container_type = "queue"
-                    self.container_visualizer = ContainerVisualizer(self.scene, "queue")
-                    self.scene.clear()
-                    self.container_visualizer._create_interface()
-                elif algo_name == "Deque":
-                    self.current_algorithm = Deque([])
-                    self.container_type = "deque"
-                    self.container_visualizer = ContainerVisualizer(self.scene, "deque")
-                    self.scene.clear()
-                    self.container_visualizer._create_interface()
-                else:
-                    self._log("❌ Неизвестный тип контейнера")
-                    return
-            
-            if not self.current_algorithm:
-                self._log("❌ Контейнер не инициализирован")
-                return
-            
-            operation_text = self.container_ops_combo.currentText()
-            value_text = self.container_val_input.text().strip()
-            
-            # ИСПРАВЛЕННЫЙ БЛОК ОПРЕДЕЛЕНИЯ ОПЕРАЦИИ
-            operation = ""
-            
-            # Сначала проверяем полные названия операций
-            if operation_text == "push_front (добавить в начало)":
-                operation = "push_front"
-            elif operation_text == "push_back (добавить в конец)":
-                operation = "push_back"
-            elif operation_text == "pop_front (удалить из начала)":
-                operation = "pop_front"
-            elif operation_text == "pop_back (удалить из конца)":
-                operation = "pop_back"
-            elif operation_text == "front (посмотреть первый)":
-                operation = "front"
-            elif operation_text == "back (посмотреть последний)":
-                operation = "back"
-            elif operation_text == "size (размер)":
-                operation = "size"
-            elif operation_text == "is_empty (пусто?)":
-                operation = "is_empty"
-            # Для стека
-            elif operation_text == "push (добавить)":
-                operation = "push"
-            elif operation_text == "pop (удалить верхний)":
-                operation = "pop"
-            elif operation_text == "peek (посмотреть верхний)":
-                operation = "peek"
-            # Для очереди
-            elif operation_text == "enqueue (добавить)":
-                operation = "enqueue"
-            elif operation_text == "dequeue (удалить первый)":
-                operation = "dequeue"
-            else:
-                self._log(f"❌ Неизвестная операция: {operation_text}")
-                return
-            
-            # Выполняем операцию
-            result = None
-            if operation in ["push", "enqueue", "push_front", "push_back"]:
+            # Обработка операций с значением
+            if operation_text.startswith("push") or operation_text.startswith("enqueue"):
                 if not value_text:
-                    QMessageBox.warning(self, "Ошибка", "Введите значение для операции добавления")
+                    QMessageBox.warning(self, "Ошибка", "Введите значение для операции")
                     return
                 
-                try:
-                    value = int(value_text)
-                except ValueError:
-                    QMessageBox.warning(self, "Ошибка", "Введите корректное число")
-                    return
+                value = int(value_text)
                 
-                if self.container_type == "stack":
-                    success = self.current_algorithm.push(value)
-                    if success:
-                        self._log(f"✅ Добавлено в стек: {value}")
-                        # Визуализируем с анимацией
-                        if self.container_visualizer:
-                            element = self.container_visualizer.push(value)
-                            if element:
-                                # Немедленное обновление сцены
-                                self.scene.update()
-                                self.view.viewport().update()
-                    else:
-                        self._log(f"❌ Стек переполнен!")
-                elif self.container_type == "queue":
-                    success = self.current_algorithm.enqueue(value)
-                    if success:
-                        self._log(f"✅ Добавлено в очередь: {value}")
-                        if self.container_visualizer:
-                            element = self.container_visualizer.push(value)
-                            if element:
-                                self.scene.update()
-                                self.view.viewport().update()
-                    else:
-                        self._log(f"❌ Очередь переполнена!")
-                elif self.container_type == "deque":
-                    if operation == "push_front":
-                        success = self.current_algorithm.push_front(value)
-                        if success:
-                            self._log(f"✅ Добавлено в начало дека: {value}")
-                            if self.container_visualizer:
-                                element = self.container_visualizer.push(value, "front")
-                                if element:
-                                    self.scene.update()
-                                    self.view.viewport().update()
-                        else:
-                            self._log(f"❌ Дек переполнен!")
-                    elif operation == "push_back":  # push_back
-                        success = self.current_algorithm.push_back(value)
-                        if success:
-                            self._log(f"✅ Добавлено в конец дека: {value}")
-                            if self.container_visualizer:
-                                element = self.container_visualizer.push(value, "back")
-                                if element:
-                                    self.scene.update()
-                                    self.view.viewport().update()
-                        else:
-                            self._log(f"❌ Дек переполнен!")
+                # Определяем позицию для дека
+                position = "back"
+                if operation_text == "push_front (добавить в начало)":
+                    position = "front"
                 
-            elif operation in ["pop", "dequeue", "pop_front", "pop_back"]:
-                if self.container_type == "stack":
-                    # Подсвечиваем перед удалением
-                    if self.container_visualizer:
-                        self.container_visualizer.highlight_operation("pop")
-                    
+                # Выполняем операцию на реальной структуре данных
+                if isinstance(self.current_algorithm, Stack):
+                    self.current_algorithm.push(value)
+                    self.container_visualizer.push(value)
+                elif isinstance(self.current_algorithm, Queue):
+                    self.current_algorithm.enqueue(value)
+                    self.container_visualizer.push(value)  # для очереди тоже push
+                elif isinstance(self.current_algorithm, Deque):
+                    if operation_text == "push_front (добавить в начало)":
+                        self.current_algorithm.push_front(value)
+                        self.container_visualizer.push(value, "front")
+                    else:  # push_back
+                        self.current_algorithm.push_back(value)
+                        self.container_visualizer.push(value, "back")
+                
+                # Очищаем поле ввода
+                self.container_val_input.clear()
+                
+            # Обработка операций без значения
+            else:
+                result = None
+                
+                if operation_text == "pop (удалить верхний)":
                     result = self.current_algorithm.pop()
-                    if result is not None:
-                        self._log(f"✅ Извлечено из стека: {result}")
-                        if self.container_visualizer:
-                            # Ждем немного для анимации подсветки, затем удаляем
-                            QTimer.singleShot(300, lambda: (
-                                self.container_visualizer.pop(),
-                                self.scene.update(),
-                                self.view.viewport().update()
-                            ))
-                    else:
-                        self._log(f"❌ Стек пуст!")
-                elif self.container_type == "queue":
-                    # Подсвечиваем перед удалением
-                    if self.container_visualizer:
-                        self.container_visualizer.highlight_operation("dequeue")
+                    self.container_visualizer.pop()
                     
-                    result = self.current_algorithm.dequeue()
-                    if result is not None:
-                        self._log(f"✅ Извлечено из очереди: {result}")
-                        if self.container_visualizer:
-                            QTimer.singleShot(300, lambda: (
-                                self.container_visualizer.pop("front"),
-                                self.scene.update(),
-                                self.view.viewport().update()
-                            ))
-                    else:
-                        self._log(f"❌ Очередь пуста!")
-                elif self.container_type == "deque":
-                    if operation == "pop_front":
-                        # Подсвечиваем перед удалением
-                        if self.container_visualizer:
-                            self.container_visualizer.highlight_operation("pop", position="front")
-                        
-                        result = self.current_algorithm.pop_front()
-                        if result is not None:
-                            self._log(f"✅ Извлечено из начала дека: {result}")
-                            if self.container_visualizer:
-                                QTimer.singleShot(300, lambda: (
-                                    self.container_visualizer.pop("front"),
-                                    self.scene.update(),
-                                    self.view.viewport().update()
-                                ))
-                        else:
-                            self._log(f"❌ Дек пуст!")
-                    elif operation == "pop_back":  # pop_back
-                        # Подсвечиваем перед удалением
-                        if self.container_visualizer:
-                            self.container_visualizer.highlight_operation("pop", position="back")
-                        
-                        result = self.current_algorithm.pop_back()
-                        if result is not None:
-                            self._log(f"✅ Извлечено из конца дека: {result}")
-                            if self.container_visualizer:
-                                QTimer.singleShot(300, lambda: (
-                                    self.container_visualizer.pop("back"),
-                                    self.scene.update(),
-                                    self.view.viewport().update()
-                                ))
-                        else:
-                            self._log(f"❌ Дек пуст!")
-                
-            elif operation in ["peek", "front", "back"]:
-                if self.container_type == "stack":
-                    # Подсвечиваем элемент
-                    if self.container_visualizer:
-                        self.container_visualizer.highlight_operation("peek")
-                    
+                elif operation_text == "peek (посмотреть верхний)":
                     result = self.current_algorithm.peek()
-                    if result is not None:
-                        self._log(f"👁 Верхний элемент стека: {result}")
-                    else:
-                        self._log(f"❌ Стек пуст!")
-                elif self.container_type == "queue":
-                    if operation == "front":
-                        # Подсвечиваем элемент
-                        if self.container_visualizer:
-                            self.container_visualizer.highlight_operation("front")
-                        
-                        result = self.current_algorithm.front()
-                        if result is not None:
-                            self._log(f"👁 Первый элемент очереди: {result}")
-                        else:
-                            self._log(f"❌ Очередь пуста!")
-                    elif operation == "back":  # back
-                        # Подсвечиваем элемент
-                        if self.container_visualizer:
-                            self.container_visualizer.highlight_operation("back")
-                        
-                        result = self.current_algorithm.back()
-                        if result is not None:
-                            self._log(f"👁 Последний элемент очереди: {result}")
-                        else:
-                            self._log(f"❌ Очередь пуста!")
-                elif self.container_type == "deque":
-                    if operation == "front":
-                        # Подсвечиваем элемент
-                        if self.container_visualizer:
-                            self.container_visualizer.highlight_operation("front", position="front")
-                        
-                        result = self.current_algorithm.front()
-                        if result is not None:
-                            self._log(f"👁 Первый элемент дека: {result}")
-                        else:
-                            self._log(f"❌ Дек пуст!")
-                    elif operation == "back":  # back
-                        # Подсвечиваем элемент
-                        if self.container_visualizer:
-                            self.container_visualizer.highlight_operation("back", position="back")
-                        
-                        result = self.current_algorithm.back()
-                        if result is not None:
-                            self._log(f"👁 Последний элемент дека: {result}")
-                        else:
-                            self._log(f"❌ Дек пуст!")
-                
-            elif operation == "size":
-                if self.container_type == "stack":
-                    result = self.current_algorithm.size()
-                elif self.container_type == "queue":
-                    result = self.current_algorithm.size()
-                elif self.container_type == "deque":
-                    result = self.current_algorithm.size()
-                
-                self._log(f"📊 Размер {self.container_type}: {result}")
-                if self.container_visualizer:
-                    # Анимация подсветки всех элементов
-                    for elem in self.container_visualizer.elements:
-                        elem.bounce_animation()
-                
-            elif operation == "is_empty":
-                if self.container_type == "stack":
+                    self.container_visualizer.peek()
+                    
+                elif operation_text == "size (размер)":
+                    result = len(self.current_algorithm)
+                    self.container_visualizer.get_size()
+                    
+                elif operation_text == "is_empty (пусто?)":
                     result = self.current_algorithm.is_empty()
-                elif self.container_type == "queue":
-                    result = self.current_algorithm.is_empty()
-                elif self.container_type == "deque":
-                    result = self.current_algorithm.is_empty()
+                    self.container_visualizer.is_empty()
+                    
+                elif operation_text == "dequeue (удалить первый)":
+                    result = self.current_algorithm.dequeue()
+                    self.container_visualizer.pop("front")
+                    
+                elif operation_text == "front (посмотреть первый)":
+                    result = self.current_algorithm.front()
+                    self.container_visualizer.peek("front")
+                    
+                elif operation_text == "back (посмотреть последний)":
+                    result = self.current_algorithm.back()
+                    self.container_visualizer.peek("back")
+                    
+                elif operation_text == "pop_front (удалить из начала)":
+                    result = self.current_algorithm.pop_front()
+                    self.container_visualizer.pop("front")
+                    
+                elif operation_text == "pop_back (удалить из конца)":
+                    result = self.current_algorithm.pop_back()
+                    self.container_visualizer.pop("back")
                 
-                status = "пуст(а)" if result else "не пуст(а)"
-                self._log(f"📋 {self.container_type.capitalize()} {status}")
-                if self.container_visualizer and result:
-                    # Если пусто, анимируем заголовок
-                    if hasattr(self.container_visualizer, 'title_text'):
-                        anim = QPropertyAnimation(self.container_visualizer.title_text, b"scale")
-                        anim.setDuration(500)
-                        anim.setStartValue(1.0)
-                        anim.setEndValue(1.1)
-                        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-                        anim.start()
+                # Показываем результат
+                if result is not None:
+                    self._log(f"📋 Результат операции: {result}")
+                    
+            # ОБНОВЛЯЕМ ИНСПЕКТОР
+            container_info = self.container_visualizer.get_container_info()
+            inspector_data = {
+                "type": "container_operation",
+                "container_type": self.container_type,
+                "size": container_info["size"],
+                "empty": container_info["empty"],
+                "values": container_info["values"],
+                "description": f"Выполнена операция: {operation_text}"
+            }
             
-            # Очищаем поле ввода
-            self.container_val_input.clear()
+            # Добавляем специфичную информацию для каждого типа
+            if self.container_type == "stack" and container_info.get("top"):
+                inspector_data["top"] = container_info["top"]
+                inspector_data["description"] += f"\nВерхний элемент: {container_info['top']}"
+            elif container_info.get("front") and container_info.get("back"):
+                inspector_data["front"] = container_info["front"]
+                inspector_data["back"] = container_info["back"]
+                inspector_data["description"] += f"\nНачало: {container_info['front']}, Конец: {container_info['back']}"
             
-            # Немедленно обновляем сцену
-            self.scene.update()
-            self.view.viewport().update()
+            self.inspector.update_info(inspector_data)
             
-            # Подгоняем масштаб к содержимому
-            self._fit_to_content()
-            
+        except (ValueError, IndexError) as e:
+            error_msg = str(e)
+            if "empty" in error_msg.lower():
+                self._log("❌ Контейнер пуст!")
+            else:
+                self._log(f"❌ Ошибка: {error_msg}")
         except Exception as e:
-            self._log(f"❌ Ошибка при выполнении операции: {str(e)}")
+            self._log(f"❌ Неожиданная ошибка: {str(e)}")
             import traceback
             traceback.print_exc()
 
     def _clear_container(self):
-        """Очищает текущий контейнер."""
+        """Очищает контейнер."""
         reply = QMessageBox.question(
             self, "Подтверждение", 
             "Вы уверены, что хотите очистить контейнер?",
@@ -5801,81 +5615,78 @@ class MainWindow(QMainWindow):
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
+                # Очищаем визуализатор
+                if self.container_visualizer:
+                    self.container_visualizer.clear()
+                
+                # Создаем новый пустой контейнер
                 if self.container_type == "stack":
-                    self.current_algorithm.clear()
+                    self.current_algorithm = Stack([])
                 elif self.container_type == "queue":
-                    self.current_algorithm.clear()
+                    self.current_algorithm = Queue([])
                 elif self.container_type == "deque":
-                    self.current_algorithm.clear()
+                    self.current_algorithm = Deque([])
+                
+                # Пересоздаем интерфейс
+                self.container_visualizer._create_interface()
+                
+                # Обновляем инспектор
+                inspector_data = {
+                    "type": "container_cleared",
+                    "container_type": self.container_type,
+                    "size": 0,
+                    "empty": True,
+                    "values": [],
+                    "description": "Контейнер очищен"
+                }
+                self.inspector.update_info(inspector_data)
                 
                 self._log("🗑️ Контейнер очищен")
                 
-                # Очищаем визуализацию и создаем заново
-                if self.container_visualizer:
-                    self.container_visualizer.clear()
-                    # Очищаем сцену и создаем интерфейс заново
-                    self.scene.clear()
-                    self.container_visualizer._create_interface()
-                    
             except Exception as e:
                 self._log(f"❌ Ошибка при очистке контейнера: {str(e)}")
 
     def _add_random_to_container(self):
-        """Добавляет случайные значения в контейнер с анимацией."""
+        """Добавляет случайные элементы в контейнер."""
+        if not self.current_algorithm:
+            self._log("❌ Нет активного контейнера")
+            return
+        
         try:
+            # Генерируем 3 случайных числа
             values = [random.randint(10, 99) for _ in range(3)]
             
-            for i, value in enumerate(values):
+            for value in values:
+                # Определяем операцию в зависимости от типа контейнера
                 if self.container_type == "stack":
                     self.current_algorithm.push(value)
-                    if self.container_visualizer:
-                        # Задержка для последовательной анимации
-                        delay = i * 500
-                        QTimer.singleShot(delay, lambda v=value: (
-                            self.container_visualizer.push(v),
-                            self.scene.update(),
-                            self.view.viewport().update(),
-                            self._log(f"🎲 Добавлено: {v}")
-                        ))
+                    self.container_visualizer.push(value)
                 elif self.container_type == "queue":
                     self.current_algorithm.enqueue(value)
-                    if self.container_visualizer:
-                        delay = i * 500
-                        QTimer.singleShot(delay, lambda v=value: (
-                            self.container_visualizer.push(v),
-                            self.scene.update(),
-                            self.view.viewport().update(),
-                            self._log(f"🎲 Добавлено: {v}")
-                        ))
+                    self.container_visualizer.push(value)  # Для очереди тоже push
                 elif self.container_type == "deque":
-                    # Чередуем добавление в начало и конец
-                    if i % 2 == 0:
-                        self.current_algorithm.push_front(value)
-                        if self.container_visualizer:
-                            delay = i * 500
-                            QTimer.singleShot(delay, lambda v=value: (
-                                self.container_visualizer.push(v, "front"),
-                                self.scene.update(),
-                                self.view.viewport().update(),
-                                self._log(f"🎲 Добавлено в начало: {v}")
-                            ))
-                    else:
-                        self.current_algorithm.push_back(value)
-                        if self.container_visualizer:
-                            delay = i * 500
-                            QTimer.singleShot(delay, lambda v=value: (
-                                self.container_visualizer.push(v, "back"),
-                                self.scene.update(),
-                                self.view.viewport().update(),
-                                self._log(f"🎲 Добавлено в конец: {v}")
-                            ))
+                    # Для дека добавляем в конец
+                    self.current_algorithm.push_back(value)
+                    self.container_visualizer.push(value, "back")
+                
+                # Небольшая задержка между добавлениями для анимации
+                QApplication.processEvents()
             
-            # Обновляем сцену после всех анимаций
-            QTimer.singleShot(2000, lambda: (
-                self.scene.update(),
-                self.view.viewport().update(),
-                self._fit_to_content()
-            ))
+            self._log(f"🎲 Добавлены случайные значения: {values}")
+            
+            # ОБНОВЛЯЕМ ИНСПЕКТОР
+            container_info = self.container_visualizer.get_container_info()
+            inspector_data = {
+                "type": "container_random_add",
+                "container_type": self.container_type,
+                "added_values": values,
+                "size": container_info["size"],
+                "empty": container_info["empty"],
+                "values": container_info["values"],
+                "description": f"Добавлено {len(values)} случайных значений"
+            }
+            
+            self.inspector.update_info(inspector_data)
             
         except Exception as e:
             self._log(f"❌ Ошибка при добавлении случайных значений: {str(e)}")

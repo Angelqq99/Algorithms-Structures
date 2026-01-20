@@ -15,7 +15,7 @@ class Stack(BaseAlgorithm):
         """
         super().__init__(commands)
         self.stack = []
-        self.max_size = 10  # Максимальный размер для визуализации
+        self.max_size = 2000  # Максимальный размер для визуализации
     
     def step_generator(self):
         """Генератор шагов для визуализации"""
@@ -145,3 +145,11 @@ class Stack(BaseAlgorithm):
     
     def __str__(self):
         return f"Stack({self.stack})"
+    def get_info(self):
+        return {
+            "type": "Stack",
+            "size": len(self._items),
+            "empty": self.is_empty(),
+            "top": self.peek() if not self.is_empty() else None,
+            "items": self._items.copy()
+        }
