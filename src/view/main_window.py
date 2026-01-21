@@ -2471,28 +2471,28 @@ class MainWindow(QMainWindow):
             
             self._log(f"🚀 Алгоритм загружен. Начальный узел: {start_node}")
             return True
-        elif category == "Сжатие данных":
-            if algo_name == "Huffman Coding":
-                # Для Хаффмана получаем текст из поля ввода
-                if hasattr(self, 'huffman_text_input'):
-                    text = self.huffman_text_input.toPlainText().strip()
-                else:
-                    text = self.data_input.text().strip()
-                
-                if not text:
-                    QMessageBox.warning(self, "Ошибка", "Введите текст для кодирования Хаффмана")
-                    return False
-                
-                self.huffman_current_text = text
-                self.current_algorithm = HuffmanCoding(text)
-                self.engine.load_algorithm(self.current_algorithm)
-                
-                # Показываем начальный вид - частоты символов
-                self.current_algorithm.calculate_frequencies()
-                self.huffman_visualizer.visualize_frequencies(self.current_algorithm.frequencies)
-                
-                self._log(f"🔤 Алгоритм Хаффмана загружен. Текст: {text[:50]}...")
-                return True    
+        elif category == "Сжатие данных" and algo_name == "Huffman Coding":
+            if hasattr(self, 'huffman_text_input'):
+                text = self.huffman_text_input.toPlainText().strip()
+            else:
+                text = self.data_input.text().strip()
+            
+            if not text:
+                QMessageBox.warning(self, "Ошибка", "Введите текст для кодирования Хаффмана")
+                return False
+            
+            self.huffman_current_text = text
+            self.current_algorithm = HuffmanCoding(text)
+            
+            # Загружаем алгоритм в движок
+            self.engine.load_algorithm(self.current_algorithm)
+            
+            # Показываем начальный вид - частоты символов
+            self.current_algorithm.calculate_frequencies()
+            self.huffman_visualizer.visualize_frequencies(self.current_algorithm.frequencies)
+            
+            self._log(f"🔤 Алгоритм Хаффмана загружен. Текст: {text[:50]}...")
+            return True 
         else:
             # Оригинальная логика для других категорий
             text = self.data_input.text()
@@ -3535,7 +3535,15 @@ class MainWindow(QMainWindow):
         elif t == "code_assigned":
             self._log(action.get("description", ""))
             self._schedule_next_action(int(500 * speed_factor))
+        elif t == "codes_generated":
+            # Отображаем таблицу кодов
+            if self.current_algorithm and hasattr(self.current_algorithm, 'get_codes_table'):
+                codes_table = self.current_algorithm.get_codes_table()
+                self.huffman_visualizer.visualize_codes_table(codes_table)
             
+            self._log(action.get("description", ""))
+            self._schedule_next_action(int(1000 * speed_factor))
+        
         elif t == "encoding_complete":
             # Отображаем результат кодирования
             if self.current_algorithm and hasattr(self.current_algorithm, 'get_compression_stats'):
@@ -6188,34 +6196,107 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Ошибка при генерации кодов: {str(e)}")
             print(f"Error generating Huffman codes: {e}")
-    
+    def _update_huffman_stats(self, data):
+        """Обновляет текстовую статистику в интерфейсе Хаффмана."""
+        try:
+            if not data:
+                return
+                
+            # Если пришли частоты символов
+            if "frequencies" in data:
+                freqs = data["frequencies"]
+                unique_chars = len(freqs)
+                total_chars = sum(freqs.values())
+                
+                # Рассчитываем энтропию (если есть метод)
+                entropy_text = ""
+                if hasattr(self, "_calculate_entropy"):
+                    entropy = self._calculate_entropy(freqs)
+                    entropy_text = f"\nЭнтропия: {entropy:.3f} бит/символ"
+                
+                stats_msg = (
+                    f"📊 Частоты рассчитаны:\n"
+                    f"Символов: {total_chars}, Уникальных: {unique_chars}"
+                    f"{entropy_text}"
+                )
+                self.huffman_stats_label.setText(stats_msg)
+                self._log(f"📊 {stats_msg.splitlines()[0]}")
+                
+        except Exception as e:
+            print(f"Ошибка в _update_huffman_stats: {e}")
+    def _complete_huffman_tree_building(self):
+        """Завершает построение дерева Хаффмана и переходит к кодированию."""
+        try:
+            # Останавливаем автоматический режим
+            self._pause_auto_mode()
+            
+            # Проверяем, что дерево построено
+            if self.current_algorithm and hasattr(self.current_algorithm, 'root') and self.current_algorithm.root:
+                self._log("✅ Дерево Хаффмана построено. Продолжаем кодирование...")
+                
+                # Генерируем коды с использованием существующего метода
+                if hasattr(self.current_algorithm, 'generate_huffman_codes_iterative'):
+                    codes = self.current_algorithm.generate_huffman_codes_iterative()
+                    self._log(f"✅ Сгенерировано {len(codes)} кодов Хаффмана")
+                
+                # Кодируем текст
+                encoded_text = self.current_algorithm.encode_text()
+                
+                # Отображаем результаты
+                if hasattr(self.current_algorithm, 'get_compression_stats'):
+                    stats = self.current_algorithm.get_compression_stats()
+                    self.huffman_visualizer.visualize_encoding_result(stats)
+                
+                self._log("✅ Текст успешно закодирован алгоритмом Хаффмана")
+            else:
+                self._log("❌ Дерево Хаффмана не было построено")
+                QMessageBox.warning(self, "Ошибка", "Не удалось построить дерево Хаффмана")
+                
+        except Exception as e:
+            self._log(f"❌ Ошибка при завершении построения дерева: {str(e)}")
     def _huffman_encode_text(self):
-        """Кодирует текст с использованием кодов Хаффмана."""
-        if not self.current_algorithm or not hasattr(self.current_algorithm, 'encode_text'):
-            QMessageBox.warning(self, "Ошибка", "Сначала сгенерируйте коды")
-            return
-        
-        # Кодируем текст
-        encoded_text = self.current_algorithm.encode_text()
-        
-        # Получаем статистику
-        stats = self.current_algorithm.get_compression_stats()
-        
-        # Визуализируем результат кодирования
-        self.huffman_visualizer.visualize_encoding_result(stats)
-        self._fit_to_content()
-        
-        # Обновляем статистику
-        stats_text = (
-            f"✅ Текст закодирован!\n\n"
-            f"• Оригинальный размер: {stats['original_size_bits']} бит\n"
-            f"• Сжатый размер: {stats['compressed_size_bits']} бит\n"
-            f"• Экономия: {stats['savings_percentage']:.1f}%\n"
-            f"• Коэффициент сжатия: {stats['compression_ratio']:.2f}:1"
-        )
-        self.huffman_stats_label.setText(stats_text)
-        
-        self._log(f"✅ Текст закодирован! Экономия: {stats['savings_percentage']:.1f}%")
+        """Выполняет кодирование текста алгоритмом Хаффмана."""
+        try:
+            if not self.current_algorithm:
+                QMessageBox.warning(self, "Ошибка", "Алгоритм Хаффмана не инициализирован")
+                return
+            
+            # Шаг 1: Убедимся, что дерево построено
+            if not hasattr(self.current_algorithm, 'root') or not self.current_algorithm.root:
+                self._log("🔧 Построение дерева Хаффмана...")
+                # Загружаем алгоритм в движок для пошагового построения дерева
+                self.engine.load_algorithm(self.current_algorithm)
+                
+                # Запускаем автоматический режим для визуализации построения дерева
+                self._start_auto_mode()
+                
+                # Ждем завершения построения дерева
+                self._complete_huffman_tree_building
+                return
+            
+            # Шаг 2: Генерация кодов (если еще не сгенерированы)
+            if not hasattr(self.current_algorithm, 'codes') or not self.current_algorithm.codes:
+                self._log("🔧 Генерация кодов Хаффмана...")
+                self.current_algorithm.generate_huffman_codes_iterative()
+            
+            # Шаг 3: Кодирование текста
+            self._log("🔧 Кодирование текста...")
+            encoded_text = self.current_algorithm.encode_text()
+            
+            # Шаг 4: Отображение результатов
+            if hasattr(self.current_algorithm, 'get_compression_stats'):
+                stats = self.current_algorithm.get_compression_stats()
+                self.huffman_visualizer.visualize_encoding_result(stats)
+            
+            self._log("✅ Текст успешно закодирован алгоритмом Хаффмана")
+            
+        except ZeroDivisionError:
+            self._log("❌ Ошибка: compressed_bits равен 0. Возможно, дерево не построено.")
+            QMessageBox.warning(self, "Ошибка", 
+                            "Не удалось закодировать текст. Дерево Хаффмана не построено или содержит ошибки.")
+        except Exception as e:
+            self._log(f"❌ Ошибка при кодировании текста: {str(e)}")
+            QMessageBox.warning(self, "Ошибка", f"Не удалось закодировать текст: {str(e)}")
     
     def _huffman_decode_text(self):
         """Декодирует текст."""
@@ -6237,15 +6318,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Декодированный текст не совпадает с оригиналом")
     
     def _huffman_full_process(self):
-        """Выполняет полный процесс (безопасно)."""
+        """Выполняет полный процесс сжатия с пошаговой визуализацией через Engine."""
         text = self.huffman_text_input.toPlainText().strip()
         
         if not text:
-            QMessageBox.warning(self, "Ошибка", "Введите текст")
+            QMessageBox.warning(self, "Ошибка", "Введите текст для сжатия")
             return
         
         try:
-            # Проверяем размер
+            # Проверяем размер текста (безопасная проверка)
             if len(text) > 500:
                 reply = QMessageBox.question(
                     self, "Внимание",
@@ -6257,78 +6338,46 @@ class MainWindow(QMainWindow):
                 if reply == QMessageBox.StandardButton.No:
                     return
             
+            # Сбрасываем предыдущий алгоритм
+            self._reset_algorithm()
+            
+            # 1. Создаем алгоритм Хаффмана
+            self.current_algorithm = HuffmanCoding(text)
             self.huffman_current_text = text
             
-            # Создаем алгоритм
-            self.current_algorithm = HuffmanCoding(text)
-            
-            # Выполняем шаги
-            self._log("🚀 Начало полного процесса Хаффмана...")
-            
-            # 1. Анализ частот
+            # 2. Рассчитываем частоты и показываем начальный экран
             frequencies = self.current_algorithm.calculate_frequencies()
+            self.scene.clear()
             self.huffman_visualizer.visualize_frequencies(frequencies)
-            self._fit_to_content()
-            QApplication.processEvents()  # Обновляем GUI
             
-            # 2. Построение дерева
-            self.current_algorithm.build_huffman_tree()
-            tree_structure = self.current_algorithm.get_tree_structure()
+            # 3. Устанавливаем специальный режим для полного процесса
+            self._is_full_huffman_process = True
+            self._huffman_process_step = 0  # 0-частоты, 1-построение дерева, 2-генерация кодов, 3-результат
             
-            if tree_structure:
-                if hasattr(self, 'tree_visualizer'):
-                    try:
-                        self.tree_visualizer.clear()
-                    except:
-                        pass
-                
-                # Используем наш визуализатор напрямую, без tree_visualizer
-                # если он вызывает проблемы
-                success = self.huffman_visualizer.visualize_huffman_tree(
-                    tree_structure, 
-                    self.tree_visualizer if hasattr(self, 'tree_visualizer') else None
-                )
-                
-                if success:
-                    self._center_on_tree()
-                QApplication.processEvents()
+            # 4. Логируем начало процесса
+            self._log("🚀 Начат полный процесс сжатия Хаффмана")
+            self._log(f"📊 Анализируемый текст: {text[:50]}{'...' if len(text) > 50 else ''}")
+            self._log(f"📊 Уникальных символов: {len(frequencies)}")
+            self._log(f"📊 Общий размер: {len(text)} символов")
             
-            # 3. Генерация кодов
-            self.current_algorithm.generate_huffman_codes_iterative()
-            codes_table = self.current_algorithm.get_codes_table()
+            # 5. Загружаем алгоритм в движок для пошаговой визуализации
+            self.engine.load_algorithm(self.current_algorithm)
             
-            if codes_table:
-                self.huffman_codes_table = codes_table
-                self.huffman_visualizer.visualize_codes_table(codes_table)
-                self._fit_to_content()
-                QApplication.processEvents()
-            
-            # 4. Кодирование
-            self.current_algorithm.encode_text()
-            stats = self.current_algorithm.get_compression_stats()
-            
-            if stats:
-                self.huffman_visualizer.visualize_encoding_result(stats)
-                self._fit_to_content()
-                
-                # Статистика
-                stats_text = (
-                    f"✅ Полный процесс завершен!\n\n"
-                    f"• Символов: {len(text)}\n"
-                    f"• Уникальных: {stats['unique_symbols']}\n"
-                    f"• Экономия: {stats['savings_percentage']:.1f}%\n"
-                    f"• Сжатие: {stats['compression_ratio']:.2f}:1"
-                )
-                self.huffman_stats_label.setText(stats_text)
-                
-                self._log(f"✅ Полный процесс завершен! Экономия: {stats['savings_percentage']:.1f}%")
-            
-            # Обновляем кнопки
+            # 6. Настраиваем интерактивную панель
             self._update_huffman_buttons_state()
             
+            # 7. Запускаем автоматический режим для анимации
+            self._start_auto_mode()
+            
+            # 8. Подгоняем масштаб
+            QTimer.singleShot(300, self._fit_to_content)
+            
         except Exception as e:
-            self._log(f"❌ Ошибка в полном процессе: {str(e)}")
-            QMessageBox.critical(self, "Ошибка", f"Ошибка: {str(e)}")
+            self._log(f"❌ Ошибка при запуске полного процесса: {str(e)}")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка запуска: {str(e)}")
+            # Сбрасываем флаги в случае ошибки
+            if hasattr(self, '_is_full_huffman_process'):
+                self._is_full_huffman_process = False
     
     def _clear_huffman(self):
         """Очищает все данные Хаффмана."""

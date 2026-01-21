@@ -692,4 +692,301 @@ class HuffmanVisualizer:
         except Exception as e:
             print(f"Error getting scene rect: {e}")
             return QRectF(-400, -300, 800, 600)
-    
+
+
+    def visualize_tree_building_step(self, action, step_number=None, total_steps=None):
+        """Визуализирует шаг построения дерева Хаффмана."""
+        try:
+            self.clear_scene()  # Всегда очищаем сцену перед отрисовкой шага
+            
+            action_type = action.get("type", "")
+            
+            # Используем переданный номер шага или берем из action
+            if step_number is None:
+                step_number = action.get("step", 0)
+            
+            # Заголовок шага
+            step_title = f"Шаг {step_number}: {action_type.replace('_', ' ').title()}"
+            
+            # Отображаем информацию о шаге
+            self._create_text(step_title, -300, -220, 
+                            self.fonts["subtitle"], self.color_palette["info"])
+            
+            # Описание шага
+            description = action.get("description", "")
+            if description:
+                self._create_text(description, -300, -190, 
+                                self.fonts["small"], self.color_palette["dark"])
+            
+            # Отображение общего прогресса
+            if total_steps:
+                progress_text = f"Прогресс: {step_number}/{total_steps}"
+                self._create_text(progress_text, 200, -220,
+                                self.fonts["small"], self.color_palette["info"])
+                
+                # Простая прогресс-бар
+                progress_width = 300
+                progress_filled = (step_number / total_steps) * progress_width
+                self._create_rectangle(-150, -200, progress_width, 10,
+                                    "#e0e0e0", self.color_palette["gray"], 1)
+                self._create_rectangle(-150, -200, progress_filled, 10,
+                                    self.color_palette["success"], self.color_palette["success"], 1)
+            
+            # Специфичная визуализация для разных типов действий
+            start_y = -150
+            
+            if action_type == "heap_initialized":
+                self._visualize_heap_initialized(action, -300, start_y)
+            elif action_type == "nodes_selected":
+                self._visualize_nodes_selected(action, -300, start_y)
+            elif action_type == "nodes_merged":
+                self._visualize_nodes_merged(action, -300, start_y)
+            elif action_type == "heap_updated":
+                self._visualize_heap_updated(action, -300, start_y)
+            elif action_type == "tree_built":
+                self._visualize_tree_built(action, -300, start_y)
+            elif action_type == "code_assigned":
+                self._visualize_code_assigned(action, -300, start_y)
+            
+            # Добавляем легенду
+            self._add_step_legend(-300, start_y + 120)
+            
+            # Обновляем сцену
+            self.scene.update()
+            
+        except Exception as e:
+            print(f"Error in visualize_tree_building_step: {e}")
+            # В случае ошибки просто логируем шаг
+            self.clear_scene()
+            self._create_text(f"Ошибка на шаге {action.get('step', '?')}: {str(e)}", -300, -100, 
+                            self.fonts["small"], self.color_palette["accent"])
+
+    def _visualize_heap_initialized(self, action, x, y):
+        """Визуализирует инициализацию кучи."""
+        try:
+            heap_items = action.get("heap_items", [])
+            
+            self._create_text("Инициализация кучи:", x, y, 
+                            self.fonts["normal"], self.color_palette["dark"])
+            
+            # Отображаем элементы кучи
+            heap_y = y + 30
+            items_per_row = 5
+            
+            for i, item in enumerate(heap_items):
+                symbol = item.get("symbol", "")
+                frequency = item.get("frequency", 0)
+                
+                row = i // items_per_row
+                col = i % items_per_row
+                
+                # Блок элемента
+                elem_x = x + col * 60
+                elem_y = heap_y + row * 40
+                
+                # Цвет в зависимости от типа
+                if symbol:
+                    color = self.color_palette["huffman_leaf"]
+                    text = f"'{self._format_char_display(symbol)}'\n{frequency}"
+                else:
+                    color = self.color_palette["huffman_internal"]
+                    text = str(frequency)
+                
+                # Прямоугольник элемента
+                self._create_rectangle(elem_x, elem_y, 50, 30, color, self.color_palette["dark"], 1)
+                
+                # Текст элемента
+                self._create_text(text, elem_x + 25, elem_y + 15, 
+                                self.fonts["small"], "#FFFFFF")
+                
+            # Статистика кучи
+            stats_y = heap_y + ((len(heap_items) + items_per_row - 1) // items_per_row) * 40 + 20
+            self._create_text(f"Всего элементов в куче: {len(heap_items)}", 
+                            x, stats_y, self.fonts["small"], self.color_palette["info"])
+            
+        except Exception as e:
+            print(f"Error in _visualize_heap_initialized: {e}")
+
+    def _visualize_nodes_selected(self, action, x, y):
+        """Визуализирует выбор узлов для объединения."""
+        try:
+            left_node = action.get("left_node", {})
+            right_node = action.get("right_node", {})
+            
+            self._create_text("Выбор узлов для объединения:", x, y, 
+                            self.fonts["normal"], self.color_palette["dark"])
+            
+            # Отображаем выбранные узлы
+            nodes_y = y + 30
+            
+            if left_node:
+                left_freq = left_node.get("frequency", 0)
+                left_sym = left_node.get("symbol", "")
+                
+                # Рисуем левый узел
+                self._create_rectangle(x, nodes_y, 60, 40, 
+                                    self.color_palette["huffman_leaf"], self.color_palette["dark"], 2)
+                
+                if left_sym:
+                    left_text = f"'{self._format_char_display(left_sym)}'\n{left_freq}"
+                else:
+                    left_text = str(left_freq)
+                    
+                self._create_text(left_text, x + 30, nodes_y + 20, 
+                                self.fonts["small"], "#FFFFFF")
+                
+                self._create_text("Левый", x, nodes_y + 45, 
+                                self.fonts["small"], self.color_palette["dark"])
+            
+            if right_node:
+                right_freq = right_node.get("frequency", 0)
+                right_sym = right_node.get("symbol", "")
+                
+                # Рисуем правый узел
+                self._create_rectangle(x + 100, nodes_y, 60, 40, 
+                                    self.color_palette["huffman_leaf"], self.color_palette["dark"], 2)
+                
+                if right_sym:
+                    right_text = f"'{self._format_char_display(right_sym)}'\n{right_freq}"
+                else:
+                    right_text = str(right_freq)
+                    
+                self._create_text(right_text, x + 130, nodes_y + 20, 
+                                self.fonts["small"], "#FFFFFF")
+                
+                self._create_text("Правый", x + 100, nodes_y + 45, 
+                                self.fonts["small"], self.color_palette["dark"])
+            
+            # Знак сложения между узлами
+            self._create_text("+", x + 75, nodes_y + 20, 
+                            self.fonts["normal"], self.color_palette["dark"])
+            
+            # Стрелка
+            self._create_text("↓", x + 75, nodes_y + 60, 
+                            self.fonts["normal"], self.color_palette["success"])
+            
+        except Exception as e:
+            print(f"Error in _visualize_nodes_selected: {e}")
+
+    def _visualize_nodes_merged(self, action, x, y):
+        """Визуализирует объединение узлов."""
+        try:
+            merged_freq = action.get("merged_frequency", 0)
+            left_freq = action.get("left_frequency", 0)
+            right_freq = action.get("right_frequency", 0)
+            
+            self._create_text("Объединение узлов:", x, y, 
+                            self.fonts["normal"], self.color_palette["dark"])
+            
+            # Показываем операцию
+            operation_y = y + 30
+            self._create_text(f"{left_freq} + {right_freq} = {merged_freq}", 
+                            x, operation_y, self.fonts["normal"], self.color_palette["dark"])
+            
+            # Рисуем новый узел
+            node_y = y + 60
+            self._create_rectangle(x, node_y, 80, 40, 
+                                self.color_palette["huffman_internal"], self.color_palette["dark"], 2)
+            
+            self._create_text(str(merged_freq), x + 40, node_y + 20, 
+                            self.fonts["normal"], "#FFFFFF")
+            
+            self._create_text("Новый внутренний узел", x, node_y + 45, 
+                            self.fonts["small"], self.color_palette["dark"])
+            
+        except Exception as e:
+            print(f"Error in _visualize_nodes_merged: {e}")
+
+    def _visualize_heap_updated(self, action, x, y):
+        """Визуализирует обновление кучи."""
+        try:
+            heap_size = action.get("heap_size", 0)
+            heap_items = action.get("heap_items", [])
+            
+            self._create_text("Куча после обновления:", x, y, 
+                            self.fonts["normal"], self.color_palette["dark"])
+            
+            # Отображаем состояние кучи
+            heap_y = y + 30
+            self._create_text(f"Размер кучи: {heap_size}", x, heap_y, 
+                            self.fonts["small"], self.color_palette["info"])
+            
+            # Визуализируем элементы кучи
+            if heap_items:
+                items_y = heap_y + 30
+                items_per_row = 6
+                
+                for i, item in enumerate(heap_items):
+                    symbol = item.get("symbol", "")
+                    frequency = item.get("frequency", 0)
+                    
+                    row = i // items_per_row
+                    col = i % items_per_row
+                    
+                    elem_x = x + col * 50
+                    elem_y = items_y + row * 35
+                    
+                    if symbol:
+                        color = self.color_palette["huffman_leaf"]
+                        text = self._format_char_display(symbol)
+                    else:
+                        color = self.color_palette["huffman_internal"]
+                        text = str(frequency)
+                    
+                    # Квадрат элемента
+                    self._create_rectangle(elem_x, elem_y, 40, 25, color, self.color_palette["dark"], 1)
+                    
+                    # Текст
+                    self._create_text(text, elem_x + 20, elem_y + 12, 
+                                    self.fonts["small"], "#FFFFFF")
+                    
+        except Exception as e:
+            print(f"Error in _visualize_heap_updated: {e}")
+
+    def _visualize_tree_built(self, action, x, y):
+        """Визуализирует построенное дерево."""
+        try:
+            root_frequency = action.get("root_frequency", 0)
+            
+            self._create_text("Дерево построено!", x, y, 
+                            self.fonts["subtitle"], self.color_palette["success"])
+            
+            self._create_text(f"Частота корня: {root_frequency}", x, y + 30, 
+                            self.fonts["normal"], self.color_palette["dark"])
+            
+            # Простая схема дерева
+            self._create_text("   🌳   ", x, y + 70, 
+                            QFont("Arial", 30), self.color_palette["huffman_root"])
+            
+            # Ветви
+            self._create_text("  /   \\  ", x, y + 110, 
+                            QFont("Arial", 20), self.color_palette["dark"])
+            
+        except Exception as e:
+            print(f"Error in _visualize_tree_built: {e}")
+
+    def _add_step_legend(self, x, y):
+        """Добавляет легенду для шагов построения."""
+        try:
+            self._create_text("🎨 Обозначения:", x, y, 
+                            self.fonts["small"], self.color_palette["dark"])
+            
+            # Элементы легенды
+            items = [
+                ("Лист (символ)", self.color_palette["huffman_leaf"]),
+                ("Внутренний узел", self.color_palette["huffman_internal"]),
+                ("Корень", self.color_palette["huffman_root"])
+            ]
+            
+            for i, (text, color) in enumerate(items):
+                item_y = y + 20 + i * 20
+                
+                # Цветной квадрат
+                self._create_rectangle(x, item_y, 12, 12, color, self.color_palette["dark"], 1)
+                
+                # Текст
+                self._create_text(text, x + 15, item_y, 
+                                self.fonts["small"], self.color_palette["dark"])
+                
+        except Exception as e:
+            print(f"Error in _add_step_legend: {e}")

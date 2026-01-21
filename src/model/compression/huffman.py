@@ -1,7 +1,8 @@
 # model/compression/huffman.py
 import heapq
 from collections import Counter
-from typing import Dict, Tuple, List, Optional, Any
+from typing import Dict, List, Any
+
 
 class HuffmanNode:
     """Узел дерева Хаффмана."""
@@ -81,6 +82,10 @@ class HuffmanCoding:
         self.savings_percentage = 0
         self.history = []
         self.current_step = 0
+        
+        # Для пошагового выполнения
+        self._step_generator = None
+        self.current_phase = "initial"
     
     def calculate_frequencies(self) -> Dict[str, int]:
         """Вычисляет частоты символов в тексте."""
@@ -238,43 +243,39 @@ class HuffmanCoding:
         _recursive_helper(node, "")
         return self.codes
     
-    def encode_text(self, text=None) -> str:
-        """Кодирует текст."""
-        if text is not None:
-            self.text = text
-            self.original_text = text
+    def encode_text(self):
+        """Кодирует текст с использованием построенного дерева Хаффмана."""
+        if not self.root:
+            raise ValueError("Дерево Хаффмана не построено")
         
         if not self.codes:
             self.generate_huffman_codes_iterative()
+                
+        encoded_text = ""
         
-        # Кодируем
-        encoded_bits = []
         for char in self.text:
             if char in self.codes:
-                encoded_bits.append(self.codes[char])
+                encoded_text += self.codes[char]
             else:
-                encoded_bits.append("")
+                # Если символ не найден в кодах (не должен происходить при корректной работе)
+                raise ValueError(f"Символ '{char}' не найден в таблице кодов")
         
-        self.encoded_text = ''.join(encoded_bits)
+        # Расчет статистики сжатия
+        original_bits = len(self.text) * 8  # ASCII предполагает 8 бит на символ
+        compressed_bits = len(encoded_text)
         
-        # Статистика
-        original_bits = len(self.text) * 8
-        compressed_bits = len(self.encoded_text)
-        
-        if original_bits > 0:
+        # Защита от деления на ноль
+        if compressed_bits == 0:
+            self.compression_ratio = 0
+            self.savings_percentage = 0
+        else:
             self.compression_ratio = original_bits / compressed_bits
             self.savings_percentage = ((original_bits - compressed_bits) / original_bits) * 100
         
-        self.history.append({
-            "type": "encoding_complete",
-            "original_bits": original_bits,
-            "compressed_bits": compressed_bits,
-            "compression_ratio": self.compression_ratio,
-            "savings_percentage": self.savings_percentage,
-            "description": f"✅ Текст закодирован! Экономия: {self.savings_percentage:.1f}%"
-        })
+        self.compressed_size_bits = compressed_bits
+        self.encoded_text = encoded_text
         
-        return self.encoded_text
+        return encoded_text
     
     def decode_text(self, encoded_text: str = None) -> str:
         """Декодирует текст."""
@@ -348,24 +349,6 @@ class HuffmanCoding:
             })
         return table
     
-    def step(self):
-        """Шаг алгоритма."""
-        if self.current_step < len(self.history):
-            action = self.history[self.current_step]
-            self.current_step += 1
-            return action
-        return {"type": "complete", "description": "✅ Алгоритм завершен!"}
-    
-    def reset(self):
-        """Сбрасывает состояние."""
-        self.current_step = 0
-        self.history = []
-        self.codes = {}
-        self.reverse_codes = {}
-        self.encoded_text = ""
-        self.decoded_text = ""
-        self.root = None
-    
     def process_text(self, text: str):
         """Обрабатывает текст полностью (безопасно)."""
         try:
@@ -411,9 +394,113 @@ class HuffmanCoding:
         elif ord(char) < 32:
             return f"\\x{ord(char):02x}"
         return char
+    
+    def create_step_generator(self):
+        """Создает генератор для пошагового выполнения алгоритма."""
+        try:
+            # Фаза 1: Расчет частот
+            self.calculate_frequencies()
+            yield {
+                "type": "frequencies_calculated",
+                "frequencies": self.frequencies,
+                "description": f"📊 Частоты символов рассчитаны: {len(self.frequencies)} уникальных символов"
+            }
+            
+            # Фаза 2: Построение дерева
+            self.build_huffman_tree()
+            
+            # Эмулируем шаги построения дерева из истории
+            for step_data in self.history:
+                if step_data["type"] in ["initial_nodes", "nodes_selected", "nodes_merged", "heap_updated", "tree_built"]:
+                    yield step_data
+            
+            # Фаза 3: Генерация кодов
+            self.generate_huffman_codes_iterative()
+            
+            # Эмулируем шаги генерации кодов из истории
+            for step_data in self.history:
+                if step_data["type"] in ["code_generation_start", "code_assigned", "codes_generated"]:
+                    yield step_data
+            
+            # Фаза 4: Кодирование текста
+            encoded_text = self.encode_text()
+            
+            yield {
+                "type": "encoding_complete",
+                "encoded_text": encoded_text,
+                "original_bits": len(self.original_text) * 8,
+                "compressed_bits": len(encoded_text),
+                "compression_ratio": self.compression_ratio,
+                "savings_percentage": self.savings_percentage,
+                "description": f"✅ Текст закодирован! Коэффициент сжатия: {self.compression_ratio:.2f}:1"
+            }
+            
+            # Фаза 5: Декодирование
+            decoded_text = self.decode_text()
+            
+            yield {
+                "type": "decoding_complete",
+                "decoded_text": decoded_text,
+                "is_correct": decoded_text == self.original_text,
+                "description": f"✅ Текст успешно декодирован! Совпадение с оригиналом: {decoded_text == self.original_text}"
+            }
+            
+            # Фаза 6: Завершение
+            yield {
+                "type": "complete",
+                "description": "✅ Алгоритм Хаффмана выполнен полностью!",
+                "stats": self.get_compression_stats()
+            }
+            
+        except Exception as e:
+            yield {
+                "type": "error",
+                "description": f"❌ Ошибка: {str(e)}"
+            }
+    
+    def step_generator(self):
+        """Генератор для пошагового выполнения алгоритма (устаревший метод, для совместимости)."""
+        return self.create_step_generator()
+    
+    def get_step_generator(self):
+        """Возвращает генератор для пошагового выполнения."""
+        if self._step_generator is None:
+            self._step_generator = self.create_step_generator()
+        return self._step_generator
+    
+    def step(self):
+        """Выполняет один шаг алгоритма."""
+        if self._step_generator is None:
+            self._step_generator = self.create_step_generator()
+        
+        try:
+            return next(self._step_generator)
+        except StopIteration:
+            return {
+                "type": "complete",
+                "description": "✅ Алгоритм завершен!",
+                "stats": self.get_compression_stats()
+            }
+        except Exception as e:
+            return {
+                "type": "error",
+                "description": f"❌ Ошибка при выполнении шага: {str(e)}"
+            }
+    
+    def reset(self):
+        """Сбрасывает состояние."""
+        self.current_step = 0
+        self.history = []
+        self.codes = {}
+        self.reverse_codes = {}
+        self.encoded_text = ""
+        self.decoded_text = ""
+        self.root = None
+        self._step_generator = None
+        self.current_phase = "initial"
 
 
-# Примеры текстов (без изменений)
+# Примеры текстов
 def create_example_texts():
     return [
         {
@@ -442,3 +529,5 @@ def create_example_texts():
             "description": "Минимальный пример"
         }
     ]
+
+
