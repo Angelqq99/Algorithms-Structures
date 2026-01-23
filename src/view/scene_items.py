@@ -359,6 +359,25 @@ class ArrayCircleItem(QGraphicsObject):
         if self._is_valid:
             self.value = value
             self.update()
+        # В классе ArrayCircleItem добавьте:
+    def show_value_label(self, text):
+        """Показывает временную метку со значением."""
+        if hasattr(self, 'value_label'):
+            self.value_label.setPlainText(text)
+            self.value_label.show()
+        else:
+            # Создаем метку, если ее нет
+            self.value_label = QGraphicsTextItem(text, self)
+            self.value_label.setDefaultTextColor(Qt.GlobalColor.white)
+            self.value_label.setFont(QFont("Arial", 9, QFont.Weight.Bold))
+            # Размещаем под кругом
+            self.value_label.setPos(-20, 35)
+            self.value_label.setZValue(10)
+
+    def hide_value_label(self):
+        """Скрывает временную метку."""
+        if hasattr(self, 'value_label') and self.value_label:
+            self.value_label.hide()
 
 # ==========================
 # 🌳 Узел дерева
