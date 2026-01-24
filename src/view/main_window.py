@@ -1972,6 +1972,9 @@ class MainWindow(QMainWindow):
         elif category == "Графы":
             # Для графов создаем панель интерактивных операций
             self._create_graph_interactive_panel()
+        elif category == "Сортировки" and self.algorithm_completed:
+        # ПОСЛЕ ЗАВЕРШЕНИЯ СОРТИРОВКИ ПОКАЗЫВАЕМ ПАНЕЛЬ ПОИСКА
+            QTimer.singleShot(100, self._create_search_panel)
         else:
             # Для других категорий очищаем панель
             self._clear_interactive_panel()
@@ -3276,15 +3279,12 @@ class MainWindow(QMainWindow):
             # Проверяем, является ли это кучей
             is_heap = isinstance(self.current_algorithm, BinaryHeap) if self.current_algorithm else False
             
-            # Отладочная информация
-            #if is_heap:
-                #self._log(f"📊 Получены данные кучи. Корень: {tree_data.get('value', 'N/A')}")
-            #else:
-                #elf._log(f"📊 Получены данные дерева: {tree_data}")
+            # Проверяем, является ли это B-деревом
+            is_btree = isinstance(self.current_algorithm, BTree) if self.current_algorithm else False
             
             # Используем визуализатор
-            if is_heap:
-                # Для кучи используем стандартное дерево
+            if is_heap or is_btree:
+                # Для кучи и B-дерева используем стандартное дерево
                 root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
             else:
                 root = self.tree_visualizer.create_tree_from_structure(tree_data, animate=False)
@@ -3301,12 +3301,36 @@ class MainWindow(QMainWindow):
                     heap_info.setDefaultTextColor(QColor("#3498DB"))
                     heap_info.setFont(QFont("Arial", 12, QFont.Weight.Bold))
                     heap_info.setPos(-200, -100)
+                elif is_btree:
+                    self._log("🌳 B-дерево построено и отображено")
+                    # ИСПРАВЛЕНИЕ: Для B-дерева используем другой метод для получения размера
+                    # Проверяем, есть ли метод get_node_count или аналогичный
+                    if hasattr(self.current_algorithm, 'get_node_count'):
+                        size = self.current_algorithm.get_node_count()
+                    elif hasattr(self.current_algorithm, 'size'):
+                        size = self.current_algorithm.size()
+                    elif hasattr(self.current_algorithm, 'count_nodes'):
+                        size = self.current_algorithm.count_nodes()
+                    else:
+                        # Если нет специального метода, пытаемся посчитать узлы в структуре данных
+                        size = self._count_btree_nodes(tree_data)
+                    
+                    btree_info = self.scene.addText(f"B-дерево, Узлов: {size}")
+                    btree_info.setDefaultTextColor(QColor("#9B59B6"))
+                    btree_info.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+                    btree_info.setPos(-200, -100)
                 else:
                     self._log("🌳 Дерево построено и отображено")
                 
-                # Отображаем информацию о количестве узлов
-                node_count = self._count_tree_nodes(tree_data)
-                self._log(f"📊 Узлов в дереве: {node_count}")
+                # Отображаем информацию о количестве узлов (только для не-B-деревьев)
+                if not is_btree:
+                    node_count = self._count_tree_nodes(tree_data)
+                    self._log(f"📊 Узлов в дереве: {node_count}")
+                else:
+                    # Для B-дерева считаем узлы по-другому
+                    node_count = self._count_btree_nodes(tree_data)
+                    self._log(f"📊 Узлов в B-дереве: {node_count}")
+                    
             else:
                 self._log("❌ Ошибка при построении дерева")
                 
@@ -3329,6 +3353,14 @@ class MainWindow(QMainWindow):
         if not tree_structure or max_depth <= 0:
             return 0
         
+        # Если это список (B-дерево), используем другой метод
+        if isinstance(tree_structure, list):
+            return self._count_btree_nodes(tree_structure)
+        
+        # Для словарей (обычные деревья)
+        if not isinstance(tree_structure, dict):
+            return 0
+        
         count = 1
         # Рекурсивно считаем левое поддерево
         if tree_structure.get("left"):
@@ -3339,7 +3371,31 @@ class MainWindow(QMainWindow):
             count += self._count_tree_nodes(tree_structure["right"], max_depth - 1)
         
         return count
-
+    def _count_btree_nodes(self, tree_structure, max_depth=1000):
+        """Подсчитывает количество узлов в B-дереве."""
+        if not tree_structure or max_depth <= 0:
+            return 0
+        
+        count = 0
+        
+        # B-дерево представлено как список словарей или вложенных списков
+        if isinstance(tree_structure, list):
+            for item in tree_structure:
+                if isinstance(item, dict):
+                    # Узел B-дерева с ключами и детьми
+                    count += 1
+                    if "children" in item:
+                        count += self._count_btree_nodes(item["children"], max_depth - 1)
+                elif isinstance(item, list):
+                    # Вложенный список узлов
+                    count += self._count_btree_nodes(item, max_depth - 1)
+        elif isinstance(tree_structure, dict):
+            # Одиночный узел
+            count += 1
+            if "children" in tree_structure:
+                count += self._count_btree_nodes(tree_structure["children"], max_depth - 1)
+        
+        return count
     def _center_on_tree(self):
         """Центрирует вид на содержимом сцены с масштабированием."""
         if self.scene.items():
@@ -4558,6 +4614,8 @@ class MainWindow(QMainWindow):
         
         try:
             is_heap = isinstance(self.current_algorithm, BinaryHeap)
+            is_btree = isinstance(self.current_algorithm, BTree)
+            
             if is_heap:
                 # Обработка операций для кучи
                 if operation == "Вставить узел":
@@ -4574,7 +4632,9 @@ class MainWindow(QMainWindow):
                     self._heap_peek()
                     
                 elif operation == "Получить размер (get_size)":
-                    self._heap_get_size()
+                    # Для кучи используем get_size
+                    size = self.current_algorithm.get_size()
+                    self._log(f"📊 Размер кучи: {size}")
                     
                 elif operation == "Проверить на пустоту (is_empty)":
                     self._heap_is_empty()
@@ -4594,7 +4654,8 @@ class MainWindow(QMainWindow):
                 elif operation == "Очистить кучу":
                     self._heap_clear()
                 
-            else:
+            elif is_btree:
+                # Обработка операций для B-дерева
                 if operation in ["Вставить узел", "Удалить узел", "Найти узел"]:
                     if not value_text:
                         QMessageBox.warning(self, "Ошибка", "Введите значение для операции")
@@ -4605,10 +4666,40 @@ class MainWindow(QMainWindow):
                     if operation == "Вставить узел":
                         self._insert_node(value)
                     elif operation == "Удалить узел":
-                        self._delete_node(value)  # Используем новый метод
+                        self._delete_node(value)
                     elif operation == "Найти узел":
                         self._search_node(value)
+                        
+                elif operation == "Получить размер (get_size)":
+                    # Для B-дерева используем альтернативные методы
+                    if hasattr(self.current_algorithm, 'get_node_count'):
+                        size = self.current_algorithm.get_node_count()
+                    elif hasattr(self.current_algorithm, 'size'):
+                        size = self.current_algorithm.size()
+                    elif hasattr(self.current_algorithm, 'count_nodes'):
+                        size = self.current_algorithm.count_nodes()
+                    else:
+                        size = "неизвестно (метод не найден)"
                     
+                    self._log(f"📊 Размер B-дерева: {size}")
+                else:
+                    self._log(f"❌ Операция '{operation}' не поддерживается для B-дерева")
+                    
+            else:
+                # Обработка для обычных деревьев
+                if operation in ["Вставить узел", "Удалить узел", "Найти узел"]:
+                    if not value_text:
+                        QMessageBox.warning(self, "Ошибка", "Введите значение для операции")
+                        return
+                    
+                    value = int(value_text)
+                    
+                    if operation == "Вставить узел":
+                        self._insert_node(value)
+                    elif operation == "Удалить узел":
+                        self._delete_node(value)
+                    elif operation == "Найти узел":
+                        self._search_node(value)
                         
                 elif operation == "Прямой обход (Pre-order)":
                     self._perform_traversal("preorder")
@@ -5027,6 +5118,73 @@ class MainWindow(QMainWindow):
             self._log(f"❌ Ошибка при выполнении поиска: {str(e)}")
             import traceback
             traceback.print_exc()
+    def _on_search_execute_from_input(self):
+        """Выполняет бинарный поиск по значению из строки ввода."""
+        # Используем ТЕКУЩИЙ массив (self.array_data), а не из поля ввода
+        if not hasattr(self, 'array_data') or not self.array_data:
+            self._log("❌ Нет данных для поиска")
+            QMessageBox.warning(self, "Ошибка", "Сначала выполните сортировку массива")
+            return
+        
+        # Получаем значение из строки ввода
+        target_text = self.search_val_input.text().strip()
+        if not target_text:
+            self._log("❌ Введите значение для поиска")
+            QMessageBox.warning(self, "Ошибка", "Введите значение для поиска в поле ввода")
+            return
+        
+        try:
+            target = int(target_text)
+        except ValueError:
+            self._log("❌ Введите корректное число")
+            QMessageBox.warning(self, "Ошибка", "Введите корректное целое число")
+            return
+        
+        # Проверяем, отсортирован ли массив
+        is_sorted = all(self.array_data[i] <= self.array_data[i+1] for i in range(len(self.array_data)-1))
+        if not is_sorted:
+            self._log("❌ Массив не отсортирован! Бинарный поиск работает только с отсортированными массивами.")
+            QMessageBox.warning(self, "Ошибка", 
+                            "Массив не отсортирован!\nБинарный поиск работает только с отсортированными массивами.")
+            return
+        
+        try:
+            # Останавливаем текущие анимации и движок
+            self.engine.pause()
+            self.engine.generator = None
+            self.is_animating = False
+            self.pending_actions.clear()
+            
+            # ===== КРИТИЧЕСКИ ВАЖНО: СБРАСЫВАЕМ СОСТОЯНИЕ =====
+            self.algorithm_completed = False  # Сбрасываем флаг завершения алгоритма
+            self.current_step = 0             # Сбрасываем счетчик шагов
+            self.total_steps = 0              # Сбрасываем общее количество шагов
+            
+            # Сбрасываем подсветку всех элементов
+            self._reset_all_colors()
+            
+            # Создаем алгоритм бинарного поиска с ТЕКУЩИМ отсортированным массивом
+            from model.search.binary_search import BinarySearch
+            self.current_algorithm = BinarySearch(self.array_data.copy(), target)
+            
+            # Загружаем в движок
+            self.engine.load_algorithm(self.current_algorithm)
+            
+            # Запускаем поиск
+            self._log(f"🔍 Запуск бинарного поиска значения {target} в отсортированном массиве...")
+            self._log(f"📊 Размер массива: {len(self.array_data)} элементов")
+            
+            # Запускаем первый шаг поиска
+            if not self.is_animating:
+                success = self.engine.step()
+                if not success:
+                    self._log("❌ Не удалось запустить бинарный поиск")
+                    self.algorithm_completed = True
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при выполнении поиска: {str(e)}")
+            import traceback
+            traceback.print_exc()
     def _create_search_panel(self):
         """Создает панель для бинарного поиска после сортировки."""
         # Очищаем контейнер
@@ -5067,17 +5225,17 @@ class MainWindow(QMainWindow):
         input_layout = QHBoxLayout()
         input_layout.addWidget(QLabel("Искомое значение:"))
         self.search_val_input = QLineEdit()
-        self.search_val_input.setPlaceholderText("Нажмите кнопку для ввода...")
-        self.search_val_input.setReadOnly(True)
+        self.search_val_input.setPlaceholderText("Введите число для поиска...")
         self.search_val_input.setStyleSheet("""
             QLineEdit {
                 padding: 8px;
                 border: 2px solid #5A9BD5;
                 border-radius: 4px;
                 font-size: 14px;
-                background-color: #f8f9fa;
             }
         """)
+        # Подключаем обработку нажатия Enter
+        self.search_val_input.returnPressed.connect(self._on_search_execute_from_input)
         input_layout.addWidget(self.search_val_input)
         self.operations_layout.addLayout(input_layout)
         
@@ -5101,7 +5259,8 @@ class MainWindow(QMainWindow):
                 background-color: {'#2eaba2' if is_sorted else '#909090'};
             }}
         """)
-        self.search_execute_btn.clicked.connect(self._on_search_execute)
+        # Используем новую функцию для обработки поиска
+        self.search_execute_btn.clicked.connect(self._on_search_execute_from_input)
         self.operations_layout.addWidget(self.search_execute_btn)
         
         # Информация о сортировке
