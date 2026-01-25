@@ -27,6 +27,7 @@ from model.trees.splay_tree import SplayTree
 from model.trees.treap import Treap
 from model.trees.b_tree import BTree
 from model.search.binary_search import BinarySearch
+from model.search.interpolation_search import InterpolationSearch
 from model.trees.heap import BinaryHeap
 from model.graphs.bfs import GraphBFS
 from model.graphs.dfs import GraphDFS
@@ -1008,6 +1009,7 @@ class MainWindow(QMainWindow):
             "info": "#3498DB",          # Синий - информационный
             "warning": "#E74C3C",       # Красный - предупреждение
             "success": "#2ECC71",       # Зеленый - успех
+            "interpolation": "#9B59B6"      # Фиолетовый - интерполяционная позиция
         }
         
         # Сброс кэша цветов
@@ -3706,6 +3708,102 @@ class MainWindow(QMainWindow):
                 # Сбрасываем все подсветки
                 self._reset_all_colors()
                 self._schedule_next_action(int(500 * speed_factor))
+        elif t.startswith("interpolation_search_"):
+            if t == "interpolation_search_start":
+                self._log(f"🔍 Начинаем интерполяционный поиск значения {action.get('target', '')}")
+                self._schedule_next_action(int(500 * speed_factor))
+                
+            elif t == "interpolation_search_calc":
+                left = action.get("left", 0)
+                right = action.get("right", 0)
+                pos = action.get("pos", 0)
+                pos_value = action.get("pos_value", 0)
+                left_value = action.get("left_value", 0)
+                right_value = action.get("right_value", 0)
+                
+                # Подсвечиваем весь текущий диапазон
+                indices = list(range(left, right + 1))
+                self._highlight_items(indices, "comparing", action.get("description", ""), keep_others=True)
+                
+                # Особо выделяем левую и правую границы
+                if left < len(self.visual_items):
+                    self.visual_items[left].highlight("#4ECDC4")  # Бирюзовый для левой границы
+                    self.visual_items[left].show_value_label(f"L={left_value}")
+                
+                if right < len(self.visual_items):
+                    self.visual_items[right].highlight("#FF6B6B")  # Красный для правой границы
+                    self.visual_items[right].show_value_label(f"R={right_value}")
+                
+                # Выделяем рассчитанную позицию
+                if pos < len(self.visual_items):
+                    self.visual_items[pos].highlight(self.color_palette["pivot"])
+                    self.visual_items[pos].bounce_animation()
+                    self.visual_items[pos].show_value_label(f"pos={pos_value}")
+                    
+                    # Показываем формулу расчета
+                    formula_text = f"pos = {left} + (({action.get('target', 0)} - {left_value}) * ({right} - {left})) // ({right_value} - {left_value}) = {pos}"
+                    formula_item = self.scene.addText(formula_text)
+                    formula_item.setDefaultTextColor(QColor("#9B59B6"))
+                    formula_item.setFont(QFont("Arial", 10))
+                    
+                    # Позиционируем формулу над массивом
+                    if pos < len(self.visual_items):
+                        pos_item = self.visual_items[pos]
+                        formula_x = pos_item.x() - 100
+                        formula_y = pos_item.y() - 80
+                        formula_item.setPos(formula_x, formula_y)
+                    
+                    # Удаляем формулу через 2 секунды
+                    QTimer.singleShot(2000, lambda: self.scene.removeItem(formula_item))
+                
+                self._schedule_next_action(int(1000 * speed_factor))
+                
+            elif t == "interpolation_search_compare":
+                pos = action.get("pos", 0)
+                comparison = action.get("comparison", "")
+                target = action.get("target", 0)
+                
+                # В зависимости от сравнения подсвечиваем по-разному
+                if pos < len(self.visual_items):
+                    if comparison == "equal":
+                        self.visual_items[pos].highlight(self.color_palette["sorted"])
+                        self.visual_items[pos].bounce_animation(scale_factor=1.2)
+                        self.visual_items[pos].show_value_label(f"✓ Найден {target}!")
+                    elif comparison == "less":
+                        self.visual_items[pos].highlight("#FFA500")  # Оранжевый - значение меньше
+                        self.visual_items[pos].show_value_label(f"< {target}")
+                    else:  # greater
+                        self.visual_items[pos].highlight("#FF6B6B")  # Красный - значение больше
+                        self.visual_items[pos].show_value_label(f"> {target}")
+                
+                self._schedule_next_action(int(700 * speed_factor))
+                
+            elif t == "interpolation_search_narrow":
+                left = action.get("left", 0)
+                right = action.get("right", 0)
+                direction = action.get("direction", "")
+                
+                # Сбрасываем подсветку элементов вне нового диапазона
+                for i in range(len(self.visual_items)):
+                    if i < left or i > right:
+                        self.visual_items[i].reset_color()
+                        self.visual_items[i].hide_value_label()
+                
+                # Показываем новый диапазон
+                indices = list(range(left, right + 1))
+                if direction == "right":
+                    self._highlight_items(indices, "merge_right", f"Ищем справа от позиции", keep_others=True)
+                else:
+                    self._highlight_items(indices, "merge_left", f"Ищем слева от позиции", keep_others=True)
+                
+                self._log(action.get("description", ""))
+                self._schedule_next_action(int(600 * speed_factor))
+                
+            elif t == "interpolation_search_not_found":
+                self._log(f"❌ {action.get('description', '')}")
+                # Сбрасываем все подсветки
+                self._reset_all_colors()
+                self._schedule_next_action(int(500 * speed_factor))
         # === ОБРАБОТЧИКИ ДЛЯ MERGESORT ===
         elif t == "split":
             left = action.get("left", 0)
@@ -5119,7 +5217,7 @@ class MainWindow(QMainWindow):
             import traceback
             traceback.print_exc()
     def _on_search_execute_from_input(self):
-        """Выполняет бинарный поиск по значению из строки ввода."""
+        """Выполняет поиск по значению из строки ввода."""
         # Используем ТЕКУЩИЙ массив (self.array_data), а не из поля ввода
         if not hasattr(self, 'array_data') or not self.array_data:
             self._log("❌ Нет данных для поиска")
@@ -5143,9 +5241,9 @@ class MainWindow(QMainWindow):
         # Проверяем, отсортирован ли массив
         is_sorted = all(self.array_data[i] <= self.array_data[i+1] for i in range(len(self.array_data)-1))
         if not is_sorted:
-            self._log("❌ Массив не отсортирован! Бинарный поиск работает только с отсортированными массивами.")
+            self._log("❌ Массив не отсортирован! Поиск работает только с отсортированными массивами.")
             QMessageBox.warning(self, "Ошибка", 
-                            "Массив не отсортирован!\nБинарный поиск работает только с отсортированными массивами.")
+                            "Массив не отсортирован!\nПоиск работает только с отсортированными массивами.")
             return
         
         try:
@@ -5156,29 +5254,37 @@ class MainWindow(QMainWindow):
             self.pending_actions.clear()
             
             # ===== КРИТИЧЕСКИ ВАЖНО: СБРАСЫВАЕМ СОСТОЯНИЕ =====
-            self.algorithm_completed = False  # Сбрасываем флаг завершения алгоритма
-            self.current_step = 0             # Сбрасываем счетчик шагов
-            self.total_steps = 0              # Сбрасываем общее количество шагов
+            self.algorithm_completed = False
+            self.current_step = 0
+            self.total_steps = 0
             
             # Сбрасываем подсветку всех элементов
             self._reset_all_colors()
             
-            # Создаем алгоритм бинарного поиска с ТЕКУЩИМ отсортированным массивом
-            from model.search.binary_search import BinarySearch
-            self.current_algorithm = BinarySearch(self.array_data.copy(), target)
+            # Определяем тип поиска
+            search_type = self.search_type_combo.currentText()
+            
+            if search_type == "Бинарный поиск":
+                from model.search.binary_search import BinarySearch
+                self.current_algorithm = BinarySearch(self.array_data.copy(), target)
+                algorithm_name = "бинарный"
+            else:  # Интерполяционный поиск
+                from model.search.interpolation_search import InterpolationSearch
+                self.current_algorithm = InterpolationSearch(self.array_data.copy(), target)
+                algorithm_name = "интерполяционный"
             
             # Загружаем в движок
             self.engine.load_algorithm(self.current_algorithm)
             
             # Запускаем поиск
-            self._log(f"🔍 Запуск бинарного поиска значения {target} в отсортированном массиве...")
+            self._log(f"🔍 Запуск {algorithm_name} поиска значения {target}...")
             self._log(f"📊 Размер массива: {len(self.array_data)} элементов")
             
             # Запускаем первый шаг поиска
             if not self.is_animating:
                 success = self.engine.step()
                 if not success:
-                    self._log("❌ Не удалось запустить бинарный поиск")
+                    self._log("❌ Не удалось запустить поиск")
                     self.algorithm_completed = True
             
         except Exception as e:
@@ -5186,7 +5292,7 @@ class MainWindow(QMainWindow):
             import traceback
             traceback.print_exc()
     def _create_search_panel(self):
-        """Создает панель для бинарного поиска после сортировки."""
+        """Создает панель для поиска после сортировки."""
         # Очищаем контейнер
         self._clear_interactive_panel_children()
         
@@ -5221,6 +5327,22 @@ class MainWindow(QMainWindow):
                 }
             """)
         
+        # Выбор типа поиска
+        search_type_layout = QHBoxLayout()
+        search_type_layout.addWidget(QLabel("Тип поиска:"))
+        self.search_type_combo = QComboBox()
+        self.search_type_combo.addItems(["Бинарный поиск", "Интерполяционный поиск"])
+        self.search_type_combo.setStyleSheet("""
+            QComboBox {
+                padding: 6px;
+                border: 2px solid #5A9BD5;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+        """)
+        search_type_layout.addWidget(self.search_type_combo)
+        self.operations_layout.addLayout(search_type_layout)
+        
         # Поле ввода искомого значения
         input_layout = QHBoxLayout()
         input_layout.addWidget(QLabel("Искомое значение:"))
@@ -5240,11 +5362,11 @@ class MainWindow(QMainWindow):
         self.operations_layout.addLayout(input_layout)
         
         # Кнопка выполнения поиска
-        self.search_execute_btn = QPushButton("🔍 Выполнить бинарный поиск")
-        self.search_execute_btn.setEnabled(is_sorted)  # Кнопка активна только если массив отсортирован
+        self.search_execute_btn = QPushButton("🔍 Выполнить поиск")
+        self.search_execute_btn.setEnabled(is_sorted)
         self.search_execute_btn.setStyleSheet(f"""
             QPushButton {{
-                background-color: {'#4ECDC4' if is_sorted else '#b0b0b0'};
+                background-color: {'#9B59B6' if is_sorted else '#b0b0b0'};
                 color: white;
                 border-radius: 6px;
                 padding: 12px;
@@ -5253,31 +5375,33 @@ class MainWindow(QMainWindow):
                 border: none;
             }}
             QPushButton:hover {{
-                background-color: {'#3dbcb3' if is_sorted else '#a0a0a0'};
+                background-color: {'#8E44AD' if is_sorted else '#a0a0a0'};
             }}
             QPushButton:pressed {{
-                background-color: {'#2eaba2' if is_sorted else '#909090'};
+                background-color: {'#7D3C98' if is_sorted else '#909090'};
             }}
         """)
-        # Используем новую функцию для обработки поиска
         self.search_execute_btn.clicked.connect(self._on_search_execute_from_input)
         self.operations_layout.addWidget(self.search_execute_btn)
         
-        # Информация о сортировке
-        info_label = QLabel("ℹ️ Бинарный поиск работает только на отсортированных массивах")
-        info_label.setStyleSheet("""
+        # Информация о поиске
+        info_text = QLabel("ℹ️ Поиск работает только на отсортированных массивах\n"
+                        "• Бинарный поиск: всегда O(log n)\n"
+                        "• Интерполяционный поиск: O(log log n) для равномерного распределения")
+        info_text.setStyleSheet("""
             QLabel {
                 color: #666;
                 font-size: 11px;
                 font-style: italic;
-                padding: 5px;
-                background-color: #f0f8ff;
+                padding: 8px;
+                background-color: #f8f9fa;
                 border-radius: 4px;
-                border: 1px solid #d0e0ff;
+                border: 1px solid #e0e0e0;
+                line-height: 1.4;
             }
         """)
-        info_label.setWordWrap(True)
-        self.operations_layout.addWidget(info_label)
+        info_text.setWordWrap(True)
+        self.operations_layout.addWidget(info_text)
     def _search_node(self, value):
         """Поиск узла в дереве."""
         try:
