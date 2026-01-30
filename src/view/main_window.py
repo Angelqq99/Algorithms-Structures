@@ -33,7 +33,8 @@ from model.graphs.bfs import GraphBFS
 from model.graphs.dfs import GraphDFS
 from model.graphs.dijkstra import Dijkstra
 from model.hashtable.hashtable import HashTable
-
+from model.bloom.bloom_filter import BloomFilter
+from view.bloom_visualizer import BloomVisualizer
 from view.tree_visualizer import TreeVisualizer
 from view.graph_visualizer import GraphVisualizer
 from view.tree_layout import CenteredTreeLayout, CompactTreeLayout
@@ -1064,7 +1065,7 @@ class MainWindow(QMainWindow):
         # Категория и алгоритм
         left_layout.addWidget(QLabel("Категория:"))
         self.category_combo = QComboBox()
-        self.category_combo.addItems(["Сортировки", "Деревья", "Графы", "Хэш-таблицы", "Структуры данных","Сжатие данных"])
+        self.category_combo.addItems(["Сортировки", "Деревья", "Графы", "Хэш-таблицы", "Структуры данных","Сжатие данных","Вероятностные структуры"])
         
         left_layout.addWidget(QLabel("Алгоритм:"))
         self.algorithm_combo = QComboBox()
@@ -1125,7 +1126,97 @@ class MainWindow(QMainWindow):
         self.graph_layout_label.hide()
         self.graph_layout_combo.hide()
         self.build_graph_btn.hide()
+            # Настройки фильтра Блума
+        self.bloom_settings_label = QLabel("Настройки фильтра Блума:")
+        self.bloom_settings_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         
+        # Размер битового массива
+        self.bloom_size_label = QLabel("Размер битового массива:")
+        self.bloom_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bloom_size_slider.setRange(10, 100)
+        self.bloom_size_slider.setValue(50)
+        self.bloom_size_value = QLabel("50")
+        
+        bloom_size_layout = QHBoxLayout()
+        bloom_size_layout.addWidget(self.bloom_size_label)
+        bloom_size_layout.addWidget(self.bloom_size_slider)
+        bloom_size_layout.addWidget(self.bloom_size_value)
+        
+        # Количество хэш-функций
+        self.bloom_hashes_label = QLabel("Количество хэш-функций:")
+        self.bloom_hashes_slider = QSlider(Qt.Orientation.Horizontal)
+        self.bloom_hashes_slider.setRange(1, 6)
+        self.bloom_hashes_slider.setValue(3)
+        self.bloom_hashes_value = QLabel("3")
+        
+        bloom_hashes_layout = QHBoxLayout()
+        bloom_hashes_layout.addWidget(self.bloom_hashes_label)
+        bloom_hashes_layout.addWidget(self.bloom_hashes_slider)
+        bloom_hashes_layout.addWidget(self.bloom_hashes_value)
+        
+        # Тестовое значение
+        self.bloom_test_value_label = QLabel("Тестовое значение:")
+        self.bloom_test_value_input = QLineEdit()
+        self.bloom_test_value_input.setPlaceholderText("Введите значение для проверки...")
+        
+        # Кнопки тестирования
+        self.bloom_test_check_btn = QPushButton("🔍 Проверить")
+        self.bloom_test_check_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9B59B6;
+                color: white;
+                border-radius: 4px;
+                padding: 6px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #8E44AD; }
+            QPushButton:pressed { background-color: #7D3C98; }
+        """)
+        
+        self.bloom_test_add_btn = QPushButton("➕ Добавить")
+        self.bloom_test_add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2ECC71;
+                color: white;
+                border-radius: 4px;
+                padding: 6px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #27AE60; }
+            QPushButton:pressed { background-color: #219653; }
+        """)
+        
+        bloom_test_layout = QHBoxLayout()
+        bloom_test_layout.addWidget(self.bloom_test_value_input)
+        bloom_test_layout.addWidget(self.bloom_test_check_btn)
+        bloom_test_layout.addWidget(self.bloom_test_add_btn)
+        
+        # Скрываем настройки фильтра Блума по умолчанию
+        self.bloom_settings_label.hide()
+        self.bloom_size_label.hide()
+        self.bloom_size_slider.hide()
+        self.bloom_size_value.hide()
+        self.bloom_hashes_label.hide()
+        self.bloom_hashes_slider.hide()
+        self.bloom_hashes_value.hide()
+        self.bloom_test_value_label.hide()
+        self.bloom_test_value_input.hide()
+        self.bloom_test_check_btn.hide()
+        self.bloom_test_add_btn.hide()
+        
+        # Подключаем сигналы для обновления значений
+        self.bloom_size_slider.valueChanged.connect(
+            lambda v: self.bloom_size_value.setText(str(v))
+        )
+        self.bloom_hashes_slider.valueChanged.connect(
+            lambda v: self.bloom_hashes_value.setText(str(v))
+        )
+        
+        # Подключаем кнопки
+        self.bloom_test_check_btn.clicked.connect(self._bloom_check_value)
+        self.bloom_test_add_btn.clicked.connect(self._bloom_add_value)
         # Настройки хэш-таблицы
         self.hashtable_settings_label = QLabel("Настройки хэш-таблицы:")
         self.hashtable_settings_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
@@ -1255,7 +1346,11 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.collision_method_label)
         left_layout.addWidget(self.collision_method_combo)
         left_layout.addLayout(table_size_layout)
-        
+        left_layout.addWidget(self.bloom_settings_label)
+        left_layout.addLayout(bloom_size_layout)      # Добавляем layout с размером массива
+        left_layout.addLayout(bloom_hashes_layout)    # Добавляем layout с количеством хэш-функций
+        left_layout.addWidget(self.bloom_test_value_label)
+        left_layout.addLayout(bloom_test_layout)
         left_layout.addWidget(self.generate_btn)
         left_layout.addWidget(self.start_btn)
         left_layout.addWidget(self.auto_btn)
@@ -1422,6 +1517,342 @@ class MainWindow(QMainWindow):
         layout.addStretch()
         
         return panel
+    def _create_bloom_interactive_panel(self):
+        """Создает панель интерактивных операций для фильтра Блума."""
+        # Очищаем контейнер полностью
+        self._clear_interactive_panel_children()
+        
+        # Обновляем информационную метку
+        self.info_label.setText("ℹ️ Выполняйте операции с фильтром Блума в реальном времени")
+        
+        # Контейнер для операций
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setSpacing(10)
+        
+        # Заголовок
+        title = QLabel("🎲 Операции с фильтром Блума")
+        title.setStyleSheet("font-weight: bold; font-size: 14px; color: #9B59B6;")
+        layout.addWidget(title)
+        
+        # Добавление множества элементов
+        add_layout = QHBoxLayout()
+        add_layout.addWidget(QLabel("Добавить элементы:"))
+        self.bloom_add_input = QLineEdit()
+        self.bloom_add_input.setPlaceholderText("через запятую: apple,banana,orange")
+        self.bloom_add_input.setStyleSheet("""
+            QLineEdit {
+                padding: 8px;
+                border: 2px solid #9B59B6;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
+        add_layout.addWidget(self.bloom_add_input)
+        
+        self.bloom_add_btn = QPushButton("➕ Добавить")
+        self.bloom_add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2ECC71;
+                color: white;
+                border-radius: 6px;
+                padding: 10px;
+                font-weight: bold;
+                font-size: 13px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #27AE60; }
+            QPushButton:pressed { background-color: #219653; }
+        """)
+        self.bloom_add_btn.clicked.connect(self._bloom_add_multiple)
+        add_layout.addWidget(self.bloom_add_btn)
+        
+        layout.addLayout(add_layout)
+        
+        # Панель быстрых действий
+        quick_actions = QGroupBox("Быстрые действия")
+        quick_actions.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+        """)
+        
+        quick_layout = QHBoxLayout()
+        
+        # Кнопка очистки
+        self.bloom_clear_btn = QPushButton("🗑️ Очистить")
+        self.bloom_clear_btn.clicked.connect(self._bloom_clear)
+        self.bloom_clear_btn.setToolTip("Очистить фильтр")
+        
+        # Кнопка случайных данных
+        self.bloom_random_btn = QPushButton("🎲 Случайные данные")
+        self.bloom_random_btn.clicked.connect(self._bloom_generate_random)
+        self.bloom_random_btn.setToolTip("Добавить случайные значения")
+        
+        # Кнопка тестирования
+        self.bloom_test_btn = QPushButton("🧪 Тест ложных срабатываний")
+        self.bloom_test_btn.clicked.connect(self._bloom_test_false_positives)
+        self.bloom_test_btn.setToolTip("Тестирование вероятности ложных срабатываний")
+        
+        # Стили кнопок быстрых действий
+        quick_button_style = """
+            QPushButton {
+                background-color: #9B59B6;
+                color: white;
+                border-radius: 4px;
+                padding: 8px;
+                font-size: 12px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #8E44AD; }
+            QPushButton:pressed { background-color: #7D3C98; }
+        """
+        
+        for btn in [self.bloom_clear_btn, self.bloom_random_btn, self.bloom_test_btn]:
+            btn.setStyleSheet(quick_button_style)
+            btn.setMinimumHeight(35)
+            quick_layout.addWidget(btn)
+        
+        quick_actions.setLayout(quick_layout)
+        layout.addWidget(quick_actions)
+        
+        # Добавляем контейнер в основной layout
+        self.operations_layout.addWidget(container)
+        
+        # Обновляем статус
+        if hasattr(self, 'current_algorithm') and isinstance(self.current_algorithm, BloomFilter):
+            self._update_bloom_stats()
+    def _render_bloom_initial_view(self):
+        """Отображает начальный вид фильтра Блума."""
+        try:
+            if not hasattr(self, 'bloom_visualizer') or not self.current_algorithm:
+                return
+            
+            size = self.current_algorithm.size
+            num_hashes = self.current_algorithm.num_hashes
+            
+            # Создаем визуализацию
+            self.bloom_visualizer.create_bloom_filter(size, num_hashes)
+            
+            # Показываем начальную статистику
+            stats = self.current_algorithm.get_stats()
+            self.bloom_visualizer.update_stats(stats)
+            
+            # Подгоняем зум
+            if hasattr(self.view, 'fit_to_content'):
+                self.view.fit_to_content(100)
+            
+            self._log(f"🎲 Фильтр Блума инициализирован: {size} бит, {num_hashes} хэш-функций")
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при создании фильтра Блума: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _bloom_add_multiple(self):
+        """Добавляет несколько элементов в фильтр Блума."""
+        try:
+            text = self.bloom_add_input.text().strip()
+            if not text:
+                QMessageBox.warning(self, "Ошибка", "Введите элементы для добавления")
+                return
+            
+            # Разбираем элементы
+            items = [item.strip() for item in text.split(",") if item.strip()]
+            if not items:
+                QMessageBox.warning(self, "Ошибка", "Введите корректные элементы через запятую")
+                return
+            
+            # ВАЖНО: Сначала добавляем элементы напрямую, а потом показываем анимацию
+            for item in items:
+                # Добавляем элемент в фильтр Блума
+                self.current_algorithm.add(item)
+            
+            # Обновляем визуализацию
+            stats = self.current_algorithm.get_stats()
+            last_indices = self.current_algorithm.get_last_indices()
+            
+            if hasattr(self, 'bloom_visualizer'):
+                self.bloom_visualizer.update_stats(stats)
+                self.bloom_visualizer.update_bit_array(stats["bit_array"])
+                
+                # Подсвечиваем установленные индексы для последнего элемента
+                if last_indices and items:
+                    self.bloom_visualizer.highlight_indices(last_indices, False, items[-1])
+            
+            self._log(f"✅ Добавлено {len(items)} элементов в фильтр Блума")
+            
+            # Теперь создаем генератор для пошагового отображения (только визуализация)
+            # Если нужна анимация, можно оставить, но она не должна влиять на данные
+            if self.is_auto_mode:  # Если включен автоматический режим
+                generator = self.current_algorithm.get_step_generator("add", items=items)
+                self.engine.generator = generator
+                self._start_auto_mode()
+            else:
+                # Просто обновляем статистику
+                self._update_bloom_stats()
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при добавлении элементов: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
+
+
+    def _bloom_clear(self):
+        """Очищает фильтр Блума."""
+        reply = QMessageBox.question(
+            self, "Подтверждение", 
+            "Вы уверены, что хотите очистить фильтр Блума?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.current_algorithm.clear()
+                
+                # Обновляем визуализацию
+                self._render_bloom_initial_view()
+                
+                # Обновляем статистику
+                self._update_bloom_stats()
+                
+                self._log("🗑️ Фильтр Блума очищен")
+                
+            except Exception as e:
+                self._log(f"❌ Ошибка при очистке фильтра: {str(e)}")
+
+    def _bloom_generate_random(self):
+        """Генерирует случайные данные для фильтра Блума."""
+        try:
+            # Создаем случайные строки
+            import random
+            import string
+            
+            num_items = random.randint(5, 15)
+            items = []
+            
+            for _ in range(num_items):
+                length = random.randint(4, 10)
+                item = ''.join(random.choices(string.ascii_lowercase, k=length))
+                items.append(item)
+            
+            # Заполняем поле ввода
+            self.bloom_add_input.setText(", ".join(items))
+            
+            self._log(f"🎲 Сгенерировано {num_items} случайных элементов")
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при генерации данных: {str(e)}")
+
+    def _bloom_test_false_positives(self):
+        """Тестирует вероятность ложных срабатываний."""
+        try:
+            if self.current_algorithm.items_added == 0:
+                QMessageBox.warning(self, "Ошибка", "Сначала добавьте элементы в фильтр")
+                return
+            
+            # Создаем тестовые элементы, которых точно нет в фильтре
+            import random
+            import string
+            
+            test_items = []
+            for _ in range(10):
+                length = random.randint(6, 12)
+                item = ''.join(random.choices(string.ascii_uppercase, k=length))
+                test_items.append(item)
+            
+            # Проверяем элементы
+            false_positives = 0
+            total_tests = len(test_items)
+            
+            for item in test_items:
+                result = self.current_algorithm.contains(item)
+                if result["likely_present"]:
+                    false_positives += 1
+            
+            false_positive_rate = false_positives / total_tests if total_tests > 0 else 0
+            
+            # Показываем результаты
+            message = (
+                f"🧪 Тест ложных срабатываний:\n\n"
+                f"• Проверено элементов: {total_tests}\n"
+                f"• Ложных срабатываний: {false_positives}\n"
+                f"• Эмпирическая вероятность: {false_positive_rate:.2%}\n"
+                f"• Теоретическая вероятность: {self.current_algorithm.false_positive_rate:.2%}\n\n"
+                f"Элементы в фильтре: {self.current_algorithm.items_added}"
+            )
+            
+            QMessageBox.information(self, "Результаты теста", message)
+            self._log(f"🧪 Тест ложных срабатываний завершен: {false_positive_rate:.2%}")
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при тестировании: {str(e)}")
+
+    def _update_bloom_stats(self):
+        """Обновляет статистику фильтра Блума."""
+        if hasattr(self, 'bloom_visualizer') and hasattr(self, 'current_algorithm'):
+            stats = self.current_algorithm.get_stats()
+            self.bloom_visualizer.update_stats(stats)
+
+    def _bloom_check_value(self):
+        """Проверяет один элемент в фильтре Блума."""
+        try:
+            item = self.bloom_test_value_input.text().strip()
+            if not item:
+                QMessageBox.warning(self, "Ошибка", "Введите элемент для проверки")
+                return
+            
+            # Создаем генератор для пошаговой проверки
+            generator = self.current_algorithm.get_step_generator("check", check_item=item)
+            
+            # Загружаем в движок
+            self.engine.generator = generator
+            
+            # Запускаем автоматический режим
+            self._start_auto_mode()
+            
+            self._log(f"🔍 Проверка элемента '{item}' в фильтре Блума...")
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при проверке элемента: {str(e)}")
+
+    def _bloom_add_value(self):
+        """Добавляет значение из левой панели."""
+        try:
+            item = self.bloom_test_value_input.text().strip()
+            if not item:
+                QMessageBox.warning(self, "Ошибка", "Введите значение для добавления")
+                return
+            
+            # Добавляем элемент
+            self.current_algorithm.add(item)
+            
+            # Обновляем визуализацию
+            stats = self.current_algorithm.get_stats()
+            self.bloom_visualizer.update_stats(stats)
+            self.bloom_visualizer.update_bit_array(stats["bit_array"])
+            
+            # Подсвечиваем установленные индексы
+            last_indices = self.current_algorithm.get_last_indices()
+            if last_indices:
+                self.bloom_visualizer.highlight_indices(last_indices, False, item)
+            
+            self._log(f"✅ Элемент '{item}' добавлен в фильтр Блума")
+            self._update_bloom_stats()
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка при добавлении значения: {str(e)}")
+
 
     def _create_graph_interactive_panel(self):
         """Создает панель интерактивных операций для графов."""
@@ -2004,6 +2435,8 @@ class MainWindow(QMainWindow):
             self.algorithm_combo.addItems(["Stack", "Queue", "Deque"])
         elif category == "Сжатие данных":
             self.algorithm_combo.addItems(["Huffman Coding"])
+        elif category == "Вероятностные структуры":  
+            self.algorithm_combo.addItems(["Bloom Filter"])
 
     def _update_speed(self, value):
         """Изменение скорости во время работы."""
@@ -2016,7 +2449,7 @@ class MainWindow(QMainWindow):
         """Обработка изменения категории алгоритма."""
         # 1. Приостанавливаем все операции
         self.engine.pause()
-        
+
         # 2. Скрываем ВСЕ специфичные виджеты
         self.temp_arrays_widget.hide()
         self.temp_arrays_widget.clear()
@@ -2050,6 +2483,31 @@ class MainWindow(QMainWindow):
         self.table_size_value.hide()
         self.view_chains_btn.hide()
         
+            # 5. Показываем/скрываем настройки фильтра Блума
+        if category == "Вероятностные структуры":
+            self.bloom_settings_label.show()
+            self.bloom_size_label.show()
+            self.bloom_size_slider.show()
+            self.bloom_size_value.show()
+            self.bloom_hashes_label.show()
+            self.bloom_hashes_slider.show()
+            self.bloom_hashes_value.show()
+            self.bloom_test_value_label.show()
+            self.bloom_test_value_input.show()
+            self.bloom_test_check_btn.show()
+            self.bloom_test_add_btn.show()
+        else:
+            self.bloom_settings_label.hide()
+            self.bloom_size_label.hide()
+            self.bloom_size_slider.hide()
+            self.bloom_size_value.hide()
+            self.bloom_hashes_label.hide()
+            self.bloom_hashes_slider.hide()
+            self.bloom_hashes_value.hide()
+            self.bloom_test_value_label.hide()
+            self.bloom_test_value_input.hide()
+            self.bloom_test_check_btn.hide()
+            self.bloom_test_add_btn.hide()
         # 5. Очищаем сцену
         self.scene.clear()
         
@@ -2083,6 +2541,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(100, self._create_graph_interactive_panel)
         elif category == "Сжатие данных":
             QTimer.singleShot(100, self._create_huffman_interactive_panel)
+        elif category == "Вероятностные структуры": 
+            QTimer.singleShot(100, self._create_bloom_interactive_panel)
         elif category == "Сортировки":
             # После завершения сортировки показываем панель поиска
             if hasattr(self, 'algorithm_completed') and self.algorithm_completed:
@@ -2100,6 +2560,8 @@ class MainWindow(QMainWindow):
             self._log("🕸️ Постройте граф, затем выберите алгоритм в правой панели")
         elif category == "Сжатие данных":
             self._log("🔤 Выберите алгоритм сжатия данных")
+        elif category == "Вероятностные структуры":  # Новое сообщение
+            self._log("🎲 Выберите вероятностную структуру данных")
 
     def _create_container_panel_for_current_algo(self):
         """Создает панель для текущего алгоритма контейнера."""
@@ -2222,7 +2684,11 @@ class MainWindow(QMainWindow):
                     print(f"Warning clearing container visualizer: {e}")
                 self.container_visualizer = None
                 self.container_type = None
-            
+            if hasattr(self, 'bloom_visualizer'):
+                try:
+                    self.bloom_visualizer.clear()
+                except Exception as e:
+                    print(f"Warning clearing bloom visualizer: {e}")
             # 3. Очищаем визуализаторы графов ПЕРЕД очисткой сцены
             # Для графов НЕ очищаем визуализатор полностью, только сбрасываем подсветку
             if category == "Графы":
@@ -2433,7 +2899,26 @@ class MainWindow(QMainWindow):
             
             self._log(f"📦 {algo_name} создан. Используйте интерактивные операции справа.")
             return False  # Возвращаем False, так как для контейнеров не нужен запуск через Engine
-        
+        elif category == "Вероятностные структуры" and algo_name == "Bloom Filter":
+                self.scene.clear()
+                self.visual_items.clear()
+                # Создаем фильтр Блума с текущими настройками
+                size = self.bloom_size_slider.value()
+                num_hashes = self.bloom_hashes_slider.value()
+                
+                self.current_algorithm = BloomFilter(size, num_hashes)
+                
+                # Создаем визуализатор
+                self.bloom_visualizer = BloomVisualizer(self.scene)
+                
+                # Загружаем начальную визуализацию
+                self._render_bloom_initial_view()
+                
+                # Создаем интерактивную панель
+                self._create_bloom_interactive_panel()
+                
+                self._log(f"🎲 Фильтр Блума создан: размер={size}, хэш-функций={num_hashes}")
+                return True
         elif category == "Графы":
             # === ИСПРАВЛЕННЫЙ БЛОК ДЛЯ ГРАФОВ ===
             # Для графов проверяем, что граф построен
@@ -3627,6 +4112,15 @@ class MainWindow(QMainWindow):
         elif t == "decoding_complete":
             self._log(action.get("description", ""))
             self._schedule_next_action(int(600 * speed_factor))
+        elif t.startswith("bloom_"):
+            if hasattr(self, 'bloom_visualizer'):
+                success = self.bloom_visualizer.process_action(action)
+                if success:
+                    self._log(action.get("description", ""))
+                
+                self._schedule_next_action(int(600 * speed_factor))
+            else:
+                self._schedule_next_action(int(300 * speed_factor))
         # binary
 # В методе _process_action добавим полную обработку бинарного поиска:
         elif t.startswith("binary_search_"):
@@ -5276,16 +5770,22 @@ class MainWindow(QMainWindow):
             # Загружаем в движок
             self.engine.load_algorithm(self.current_algorithm)
             
-            # Запускаем поиск
+            # Запускаем поиск - ВАЖНОЕ ИЗМЕНЕНИЕ: запускаем автоматический режим
             self._log(f"🔍 Запуск {algorithm_name} поиска значения {target}...")
             self._log(f"📊 Размер массива: {len(self.array_data)} элементов")
             
-            # Запускаем первый шаг поиска
-            if not self.is_animating:
-                success = self.engine.step()
-                if not success:
-                    self._log("❌ Не удалось запустить поиск")
-                    self.algorithm_completed = True
+            # Запускаем автоматический режим сразу
+            speed_value = self.speed_slider.value()
+            interval_ms = max(50, int(600 / speed_value))
+            
+            self.engine.run(interval_ms)
+            
+            # Устанавливаем флаги для автоматического режима
+            self.is_auto_mode = True
+            self.auto_btn.hide()
+            self.pause_btn.show()
+            self.start_btn.setEnabled(False)
+            self._log(f"▶ Автоматический режим запущен (скорость x{speed_value})")
             
         except Exception as e:
             self._log(f"❌ Ошибка при выполнении поиска: {str(e)}")
@@ -7081,7 +7581,8 @@ class MainWindow(QMainWindow):
         left_length = self._calculate_average_path_length(tree_structure.get("left"), current_depth + 1)
         right_length = self._calculate_average_path_length(tree_structure.get("right"), current_depth + 1)
         
-        return left_length + right_length               
+        return left_length + right_length 
+              
 
     def closeEvent(self, event):
         """Обработка закрытия приложения."""
