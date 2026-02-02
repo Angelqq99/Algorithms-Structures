@@ -456,6 +456,40 @@ class TreeNodeItem(ArrayCircleItem):
     def add_connection(self, connection):
         if connection and self._is_valid:
             self.tree_connections.append(connection)
+    def prepareForRemoval(self):
+        """Подготовка к удалению из сцены."""
+        self._is_valid = False
+        
+        # Останавливаем все связанные анимации
+        if hasattr(self, '_animations'):
+            for anim in self._animations:
+                try:
+                    if anim and hasattr(anim, 'stop'):
+                        anim.stop()
+                except:
+                    pass
+            self._animations.clear()
+        
+        # Разрываем все связи
+        try:
+            if hasattr(self, 'connections'):
+                for conn in self.connections:
+                    try:
+                        if conn and hasattr(conn, '_is_valid'):
+                            conn._is_valid = False
+                    except:
+                        pass
+                self.connections.clear()
+        except:
+            pass
+        
+        try:
+            if hasattr(self, 'children'):
+                self.children.clear()
+        except:
+            pass
+        
+        self.parent = None
 
 
 # ==========================
@@ -549,18 +583,37 @@ class TreeConnectionItem(QGraphicsObject):
         self._is_valid = False
         
         # Останавливаем все анимации
-        if hasattr(self, '_animations'):
-            for anim in self._animations:
-                try:
-                    if hasattr(anim, 'stop'):
-                        anim.stop()
-                except:
-                    pass
-            self._animations.clear()
+        try:
+            if hasattr(self, '_entry_anims'):
+                for anim in self._entry_anims:
+                    try:
+                        if anim and hasattr(anim, 'stop'):
+                            anim.stop()
+                    except:
+                        pass
+                self._entry_anims = []
+        except:
+            pass
         
-        # Очищаем ссылки
-        self.start_node = None
-        self.end_node = None
+        # Очищаем связи
+        try:
+            if hasattr(self, 'connections'):
+                for conn in self.connections:
+                    try:
+                        if conn and hasattr(conn, '_is_valid'):
+                            conn._is_valid = False
+                    except:
+                        pass
+                self.connections.clear()
+        except:
+            pass
+        
+        try:
+            self.children.clear()
+        except:
+            pass
+        
+        self.parent = None
 
 
 class GraphNodeItem(QGraphicsEllipseItem):
@@ -1314,3 +1367,37 @@ class BTreeNodeItem(QGraphicsObject):
         self.color_animation.setStartValue(self.current_color)
         self.color_animation.setEndValue(target_color)
         self.color_animation.start()
+    def prepareForRemoval(self):
+        """Подготовка к удалению из сцены."""
+        self._is_valid = False
+        
+        # Останавливаем все связанные анимации
+        if hasattr(self, '_animations'):
+            for anim in self._animations:
+                try:
+                    if anim and hasattr(anim, 'stop'):
+                        anim.stop()
+                except:
+                    pass
+            self._animations.clear()
+        
+        # Разрываем все связи
+        try:
+            if hasattr(self, 'connections'):
+                for conn in self.connections:
+                    try:
+                        if conn and hasattr(conn, '_is_valid'):
+                            conn._is_valid = False
+                    except:
+                        pass
+                self.connections.clear()
+        except:
+            pass
+        
+        try:
+            if hasattr(self, 'children'):
+                self.children.clear()
+        except:
+            pass
+        
+        self.parent = None

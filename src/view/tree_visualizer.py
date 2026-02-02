@@ -19,11 +19,17 @@ class TreeVisualizer:
         self.value_to_node = {}  # Словарь для быстрого доступа к узлам по значению
         self.current_tree_type = "BST"
         self._node_counter = 0  # Счетчик для уникальных ID узлов
+        
+        # Менеджер анимаций и таймеров
+        self._active_timers = []
+        self._active_animations = []
+        self._animation_in_progress = False
+        self._animation_lock = False
     
     def clear(self):
         """Очищает сцену от всех элементов дерева."""
-        # Останавливаем все анимации
-        self._stop_all_animations()
+        # Останавливаем все анимации и таймеры
+        self._stop_all_animations_and_timers()
         
         # Безопасно удаляем элементы
         items_to_remove = []
@@ -63,20 +69,51 @@ class TreeVisualizer:
         self.connections.clear()
         self.value_to_node.clear()
         self._node_counter = 0
+        self._animation_in_progress = False
+        self._animation_lock = False
     
-    def _stop_all_animations(self):
-        """Останавливает все активные анимации."""
+    def _stop_all_animations_and_timers(self):
+        """Останавливает все активные анимации и таймеры."""
+        # Останавливаем таймеры
+        for timer in self._active_timers[:]:
+            try:
+                if timer and timer.isActive():
+                    timer.stop()
+                    timer.deleteLater()
+            except RuntimeError:
+                pass
+            except Exception:
+                pass
+        
+        self._active_timers.clear()
+        
+        # Останавливаем анимации
+        for anim in self._active_animations[:]:
+            try:
+                if anim and hasattr(anim, 'stop'):
+                    anim.stop()
+                    anim.deleteLater()
+            except RuntimeError:
+                pass
+            except Exception:
+                pass
+        
+        self._active_animations.clear()
+        
+        # Останавливаем анимации узлов
         for node in self.nodes:
             try:
                 if node is None:
                     continue
                     
                 if hasattr(node, '_entry_anims'):
-                    for anim in node._entry_anims:
+                    for anim in node._entry_anims[:]:
                         try:
                             if anim and hasattr(anim, 'stop'):
                                 anim.stop()
                         except RuntimeError:
+                            pass
+                        except Exception:
                             pass
                     node._entry_anims = []
                 
@@ -86,24 +123,45 @@ class TreeVisualizer:
                     except:
                         pass
                     
+                if hasattr(node, '_scale_anim'):
+                    try:
+                        node._scale_anim.stop()
+                    except:
+                        pass
+                    
             except RuntimeError:
                 pass
             except Exception:
                 pass
         
+        # Останавливаем анимации соединений
         for connection in self.connections:
             try:
                 if connection is None:
                     continue
                     
                 if hasattr(connection, '_fade_anims'):
-                    for anim in connection._fade_anims:
+                    for anim in connection._fade_anims[:]:
                         try:
                             if anim and hasattr(anim, 'stop'):
                                 anim.stop()
                         except RuntimeError:
                             pass
+                        except Exception:
+                            pass
                     connection._fade_anims = []
+                    
+                if hasattr(connection, '_animations'):
+                    for anim in connection._animations[:]:
+                        try:
+                            if anim and hasattr(anim, 'stop'):
+                                anim.stop()
+                        except RuntimeError:
+                            pass
+                        except Exception:
+                            pass
+                    connection._animations = []
+                    
             except RuntimeError:
                 pass
             except Exception:
@@ -115,6 +173,13 @@ class TreeVisualizer:
     
     def create_tree_from_structure(self, tree_structure, animate=True):
         """Создает дерево из структуры данных."""
+        # Проверяем блокировку анимации
+        if self._animation_lock:
+            return None
+        
+        # Останавливаем все предыдущие анимации
+        self._stop_all_animations_and_timers()
+        
         # Очищаем старое дерево
         self.clear()
         
@@ -122,15 +187,47 @@ class TreeVisualizer:
             return None
         
         try:
+            # Устанавливаем блокировку
+            if animate:
+                self._animation_lock = True
+                self._animation_in_progress = True
+            
             # Проверяем тип дерева
             if isinstance(tree_structure, list) and tree_structure and 'keys' in tree_structure[0]:
                 # Это B-дерево
-                return self._create_btree_from_list(tree_structure, animate)
+                root = self._create_btree_from_list(tree_structure, animate)
             else:
                 # Обычное дерево
-                return self._create_regular_tree(tree_structure, animate)
+                root = self._create_regular_tree(tree_structure, animate)
+            
+            # Если анимация, запускаем завершение
+            if animate and root:
+                # Создаем таймер для снятия блокировки
+                timer = QTimer()
+                timer.setSingleShot(True)
+                
+                def unlock_animation():
+                    try:
+                        self._animation_lock = False
+                        self._animation_in_progress = False
+                    except:
+                        pass
+                    finally:
+                        self._remove_timer(timer)
+                
+                timer.timeout.connect(unlock_animation)
+                self._add_timer(timer)
+                
+                # Вычисляем время анимации
+                animation_time = len(self.nodes) * 150 + len(self.connections) * 50 + 1000
+                timer.start(animation_time)
+            
+            return root
                 
         except Exception as e:
+            # В случае ошибки снимаем блокировку
+            self._animation_lock = False
+            self._animation_in_progress = False
             return None
     
     def _create_regular_tree(self, tree_structure, animate=True):
@@ -161,7 +258,7 @@ class TreeVisualizer:
         if animate:
             # Только для начального построения используем анимацию
             self._add_all_to_scene()
-            self.animate_tree_construction(root)
+            self._animate_tree_construction_safe(root)
         else:
             # Для интерактивных операций - без анимации
             self._add_all_to_scene()
@@ -277,7 +374,7 @@ class TreeVisualizer:
                 
                 # 6. Анимация - только если включена
                 if animate:
-                    self._animate_btree_appearance()
+                    self._animate_btree_appearance_safe()
                 else:
                     # Без анимации
                     for node in self.nodes:
@@ -382,8 +479,8 @@ class TreeVisualizer:
                 node.setPos(current_x + node_width/2, y * y_spacing)
                 current_x += max(node_width + 20, x_spacing)
     
-    def _animate_btree_appearance(self):
-        """Анимация появления B-дерева."""
+    def _animate_btree_appearance_safe(self):
+        """Безопасная анимация появления B-дерева."""
         # Сначала скрываем все элементы
         for node in self.nodes:
             if hasattr(node, 'setOpacity'):
@@ -394,22 +491,52 @@ class TreeVisualizer:
             if hasattr(connection, 'setOpacity'):
                 connection.setOpacity(0.0)
         
-        # Постепенно показываем элементы
+        # Постепенно показываем элементы с проверкой
         for i, node in enumerate(self.nodes):
             if hasattr(node, 'setOpacity'):
-                QTimer.singleShot(i * 100, lambda n=node: self._fade_in_node(n))
+                timer = QTimer()
+                timer.setSingleShot(True)
+                
+                def create_show_node_func(n=node):
+                    def show_node():
+                        try:
+                            self._fade_in_node_safe(n)
+                        finally:
+                            self._remove_timer(timer)
+                    return show_node
+                
+                timer.timeout.connect(create_show_node_func())
+                self._add_timer(timer)
+                timer.start(i * 100)
         
         # Показываем соединения
         connection_delay = len(self.nodes) * 100 + 200
         for i, connection in enumerate(self.connections):
             if hasattr(connection, 'setOpacity'):
-                QTimer.singleShot(connection_delay + i * 50, 
-                                lambda c=connection: self._fade_in_connection(c))
+                timer = QTimer()
+                timer.setSingleShot(True)
+                
+                def create_show_connection_func(c=connection):
+                    def show_connection():
+                        try:
+                            self._fade_in_connection_safe(c)
+                        finally:
+                            self._remove_timer(timer)
+                    return show_connection
+                
+                timer.timeout.connect(create_show_connection_func())
+                self._add_timer(timer)
+                timer.start(connection_delay + i * 50)
     
-    def _fade_in_node(self, node):
-        """Плавное появление узла."""
+    def _fade_in_node_safe(self, node):
+        """Безопасное плавное появление узла."""
         try:
-            if not hasattr(node, '_is_valid') or not node._is_valid:
+            # Проверяем валидность узла
+            if not node or not hasattr(node, '_is_valid') or not node._is_valid:
+                return
+            
+            # Проверяем, что узел все еще в сцене
+            if not node.scene():
                 return
             
             if hasattr(node, 'setOpacity'):
@@ -419,7 +546,11 @@ class TreeVisualizer:
                 anim.setEndValue(1.0)
                 anim.setEasingCurve(QEasingCurve.Type.OutCubic)
                 
-                node._fade_anim = anim
+                # Добавляем в список активных анимаций
+                self._add_animation(anim)
+                
+                # Удаляем после завершения
+                anim.finished.connect(lambda: self._remove_animation(anim))
                 anim.start()
             
             if hasattr(node, 'setScale'):
@@ -430,33 +561,84 @@ class TreeVisualizer:
                 anim_scale.setEndValue(1.0)
                 anim_scale.setEasingCurve(QEasingCurve.Type.OutBack)
                 
-                node._scale_anim = anim_scale
+                # Добавляем в список активных анимаций
+                self._add_animation(anim_scale)
+                
+                # Удаляем после завершения
+                anim_scale.finished.connect(lambda: self._remove_animation(anim_scale))
                 anim_scale.start()
                 
         except Exception:
-            if hasattr(node, 'setOpacity'):
-                node.setOpacity(1.0)
-            if hasattr(node, 'setScale'):
-                node.setScale(1.0)
+            # В случае ошибки просто показываем узел
+            try:
+                if node and hasattr(node, 'setOpacity'):
+                    node.setOpacity(1.0)
+                if node and hasattr(node, 'setScale'):
+                    node.setScale(1.0)
+            except:
+                pass
     
-    def _fade_in_connection(self, connection):
-        """Плавное появление соединения."""
+    def _fade_in_connection_safe(self, connection):
+        """Безопасное плавное появление соединения."""
+        if not connection or not hasattr(connection, '_is_valid') or not connection._is_valid:
+            return
+        
         try:
-            if (not hasattr(connection, '_is_valid') or not connection._is_valid or
-                not hasattr(connection, 'setOpacity')):
+            # Проверяем, что соединение все еще в сцене
+            if not connection.scene():
                 return
             
+            connection.setOpacity(0.0)
+            
             anim = QPropertyAnimation(connection, b"opacity", connection)
-            anim.setDuration(400)
+            anim.setDuration(500)
             anim.setStartValue(0.0)
             anim.setEndValue(1.0)
-            anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
             
-            connection._fade_anim = anim
-            anim.start()
+            # Добавляем в список активных анимаций
+            self._add_animation(anim)
             
-        except Exception:
-            connection.setOpacity(1.0)
+            # Удаляем после завершения
+            anim.finished.connect(lambda: self._remove_animation(anim))
+            anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+            
+        except Exception as e:
+            # В случае ошибки просто показываем соединение
+            try:
+                if connection and hasattr(connection, 'setOpacity'):
+                    connection.setOpacity(1.0)
+            except:
+                pass
+    
+    def _add_timer(self, timer):
+        """Добавляет таймер в список активных."""
+        if timer:
+            self._active_timers.append(timer)
+    
+    def _remove_timer(self, timer):
+        """Удаляет таймер из списка."""
+        try:
+            if timer in self._active_timers:
+                self._active_timers.remove(timer)
+                if timer.isActive():
+                    timer.stop()
+                timer.deleteLater()
+        except:
+            pass
+    
+    def _add_animation(self, animation):
+        """Добавляет анимацию в список активных."""
+        if animation:
+            self._active_animations.append(animation)
+    
+    def _remove_animation(self, animation):
+        """Удаляет анимацию из списка."""
+        try:
+            if animation in self._active_animations:
+                self._active_animations.remove(animation)
+        except:
+            pass
     
     def _create_node_from_data(self, node_data, x, y):
         """Создает TreeNodeItem из данных узла."""
@@ -524,21 +706,28 @@ class TreeVisualizer:
                 self._build_tree_recursive(child_node, child_data)
     
     def _create_connections(self, node):
-        """Рекурсивно создает соединения между узлами."""
-        if not node:
-            return
-            
-        if not hasattr(node, 'children'):
+        """Создает соединения для узла и его детей."""
+        if not node or not hasattr(node, 'children'):
             return
             
         for child in node.children:
-            if child and hasattr(child, 'scenePos'):
+            if child:
                 try:
                     connection = TreeConnectionItem(node, child)
-                    self.connections.append(connection)
-                    self._create_connections(child)
+                    if connection:
+                        self.connections.append(connection)
+                        connection._is_valid = True
+                        
+                        # Добавляем соединение к узлам
+                        if hasattr(node, 'add_connection'):
+                            node.add_connection(connection)
+                        if hasattr(child, 'add_connection'):
+                            child.add_connection(connection)
                 except Exception:
                     pass
+                
+                # Рекурсивно создаем соединения для детей
+                self._create_connections(child)
     
     def _add_all_to_scene(self):
         """Добавляет все узлы и соединения на сцену."""
@@ -580,8 +769,8 @@ class TreeVisualizer:
             except Exception:
                 pass
     
-    def animate_tree_construction(self, root, delay=360):
-        """Анимирует построение дерева."""
+    def _animate_tree_construction_safe(self, root):
+        """Безопасная анимация построения дерева."""
         if not root:
             return
         
@@ -594,30 +783,52 @@ class TreeVisualizer:
             if hasattr(connection, 'setVisible'):
                 connection.setVisible(False)
         
-        # Анимируем появление узлов и соединений
-        self._animate_nodes_appearance(root, delay)
+        # Анимируем появление узлов и соединений с проверками
+        self._animate_nodes_appearance_safe(root, 360)
     
-    def _animate_nodes_appearance(self, node, delay, current_delay=0):
-        """Рекурсивно анимирует появление узлов."""
+    def _animate_nodes_appearance_safe(self, node, delay, current_delay=0):
+        """Безопасное рекурсивное анимирование появления узлов."""
         if not node or not hasattr(node, 'setVisible'):
             return
         
-        # Анимация появления узла
-        QTimer.singleShot(current_delay, lambda n=node: self._animate_node_appearance(n))
+        # Создаем таймер для анимации узла
+        node_timer = QTimer()
+        node_timer.setSingleShot(True)
+        
+        def show_node_func(n=node):
+            try:
+                self._animate_node_appearance_safe(n)
+            finally:
+                self._remove_timer(node_timer)
+        
+        node_timer.timeout.connect(show_node_func)
+        self._add_timer(node_timer)
+        node_timer.start(current_delay)
         
         # Анимация соединений с детьми
         if hasattr(node, 'children'):
             for child in node.children:
                 if child and hasattr(child, 'scenePos'):
                     connection_delay = current_delay + int(delay * 0.5)
-                    QTimer.singleShot(connection_delay, 
-                                    lambda n=node, c=child: self._animate_connection_appearance(n, c))
+                    
+                    connection_timer = QTimer()
+                    connection_timer.setSingleShot(True)
+                    
+                    def show_connection_func(parent=node, child_node=child):
+                        try:
+                            self._animate_connection_appearance_safe(parent, child_node)
+                        finally:
+                            self._remove_timer(connection_timer)
+                    
+                    connection_timer.timeout.connect(show_connection_func)
+                    self._add_timer(connection_timer)
+                    connection_timer.start(connection_delay)
                     
                     # Рекурсивно анимируем детей
-                    self._animate_nodes_appearance(child, delay, current_delay + delay)
+                    self._animate_nodes_appearance_safe(child, delay, current_delay + delay)
     
-    def _animate_node_appearance(self, node):
-        """Анимирует появление узла."""
+    def _animate_node_appearance_safe(self, node):
+        """Безопасное анимирование появления узла."""
         if not node:
             return
             
@@ -643,6 +854,15 @@ class TreeVisualizer:
             opacity_anim.setEndValue(1.0)
             opacity_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
             
+            # Добавляем анимации в список
+            self._add_animation(scale_anim)
+            self._add_animation(opacity_anim)
+            
+            # Удаляем после завершения
+            scale_anim.finished.connect(lambda: self._remove_animation(scale_anim))
+            opacity_anim.finished.connect(lambda: self._remove_animation(opacity_anim))
+            
+            # Сохраняем ссылки в узле для управления
             if not hasattr(node, "_entry_anims"):
                 node._entry_anims = []
             node._entry_anims.extend([scale_anim, opacity_anim])
@@ -655,8 +875,8 @@ class TreeVisualizer:
         except Exception:
             pass
     
-    def _animate_connection_appearance(self, parent, child):
-        """Анимирует появление соединения."""
+    def _animate_connection_appearance_safe(self, parent, child):
+        """Безопасное анимирование появления соединения."""
         if not parent or not child or not hasattr(parent, 'scenePos') or not hasattr(child, 'scenePos'):
             return
             
@@ -677,9 +897,17 @@ class TreeVisualizer:
                 anim.setEndValue(1.0)
                 anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
                 
+                # Добавляем анимацию в список
+                self._add_animation(anim)
+                
+                # Удаляем после завершения
+                anim.finished.connect(lambda: self._remove_animation(anim))
+                
+                # Сохраняем ссылку
                 if not hasattr(connection, "_fade_anims"):
                     connection._fade_anims = []
                 connection._fade_anims.append(anim)
+                
                 anim.start()
             except RuntimeError:
                 pass
@@ -689,34 +917,53 @@ class TreeVisualizer:
     # ИНТЕРАКТИВНЫЕ ОПЕРАЦИИ
     
     def highlight_node_by_value(self, value, color="#FFD700", duration=2000):
-            """Подсвечивает узел по значению."""
-            # 1. Поиск узла: сначала проверяем прямой ключ, затем ключ с префиксом "key_" (для B-деревьев)
-            node = self.value_to_node.get(value)
-            if not node:
-                node = self.value_to_node.get(f"key_{value}")
-                
-            # 2. Если в словаре не нашли (например, для КЧ-деревьев с суффиксами (R)/(B)), 
-            # используем существующий вспомогательный поиск с перебором
-            if not node:
-                node = self._find_node_by_value(value)
-                
-            if node and self._is_node_valid(node):
-                # 3. Сохраняем оригинальный цвет для последующего восстановления
-                if not hasattr(node, '_original_color'):
-                    node._original_color = self._get_node_color(node)
-                
-                # 4. Применяем подсветку. Метод _set_node_color вызовет анимацию highlight, 
-                # если она доступна у узла
-                self._set_node_color(node, color)
-                
-                # 5. Возвращаем исходный цвет через указанное время
-                QTimer.singleShot(duration, lambda: self._reset_node_color(node))
-                return True
-                
+        """Подсвечивает узел по значению."""
+        # Проверяем, идет ли анимация
+        if self._animation_in_progress:
             return False
+            
+        # 1. Поиск узла
+        node = self.value_to_node.get(value)
+        if not node:
+            node = self.value_to_node.get(f"key_{value}")
+            
+        # 2. Если в словаре не нашли, используем поиск с перебором
+        if not node:
+            node = self._find_node_by_value(value)
+            
+        if node and self._is_node_valid(node):
+            # 3. Сохраняем оригинальный цвет
+            if not hasattr(node, '_original_color'):
+                node._original_color = self._get_node_color(node)
+            
+            # 4. Применяем подсветку
+            self._set_node_color(node, color)
+            
+            # 5. Возвращаем исходный цвет через указанное время
+            if duration > 0:
+                timer = QTimer()
+                timer.setSingleShot(True)
+                
+                def reset_color_func():
+                    try:
+                        self._reset_node_color(node)
+                    finally:
+                        self._remove_timer(timer)
+                
+                timer.timeout.connect(reset_color_func)
+                self._add_timer(timer)
+                timer.start(duration)
+                
+            return True
+            
+        return False
     
     def highlight_btree_node_by_keys(self, keys, color="#FFD700", duration=2000):
         """Подсвечивает узел B-дерева по ключам."""
+        # Проверяем, идет ли анимация
+        if self._animation_in_progress:
+            return False
+            
         node = self._find_btree_node_by_keys(keys)
         
         if node:
@@ -729,20 +976,67 @@ class TreeVisualizer:
             node.update()
             
             # Возвращаем цвет через время
-            QTimer.singleShot(duration, lambda: self._reset_btree_node_color(node))
+            if duration > 0:
+                timer = QTimer()
+                timer.setSingleShot(True)
+                
+                def reset_color_func():
+                    try:
+                        self._reset_btree_node_color(node)
+                    finally:
+                        self._remove_timer(timer)
+                
+                timer.timeout.connect(reset_color_func)
+                self._add_timer(timer)
+                timer.start(duration)
+                
             return True
         
         return False
     
     def highlight_traversal(self, node_values, delay=900):
         """Подсвечивает последовательность узлов по их значениям."""
+        # Проверяем, идет ли анимация
+        if self._animation_in_progress:
+            return
+            
         for i, value in enumerate(node_values):
-            QTimer.singleShot(i * delay, lambda v=value: self.highlight_node_by_value(v, "#4ECDC4", 600))
+            timer = QTimer()
+            timer.setSingleShot(True)
+            
+            def create_highlight_func(v=value):
+                def highlight():
+                    try:
+                        self.highlight_node_by_value(v, "#4ECDC4", 600)
+                    finally:
+                        self._remove_timer(timer)
+                return highlight
+            
+            timer.timeout.connect(create_highlight_func())
+            self._add_timer(timer)
+            timer.start(i * delay)
     
     def highlight_path(self, values, color="#4ECDC4", delay=300):
         """Подсвечивает путь поиска через несколько узлов."""
+        # Проверяем, идет ли анимация
+        if self._animation_in_progress:
+            return
+            
         for i, value in enumerate(values):
-            QTimer.singleShot(i * delay, lambda v=value: self.highlight_node_by_value(v, color, delay * 2))
+            timer = QTimer()
+            timer.setSingleShot(True)
+            
+            def create_highlight_func(v=value):
+                def highlight():
+                    try:
+                        self.highlight_node_by_value(v, color, delay * 2)
+                    finally:
+                        self._remove_timer(timer)
+                return highlight
+            
+            timer.timeout.connect(create_highlight_func())
+            self._add_timer(timer)
+            timer.start(i * delay)
     
     def _find_node_by_value(self, value):
         """Находит узел по значению."""
@@ -855,9 +1149,22 @@ class TreeVisualizer:
     
     def remove_node_by_value(self, value):
         """Удаляет узел по значению."""
+        # Проверяем, идет ли анимация
+        if self._animation_in_progress:
+            return False
+            
         node = self._find_node_by_value(value)
         
         if node:
+            # Останавливаем анимации узла
+            if hasattr(node, '_entry_anims'):
+                for anim in node._entry_anims[:]:
+                    try:
+                        anim.stop()
+                    except:
+                        pass
+                node._entry_anims = []
+            
             # Удаляем из словаря
             keys_to_remove = []
             for key, val_node in self.value_to_node.items():
@@ -911,6 +1218,10 @@ class TreeVisualizer:
     
     def update_node_value(self, old_value, new_value):
         """Обновляет значение узла."""
+        # Проверяем, идет ли анимация
+        if self._animation_in_progress:
+            return False
+            
         node = self._find_node_by_value(old_value)
         
         if node:
@@ -934,6 +1245,13 @@ class TreeVisualizer:
     
     def update_btree_visualization(self, btree_data, animate=False):
         """Быстрое обновление визуализации B-дерева."""
+        # Проверяем блокировку анимации
+        if self._animation_lock:
+            return None
+            
+        # Останавливаем все предыдущие анимации
+        self._stop_all_animations_and_timers()
+        
         # Очищаем старое дерево
         self.clear()
         
@@ -941,6 +1259,11 @@ class TreeVisualizer:
             return None
         
         try:
+            # Устанавливаем блокировку
+            if animate:
+                self._animation_lock = True
+                self._animation_in_progress = True
+            
             # Создаем новое дерево
             root = self._create_btree_from_list(btree_data, animate)
             
@@ -956,9 +1279,18 @@ class TreeVisualizer:
                 # Добавляем на сцену
                 self._add_all_to_scene()
             
+            # Снимаем блокировку
+            if animate:
+                self._animation_lock = False
+                self._animation_in_progress = False
+            
             return root
         except Exception:
+            # В случае ошибки снимаем блокировку
+            self._animation_lock = False
+            self._animation_in_progress = False
             return None
+    
     def reset_styles(self):
         """Сбрасывает стили всех узлов дерева к стандартным."""
         if not hasattr(self, 'value_to_node'):
@@ -975,7 +1307,7 @@ class TreeVisualizer:
                     node_item.update()
                 elif hasattr(node_item, 'bg_color'):
                     # Для BTreeNodeItem
-                    node_item.bg_color = QColor("#ffffff")
+                    node_item.bg_color = QColor("#20B2AA")
                     node_item.update()
             except Exception as e:
-                print(f"Error resetting node style: {e}")        
+                pass

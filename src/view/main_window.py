@@ -84,7 +84,7 @@ class TempArraysWidget(QFrame):
         separator.setStyleSheet("background-color: #e0e0e0; margin: 5px 0;")
         separator.setFixedHeight(1)
         self.layout.addWidget(separator)
-        
+
         # Основной контейнер для массивов
         arrays_container = QWidget()
         arrays_layout = QHBoxLayout(arrays_container)
@@ -907,7 +907,11 @@ class MainWindow(QMainWindow):
         self.total_steps = 0
         self.current_step = 0
         self.algorithm_completed = False
-        
+                # Менеджер анимаций
+        self._animation_timers = []
+        self._active_animations = []
+        self._pending_nodes = []
+        self._is_animation_in_progress = False
         # Для хэш-таблицы
         self.hashtable_cells = []
         self.hashtable_stats = {}
@@ -2444,7 +2448,75 @@ class MainWindow(QMainWindow):
         self.engine.set_speed(value)
         self._log(f"⚡ Скорость изменена: x{value}")
 
-    
+    def clear_all_animations(self):
+        """Очищает все активные анимации и таймеры."""
+        try:
+            # Останавливаем все таймеры
+            for timer in self._animation_timers:
+                try:
+                    if timer and timer.isActive():
+                        timer.stop()
+                        timer.deleteLater()
+                except:
+                    pass
+            self._animation_timers.clear()
+            
+            # Останавливаем все анимации
+            for anim in self._active_animations:
+                try:
+                    if anim and hasattr(anim, 'stop'):
+                        anim.stop()
+                        anim.deleteLater()
+                except:
+                    pass
+            self._active_animations.clear()
+            
+            # Очищаем ожидающие узлы
+            self._pending_nodes.clear()
+            self._is_animation_in_progress = False
+            
+        except Exception as e:
+            print(f"Error clearing animations: {e}")
+
+    def _safe_add_animation(self, animation):
+        """Безопасно добавляет анимацию в список активных."""
+        if animation:
+            self._active_animations.append(animation)
+            
+            # Автоматически удаляем анимацию после завершения
+            try:
+                animation.finished.connect(lambda: self._remove_animation(animation))
+            except:
+                pass
+
+    def _remove_animation(self, animation):
+        """Удаляет завершенную анимацию."""
+        try:
+            if animation in self._active_animations:
+                self._active_animations.remove(animation)
+        except:
+            pass
+
+    def _safe_add_timer(self, timer):
+        """Безопасно добавляет таймер в список."""
+        if timer:
+            self._animation_timers.append(timer)
+            
+            # Автоматически удаляем таймер после срабатывания
+            try:
+                timer.timeout.connect(lambda: self._remove_timer(timer))
+            except:
+                pass
+
+    def _remove_timer(self, timer):
+        """Удаляет завершенный таймер."""
+        try:
+            if timer in self._animation_timers:
+                timer.stop()
+                self._animation_timers.remove(timer)
+                timer.deleteLater()
+        except:
+            pass    
     def _on_category_changed(self, category):
         """Обработка изменения категории алгоритма."""
         # 1. Приостанавливаем все операции
@@ -2659,7 +2731,8 @@ class MainWindow(QMainWindow):
     def _reset_algorithm(self):
         """Сброс текущего алгоритма и интерфейса."""
         try:
-            
+            # Очищаем ВСЕ анимации ПЕРВЫМ делом
+            self.clear_all_animations()
             # 1. Останавливаем движок и таймеры
             self.engine.pause()
             self.engine.generator = None
@@ -5391,26 +5464,48 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
 
     def _heap_delete(self):
-        """Удаление корневого элемента из кучу."""
+        """Удаление корня кучи."""
+        if not self.current_algorithm:
+            self._log("❌ Нет активной кучи")
+            return
+        
         try:
-            heap = self.current_algorithm
-            
-            if heap.is_empty():
+            if self.current_algorithm.is_empty():
                 self._log("❌ Куча пуста, нечего удалять")
                 return
             
-            # Используем пошаговое удаление
-            generator = heap.delete_with_steps()
+            # 1. СБРАСЫВАЕМ ДВИЖОК ПЕРЕД НОВОЙ ОПЕРАЦИЕЙ
+            self.engine.pause()
+            self.engine.generator = None
+            self.is_animating = False
+            self.algorithm_completed = False
             
-            # Загружаем генератор в движок
+            # 2. Создаем генератор для пошагового удаления
+            generator = self.current_algorithm.delete_with_steps()
+            
+            # 3. Загружаем в движок и ЯВНО сбрасываем состояние
             self.engine.generator = generator
             
-            # Запускаем автоматический режим для визуализации процесса
-            self._start_auto_mode()
-            # Обновляем визуализацию
-            QTimer.singleShot(100, lambda: self._update_heap_visualization("Куча обновлена"))    
+            # 4. Сбрасываем флаги
+            self.is_auto_mode = True
+            self.algorithm_completed = False
+            
+            # 5. Запускаем автоматический режим
+            speed_value = self.speed_slider.value()
+            interval_ms = max(50, int(600 / speed_value))
+            self.engine.run(interval_ms)
+            
+            # Обновляем UI
+            self.auto_btn.hide()
+            self.pause_btn.show()
+            self.start_btn.setEnabled(False)
+            
+            self._log(f"🗑️ Удаление корневого элемента: {self.current_algorithm.peek()}")
+            
         except Exception as e:
-            self._log(f"❌ Ошибка при удалении из кучи: {str(e)}")
+            self._log(f"❌ Ошибка при удалении: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
     def _heap_peek(self):
         """Просмотр корневого элемента без удаления."""
@@ -5574,38 +5669,65 @@ class MainWindow(QMainWindow):
 
 
     def _insert_node(self, value):
-        """Вставка узла в дерево."""
+        """Вставляет узел в дерево с безопасной анимацией."""
+        # Проверяем, идет ли уже анимация
+        if self._is_animation_in_progress:
+            self._log("⏳ Дождитесь завершения предыдущей операции")
+            return
+        
+        if not self.current_algorithm:
+            self._log("❌ Нет активного алгоритма")
+            return
+        
         try:
-            tree = self.current_algorithm
+            # Устанавливаем флаг анимации
+            self._is_animation_in_progress = True
             
-            if not tree:
-                self._log("❌ Нет активного дерева для операций")
-                return
+            # Вставляем узел
+            success = self.current_algorithm.insert(value)
             
-            # Проверяем тип дерева и используем соответствующий метод
-            if hasattr(tree, 'insert') or hasattr(tree, 'insert_value'):
-                # Для B-дерева используем insert_value
-                if isinstance(tree, BTree):
-                    tree.insert_value(value)
-                    self._log(f"✅ Значение {value} добавлено в B-дерево")
+            if success:
+                self._log(f"✅ Вставка узла {value} начата...")
+                
+                # Получаем новую структуру дерева
+                tree_data = self.current_algorithm.get_structure_for_visualization()
+                
+                if tree_data:
+                    # Очищаем старые анимации
+                    self.clear_all_animations()
                     
-                    # Специальная обработка для B-дерева - полное перестроение
-                    tree_data = tree._get_tree_structure_list()
-                    if tree_data:
-                        # Используем анимацию перестроения
-                        self._update_btree_visualization(tree_data, animate=True)
-                    else:
-                        self._log("⚠️ Не удалось получить данные B-дерева для визуализации")
-                else:
-                    # Для обычных деревьев
-                    tree.insert(value)
-                    self._log(f"✅ Узел {value} вставлен в дерево")
-                    self._update_tree_visualization(f"Вставлен узел: {value}")
+                    # Создаем таймер для отложенной отрисовки
+                    timer = QTimer()
+                    timer.setSingleShot(True)
                     
-        except ValueError as e:
-            QMessageBox.warning(self, "Ошибка", f"Некорректное значение: {str(e)}")
+                    def delayed_render():
+                        try:
+                            # Отображаем дерево
+                            self._render_tree(tree_data)
+                            
+                            # Снимаем флаг анимации через небольшую задержку
+                            QTimer.singleShot(500, lambda: setattr(self, '_is_animation_in_progress', False))
+                            
+                            self._log(f"🌳 Узел {value} успешно вставлен")
+                            
+                        except Exception as e:
+                            self._log(f"❌ Ошибка при отображении: {str(e)}")
+                            self._is_animation_in_progress = False
+                        
+                        finally:
+                            timer.deleteLater()
+                    
+                    timer.timeout.connect(delayed_render)
+                    self._safe_add_timer(timer)
+                    timer.start(100)  # Маленькая задержка для стабильности
+                    
+            else:
+                self._log(f"❌ Не удалось вставить узел {value}")
+                self._is_animation_in_progress = False
+                
         except Exception as e:
             self._log(f"❌ Ошибка при вставке: {str(e)}")
+            self._is_animation_in_progress = False
             import traceback
             traceback.print_exc()
     
