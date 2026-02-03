@@ -1860,6 +1860,7 @@ class MainWindow(QMainWindow):
 
     def _create_graph_interactive_panel(self):
         """Создает панель интерактивных операций для графов."""
+        self.operations_container.hide()
         # Очищаем контейнер полностью
         self._clear_interactive_panel_children()
         
@@ -1977,6 +1978,12 @@ class MainWindow(QMainWindow):
         
         quick_actions.setLayout(quick_layout)
         self.operations_layout.addWidget(quick_actions)
+            # Показываем панель только после полного создания
+        self.operations_container.show()
+        
+        # Принудительное обновление
+        self.operations_container.update()
+        QApplication.processEvents()
 
     def _clear_interactive_panel_children(self):
         """Очищает все дочерние элементы интерактивной панели."""
@@ -2377,17 +2384,37 @@ class MainWindow(QMainWindow):
         self.directed_directed.toggled.connect(lambda: self._on_directed_changed(True))
 
 
+    # def _on_directed_changed(self, is_directed):
+    #     """Обработка изменения направленности графа."""
+    #     self.graph_directed = is_directed
+    #     self.graph_visualizer.set_directed(is_directed)
+        
+    #     direction_text = "ориентированный" if is_directed else "неориентированный"
+    #     self._log(f"📊 Граф установлен как {direction_text}")
+        
+    #     # Если граф уже построен, перестраиваем его с новой направленностью
+    #     if self.graph_data:
+    #         self._build_graph()
     def _on_directed_changed(self, is_directed):
         """Обработка изменения направленности графа."""
         self.graph_directed = is_directed
-        self.graph_visualizer.set_directed(is_directed)
+        
+        # Обновляем направленность в визуализаторе
+        if hasattr(self, 'graph_visualizer'):
+            # Обновляем свойство is_directed
+            self.graph_visualizer.is_directed = is_directed
+            
+            # Заставляем все ребра перерисоваться
+            for edge_item in self.graph_visualizer.edges.values():
+                if hasattr(edge_item, 'is_directed'):
+                    edge_item.is_directed = is_directed
+                    edge_item.update()  # Перерисовка
+            
+            # Обновляем сцену
+            self.scene.update()
         
         direction_text = "ориентированный" if is_directed else "неориентированный"
-        self._log(f"📊 Граф установлен как {direction_text}")
-        
-        # Если граф уже построен, перестраиваем его с новой направленностью
-        if self.graph_data:
-            self._build_graph()
+        self._log(f"📊 Направленность графа изменена на {direction_text}")
 
     def _on_algorithm_changed(self, algorithm_name):
         """Обработка изменения алгоритма."""
@@ -3039,8 +3066,9 @@ class MainWindow(QMainWindow):
             # Загружаем алгоритм в движок
             self.engine.load_algorithm(self.current_algorithm)
             
-            # Сбрасываем подсветку графа перед запуском (только цвета, не структуру)
-            self._reset_graph_visualization()
+        # Сбрасываем только подсветку, не перестраиваем граф
+        if hasattr(self, 'graph_visualizer'):
+            self.graph_visualizer.reset_highlights()
             
             self._log(f"🚀 Алгоритм загружен. Начальный узел: {start_node}")
             return True
@@ -6708,7 +6736,7 @@ class MainWindow(QMainWindow):
                     self.container_visualizer.peek()
                     
                 elif operation_text == "size (размер)":
-                    result = len(self.current_algorithm)
+                    result = self.current_algorithm.size()
                     self.container_visualizer.get_size()
                     
                 elif operation_text == "is_empty (пусто?)":

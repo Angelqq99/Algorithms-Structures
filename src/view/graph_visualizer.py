@@ -1,6 +1,8 @@
 """
 Визуализатор графов с анимациями.
 """
+import faulthandler
+faulthandler.enable()
 from PyQt6.QtCore import QTimer, QPointF, QRectF, Qt, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QColor, QBrush, QPen
 from view.scene_items import GraphNodeItem, GraphEdgeItem
@@ -344,7 +346,7 @@ class GraphVisualizer:
 
             if action_type == "graph_init":
                 # Это действие больше не используется для интерактивных графов
-                return False
+                return True
 
             node_val = action.get("node")
             node_item = self.nodes.get(node_val)
