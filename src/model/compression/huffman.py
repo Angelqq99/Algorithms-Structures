@@ -14,6 +14,10 @@ class HuffmanNode:
         self.right = None
     
     def __lt__(self, other):
+        if self.frequency == other.frequency:
+            # Сравниваем символы, если частоты равны. 
+            # У промежуточных узлов symbol=None, поэтому используем пустую строку.
+            return (self.symbol or "") < (other.symbol or "")
         return self.frequency < other.frequency
     
     def is_leaf(self):
@@ -176,7 +180,11 @@ class HuffmanCoding:
         """Генерирует коды Хаффмана итеративно (безопасно)."""
         if not self.root:
             return {}
-        
+            # Спец-случай: в тексте только один уникальный символ
+        if self.root.is_leaf():
+            self.codes[self.root.symbol] = "0"
+            self.reverse_codes["0"] = self.root.symbol
+            return self.codes
         self.codes = {}
         self.reverse_codes = {}
         
@@ -261,7 +269,7 @@ class HuffmanCoding:
                 raise ValueError(f"Символ '{char}' не найден в таблице кодов")
         
         # Расчет статистики сжатия
-        original_bits = len(self.text) * 8  # ASCII предполагает 8 бит на символ
+        original_bits = len(self.text.encode('utf-8')) * 8  # ASCII предполагает 8 бит на символ
         compressed_bits = len(encoded_text)
         
         # Защита от деления на ноль
@@ -278,31 +286,150 @@ class HuffmanCoding:
         return encoded_text
     
     def decode_text(self, encoded_text: str = None) -> str:
-        """Декодирует текст."""
+        """
+        Декодирует бинарную строку обратно в текст с детальной диагностикой.
+        """
         if encoded_text is not None:
             self.encoded_text = encoded_text
         
-        if not self.reverse_codes:
-            self.generate_huffman_codes_iterative()
+        if not self.encoded_text:
+            return ""
         
+        if not self.root:
+            raise ValueError("Дерево Хаффмана не построено")
+        
+        # Упрощенная диагностика без emoji для Windows
+        diagnostics = {
+            "total_bits": len(self.encoded_text),
+            "decoded_symbols": 0,
+            "errors": [],
+            "warnings": []
+        }
+        
+        # Специальный случай: один символ
+        if self.root.is_leaf():
+            expected_symbol = self.root.symbol
+            # Для дерева с одним символом просто возвращаем символы по количеству бит
+            if expected_symbol is not None:
+                # Каждый символ кодируется одним битом в этом случае
+                result = expected_symbol * len(self.encoded_text)
+                self.decoded_text = result
+                diagnostics["decoded_symbols"] = len(result)
+                diagnostics["warnings"].append(
+                    "Специальный случай: дерево содержит только один символ"
+                )
+                return self.decoded_text
+            else:
+                raise ValueError("Корневой узел не содержит символа")
+        
+        # Стандартное декодирование
         decoded_chars = []
-        current_code = ""
+        current_node = self.root
         
-        for bit in self.encoded_text:
-            current_code += bit
-            if current_code in self.reverse_codes:
-                decoded_chars.append(self.reverse_codes[current_code])
-                current_code = ""
+        for i, bit in enumerate(self.encoded_text):
+            try:
+                # Проверяем корректность бита
+                if bit not in ('0', '1'):
+                    error_msg = f"Некорректный бит на позиции {i}: '{bit}' (должен быть 0 или 1)"
+                    diagnostics["errors"].append(error_msg)
+                    # Пытаемся пропустить некорректный бит и продолжить
+                    continue
+                
+                # Переходим по дереву
+                if bit == '0':
+                    if not current_node.left:
+                        error_msg = f"Нет левого узла при переходе по '0'"
+                        diagnostics["errors"].append(error_msg)
+                        # Возвращаемся к корню и пробуем продолжить
+                        current_node = self.root
+                        continue
+                    current_node = current_node.left
+                else:  # bit == '1'
+                    if not current_node.right:
+                        error_msg = f"Нет правого узла при переходе по '1'"
+                        diagnostics["errors"].append(error_msg)
+                        current_node = self.root
+                        continue
+                    current_node = current_node.right
+                
+                # Если достигли листа
+                if current_node.is_leaf():
+                    decoded_symbol = current_node.symbol
+                    decoded_chars.append(decoded_symbol)
+                    diagnostics["decoded_symbols"] += 1
+                    
+                    # Сбрасываем для следующего символа
+                    current_node = self.root
+                    
+            except Exception as e:
+                # Логируем ошибку, но продолжаем декодирование
+                error_info = f"Ошибка на бите {i}: {str(e)}"
+                diagnostics["errors"].append(error_info)
+                current_node = self.root  # Сбрасываем на корень
         
-        self.decoded_text = ''.join(decoded_chars)
+        # Формируем результат
+        self.decoded_text = "".join(decoded_chars)
         
-        self.history.append({
-            "type": "decoding_complete",
-            "is_correct": self.decoded_text == self.original_text,
-            "description": f"✅ Текст декодирован!"
-        })
+        # Сохраняем диагностику
+        self.last_diagnostics = diagnostics
+        
+        # Простая логировка диагностики
+        if diagnostics["errors"]:
+            print(f"Ошибки декодирования: {len(diagnostics['errors'])}")
+        if diagnostics["warnings"]:
+            print(f"Предупреждения: {len(diagnostics['warnings'])}")
         
         return self.decoded_text
+
+    def _log_diagnostics(self, diagnostics):
+        """
+        Логирует диагностическую информацию.
+        
+        Args:
+            diagnostics: Словарь с диагностической информацией
+        """
+        # Сохраняем диагностику для доступа извне
+        self.last_diagnostics = diagnostics
+        
+        print("\n" + "="*60)
+        print(" ДИАГНОСТИКА ДЕКОДИРОВАНИЯ")
+        print("="*60)
+        
+        print(f"• Всего бит: {diagnostics['total_bits']}")
+        print(f"• Декодировано символов: {diagnostics['decoded_symbols']}")
+        
+        if diagnostics["path_trace"]:
+            print(f"\n📝 Путь декодирования (первые 10 символов):")
+            for i, trace in enumerate(diagnostics["path_trace"][:10]):
+                symbol_display = self._format_char(trace["symbol"])
+                print(f"  {i+1:3d}. Бит(ы): {trace['bits']:10s} → '{symbol_display}' "
+                    f"(частота: {trace['frequency']})")
+            
+            if len(diagnostics["path_trace"]) > 10:
+                print(f"  ... и еще {len(diagnostics['path_trace']) - 10} символов")
+        
+        if diagnostics["warnings"]:
+            print(f"\n⚠️ Предупреждения:")
+            for warning in diagnostics["warnings"]:
+                print(f"  • {warning}")
+        
+        if diagnostics["errors"]:
+            print(f"\n❌ Ошибки:")
+            for error in diagnostics["errors"]:
+                print(f"  • {error}")
+        
+        print("="*60)
+    
+    def get_decoding_diagnostics(self):
+        """
+        Возвращает диагностическую информацию о последнем декодировании.
+        """
+        return getattr(self, 'last_diagnostics', {
+            "total_bits": 0,
+            "decoded_symbols": 0,
+            "errors": [],
+            "warnings": []
+        })
     
     def get_compression_stats(self):
         """Возвращает статистику сжатия."""
@@ -380,20 +507,29 @@ class HuffmanCoding:
                 "description": f"❌ Ошибка: {str(e)}"
             })
             return None
-    
+        
     def _format_char(self, char):
-        """Форматирует символ."""
-        if char == " ":
-            return "[space]"
-        elif char == "\n":
-            return "\\n"
-        elif char == "\t":
-            return "\\t"
-        elif char == "\r":
-            return "\\r"
-        elif ord(char) < 32:
-            return f"\\x{ord(char):02x}"
-        return char
+        """Безопасное форматирование символа."""
+        if not char:
+            return ""
+        
+        # Если char это строка, берем первый символ
+        if isinstance(char, str) and len(char) > 0:
+            char_code = char[0]
+        else:
+            char_code = char
+        
+        # Проверяем, является ли символ печатным
+        try:
+            # Попытка закодировать в ASCII (безопасно для Windows)
+            char_str = str(char_code)
+            if char_str.isprintable():
+                return char_str
+            else:
+                # Непечатаемые символы заменяем на hex
+                return f"\\x{ord(char_str):02x}"
+        except:
+            return "?"
     
     def create_step_generator(self):
         """Создает генератор для пошагового выполнения алгоритма."""

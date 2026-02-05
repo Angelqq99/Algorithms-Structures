@@ -79,17 +79,18 @@ class HuffmanVisualizer:
             
             # Сортируем частоты по убыванию
             sorted_freq = sorted(frequencies.items(), key=lambda x: x[1], reverse=True)
-            
+            num_chars = len(frequencies)
             # Параметры отрисовки
             bar_width = 35
-            spacing = 15
+            spacing = 20
             max_bar_height = 200
-            start_x = -250
-            start_y = 100
+            total_width = num_chars * (bar_width + spacing)
+            start_x = -(total_width / 2)
+            start_y = 50
             max_freq = max(frequencies.values())
             
             # Заголовок
-            self._create_text(title, start_x, start_y - 90, self.fonts["title"], self.color_palette["dark"])
+            self._create_text(title, start_x-100, start_y-300, self.fonts["title"], self.color_palette["dark"])
             
             # Рисуем столбцы
             for i, (char, freq) in enumerate(sorted_freq):
@@ -135,7 +136,7 @@ class HuffmanVisualizer:
                 f"• Самый частый символ: '{self._format_char_display(most_common_char)}' ({most_common_freq} раз, {most_common_freq/total_chars:.1%})"
             )
             
-            stats_box = self._create_rectangle(start_x - 10, start_y + 50, 500, 120,
+            stats_box = self._create_rectangle(start_x - 10, start_y + 100, 550, 130,
                                              "#f0f8ff", self.color_palette["info"], 1)
             stats_box.setZValue(-1)
             
@@ -173,9 +174,9 @@ class HuffmanVisualizer:
                 return True
             
             # Используем встроенную отрисовку дерева
-            self._draw_huffman_tree(tree_structure, 0, -150, 250, is_root=True)
+            self._draw_huffman_tree(tree_structure, 0, -180, 350, is_root=True)
             
-            self._add_tree_legend(-400, -150)
+            self._add_tree_legend(-550, -150)
             
             # Информация о дереве
             root_freq = tree_structure.get("frequency", 0)
@@ -235,7 +236,7 @@ class HuffmanVisualizer:
                 self._create_text("1", (x + child_x)/2 + 5, (y + child_y)/2 - 10, 
                                  self.fonts["small"], self.color_palette["info"])
                 
-                self._draw_huffman_tree(node["right"], child_x, child_y, x_offset / 1.8)
+                self._draw_huffman_tree(node["right"], child_x, child_y, x_offset / 2.0)
 
             # Рисуем сам узел (круг)
             radius = 20
@@ -415,7 +416,7 @@ class HuffmanVisualizer:
             if len(original_preview) > 100:
                 original_preview = original_preview[:97] + "..."
             
-            original_bg = self._create_rectangle(-360, -70, 340, 80,
+            original_bg = self._create_rectangle(-360, -70, 340, 100,
                                                "#f8f9fa", self.color_palette["gray"], 1)
             
             original_text = self._create_text(original_preview, -350, -60,
@@ -423,7 +424,7 @@ class HuffmanVisualizer:
             original_text.setTextWidth(330)
             
             original_stats = f"Длина: {len(stats.get('original_text', ''))} символов, {stats.get('original_size_bits', 0)} бит"
-            self._create_text(original_stats, -350, 20, 
+            self._create_text(original_stats, -350, 40, 
                              self.fonts["small"], self.color_palette["info"])
             
             # Панель закодированного текста
@@ -434,7 +435,7 @@ class HuffmanVisualizer:
             if len(encoded_preview) > 150:
                 encoded_preview = encoded_preview[:147] + "..."
             
-            encoded_bg = self._create_rectangle(0, -70, 340, 80,
+            encoded_bg = self._create_rectangle(0, -70, 340, 100,
                                               "#f0f8ff", self.color_palette["info"], 1)
             
             encoded_text = self._create_text(encoded_preview, 10, -60,
@@ -442,15 +443,15 @@ class HuffmanVisualizer:
             encoded_text.setTextWidth(330)
             
             encoded_stats = f"Длина: {len(stats.get('encoded_text', ''))} бит, {len(stats.get('encoded_text', ''))/8:.1f} байт"
-            self._create_text(encoded_stats, 10, 20, 
+            self._create_text(encoded_stats, 10, 40, 
                              self.fonts["small"], self.color_palette["info"])
             
             # Диаграмма сравнения размеров
-            self._visualize_size_comparison(stats, -50, 50)
+            self._visualize_size_comparison(stats, -50, 120)
             
             # Статистика сжатия
-            stats_x = -150
-            stats_y = 200
+            stats_x = 100
+            stats_y = 100
             
             original_len = len(stats.get('original_text', ''))
             compressed_bits = stats.get('compressed_size_bits', 0)
@@ -529,11 +530,11 @@ class HuffmanVisualizer:
                 arrow_y = y + max(original_height, compressed_height) / 2
                 
                 # Линия стрелки
-                arrow_line = self._create_line(center_x - 60, arrow_y, center_x + 30, arrow_y,
+                arrow_line = self._create_line(center_x - 60, arrow_y-150, center_x + 30, arrow_y-150,
                                              self.color_palette["warning"], 3, Qt.PenStyle.SolidLine)
                 
                 # Наконечник стрелки
-                arrow_head = self._create_arrow_head(center_x + 30, arrow_y, 10, 
+                arrow_head = self._create_arrow_head(center_x + 30, arrow_y-150, 10, 
                                                    self.color_palette["warning"])
                 
                 # Текст экономии
@@ -541,7 +542,7 @@ class HuffmanVisualizer:
                 savings_percentage = stats.get('savings_percentage', 0.0)
                 savings_text = f"Экономия:\n{savings} бит ({savings_percentage:.1f}%)"
                 savings_label = self._create_text(savings_text,
-                                                center_x - 15, arrow_y - 40,
+                                                center_x - 15, arrow_y - 200,
                                                 self.fonts["small"], self.color_palette["warning"])
                 savings_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
                 self._center_text_horizontally(savings_label, center_x - 15, 30)

@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QProgressBar, QMessageBox, QCheckBox, QGraphicsLineItem, QGraphicsTextItem,
     QGraphicsObject, QGraphicsRectItem,
     QGridLayout, QGroupBox, QScrollArea, QDialog, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QApplication,QButtonGroup,QRadioButton
+    QHeaderView, QAbstractItemView, QApplication,QButtonGroup,QRadioButton,QTabWidget,QFileDialog
 )
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty, QRectF, pyqtSignal, QEasingCurve, QObject, QPointF
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QClipboard
@@ -52,7 +52,428 @@ import math
 from datetime import datetime
 import re
 
-
+class HuffmanDecodeResultWindow(QDialog):
+    """Окно для отображения результатов декодирования Хаффмана."""
+    
+    def __init__(self, original_text, decoded_text, diagnostics, codes, parent=None):
+        super().__init__(parent)
+        
+        self.original_text = original_text
+        self.decoded_text = decoded_text
+        self.diagnostics = diagnostics
+        self.codes = codes
+        
+        self.setWindowTitle("📄 Результат декодирования Хаффмана")
+        self.setMinimumSize(700, 600)
+        
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        """Настройка интерфейса окна."""
+        layout = QVBoxLayout(self)
+        
+        # Вкладки для разных видов информации
+        self.tab_widget = QTabWidget()
+        
+        # Вкладка 1: Сравнение текстов
+        self._create_comparison_tab()
+        
+        # Вкладка 2: Детальный отчет
+        self._create_report_tab()
+        
+        # Вкладка 3: Диагностика
+        self._create_diagnostics_tab()
+        
+        # Вкладка 4: Дерево кодов (опционально)
+        self._create_codes_tab()
+        
+        layout.addWidget(self.tab_widget)
+        
+        # Кнопки управления
+        button_layout = QHBoxLayout()
+        
+        # Кнопка копирования декодированного текста
+        copy_btn = QPushButton("📋 Копировать декодированный текст")
+        copy_btn.clicked.connect(self._copy_decoded_text)
+        copy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4ECDC4;
+                color: white;
+                border-radius: 6px;
+                padding: 10px 15px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3dbcb3;
+            }
+        """)
+        
+        # Кнопка сохранения в файл
+        save_btn = QPushButton("💾 Сохранить в файл")
+        save_btn.clicked.connect(self._save_to_file)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9B59B6;
+                color: white;
+                border-radius: 6px;
+                padding: 10px 15px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #8E44AD;
+            }
+        """)
+        
+        # Кнопка закрытия
+        close_btn = QPushButton("✖ Закрыть")
+        close_btn.clicked.connect(self.close)
+        close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B6B;
+                color: white;
+                border-radius: 6px;
+                padding: 10px 30px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #e55a5a;
+            }
+        """)
+        
+        button_layout.addWidget(copy_btn)
+        button_layout.addWidget(save_btn)
+        button_layout.addStretch()
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # Установка фокуса на первую вкладку
+        self.tab_widget.setCurrentIndex(0)
+    
+    def _create_comparison_tab(self):
+        """Создает вкладку сравнения текстов."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Статус совпадения
+        is_correct = self.original_text == self.decoded_text
+        
+        if is_correct:
+            status_text = "✅ ТЕКСТЫ ПОЛНОСТЬЮ ИДЕНТИЧНЫ"
+            status_color = "#2ECC71"
+        else:
+            status_text = "❌ ОБНАРУЖЕНЫ РАСХОЖДЕНИЯ"
+            status_color = "#FF6B6B"
+        
+        status_label = QLabel(f"<h2 style='color: {status_color};'>{status_text}</h2>")
+        status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(status_label)
+        
+        # Разделитель
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("background-color: #ccc; margin: 10px 0;")
+        layout.addWidget(separator)
+        
+        # Контейнер для сравнения
+        comparison_container = QWidget()
+        comparison_layout = QHBoxLayout(comparison_container)
+        comparison_layout.setSpacing(20)
+        
+        # Панель оригинального текста
+        original_group = QGroupBox("📝 Оригинальный текст")
+        original_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #5A9BD5;
+                border-radius: 8px;
+                padding-top: 15px;
+            }
+        """)
+        original_layout = QVBoxLayout(original_group)
+        
+        original_info = QLabel(f"Длина: {len(self.original_text)} символов")
+        original_layout.addWidget(original_info)
+        
+        self.original_text_edit = QTextEdit()
+        self.original_text_edit.setPlainText(self.original_text)
+        self.original_text_edit.setReadOnly(True)
+        self.original_text_edit.setMaximumHeight(200)
+        self.original_text_edit.setStyleSheet("""
+            QTextEdit {
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 8px;
+                font-family: 'Courier New';
+                background-color: #f8f9fa;
+            }
+        """)
+        original_layout.addWidget(self.original_text_edit)
+        
+        comparison_layout.addWidget(original_group)
+        
+        # Панель декодированного текста
+        decoded_group = QGroupBox("🔓 Декодированный текст")
+        decoded_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #2ECC71;
+                border-radius: 8px;
+                padding-top: 15px;
+            }
+        """)
+        decoded_layout = QVBoxLayout(decoded_group)
+        
+        decoded_info = QLabel(f"Длина: {len(self.decoded_text)} символов")
+        decoded_layout.addWidget(decoded_info)
+        
+        self.decoded_text_edit = QTextEdit()
+        self.decoded_text_edit.setPlainText(self.decoded_text)
+        self.decoded_text_edit.setReadOnly(True)
+        self.decoded_text_edit.setMaximumHeight(200)
+        self.decoded_text_edit.setStyleSheet("""
+            QTextEdit {
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 8px;
+                font-family: 'Courier New';
+                background-color: #f0fff0;
+            }
+        """)
+        decoded_layout.addWidget(self.decoded_text_edit)
+        
+        comparison_layout.addWidget(decoded_group)
+        
+        layout.addWidget(comparison_container)
+        
+        # Если есть расхождения, показываем детали
+        if not is_correct:
+            differences_group = QGroupBox("🔍 Детали расхождений")
+            differences_group.setStyleSheet("""
+                QGroupBox {
+                    font-weight: bold;
+                    border: 2px solid #FFD166;
+                    border-radius: 8px;
+                    padding-top: 15px;
+                }
+            """)
+            differences_layout = QVBoxLayout(differences_group)
+            
+            # Находим различия
+            diff_text = self._find_differences()
+            differences_label = QLabel(diff_text)
+            differences_label.setWordWrap(True)
+            differences_label.setStyleSheet("font-family: 'Courier New'; padding: 10px;")
+            
+            scroll_area = QScrollArea()
+            scroll_area.setWidget(differences_label)
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setMaximumHeight(150)
+            
+            differences_layout.addWidget(scroll_area)
+            layout.addWidget(differences_group)
+        
+        layout.addStretch()
+        self.tab_widget.addTab(tab, "📊 Сравнение")
+    
+    def _create_report_tab(self):
+        """Создает вкладку с детальным отчетом."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Формируем отчет
+        report_text = self._generate_report()
+        
+        self.report_text_edit = QTextEdit()
+        self.report_text_edit.setPlainText(report_text)
+        self.report_text_edit.setReadOnly(True)
+        self.report_text_edit.setFont(QFont("Courier New", 10))
+        
+        layout.addWidget(self.report_text_edit)
+        self.tab_widget.addTab(tab, "📄 Отчет")
+    
+    def _create_diagnostics_tab(self):
+        """Создает вкладку с диагностикой."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Формируем диагностическую информацию
+        diag_text = "ДИАГНОСТИЧЕСКАЯ ИНФОРМАЦИЯ\n"
+        diag_text += "=" * 40 + "\n\n"
+        
+        for key, value in self.diagnostics.items():
+            if key not in ['errors', 'warnings', 'path_trace']:
+                diag_text += f"{key}: {value}\n"
+        
+        if self.diagnostics.get('errors'):
+            diag_text += "\n" + "=" * 40 + "\n"
+            diag_text += "ОШИБКИ:\n"
+            for error in self.diagnostics['errors']:
+                diag_text += f"• {error}\n"
+        
+        if self.diagnostics.get('warnings'):
+            diag_text += "\n" + "=" * 40 + "\n"
+            diag_text += "ПРЕДУПРЕЖДЕНИЯ:\n"
+            for warning in self.diagnostics['warnings']:
+                diag_text += f"• {warning}\n"
+        
+        self.diagnostics_text_edit = QTextEdit()
+        self.diagnostics_text_edit.setPlainText(diag_text)
+        self.diagnostics_text_edit.setReadOnly(True)
+        self.diagnostics_text_edit.setFont(QFont("Courier New", 10))
+        
+        layout.addWidget(self.diagnostics_text_edit)
+        self.tab_widget.addTab(tab, "🔧 Диагностика")
+    
+    def _create_codes_tab(self):
+        """Создает вкладку с кодами Хаффмана."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        if not self.codes:
+            layout.addWidget(QLabel("Нет информации о кодах Хаффмана"))
+        else:
+            codes_text = "ТАБЛИЦА КОДОВ ХАФФМАНА\n"
+            codes_text += "=" * 40 + "\n\n"
+            
+            # Сортируем коды по длине
+            sorted_codes = sorted(self.codes.items(), key=lambda x: (len(x[1]), x[1]))
+            
+            codes_text += f"{'Символ':<10} {'Код':<15} {'Длина':<8}\n"
+            codes_text += "-" * 35 + "\n"
+            
+            for symbol, code in sorted_codes:
+                symbol_display = self._format_char(symbol)
+                codes_text += f"{symbol_display:<10} {code:<15} {len(code):<8}\n"
+            
+            self.codes_text_edit = QTextEdit()
+            self.codes_text_edit.setPlainText(codes_text)
+            self.codes_text_edit.setReadOnly(True)
+            self.codes_text_edit.setFont(QFont("Courier New", 10))
+            
+            layout.addWidget(self.codes_text_edit)
+        
+        self.tab_widget.addTab(tab, "🔤 Коды")
+    
+    def _find_differences(self):
+        """Находит и форматирует различия между текстами."""
+        orig_len = len(self.original_text)
+        dec_len = len(self.decoded_text)
+        
+        diff_text = f"Длины: оригинал={orig_len}, декодировано={dec_len}\n\n"
+        
+        # Сравниваем первые 100 символов
+        compare_len = min(100, orig_len, dec_len)
+        
+        for i in range(compare_len):
+            orig_char = self.original_text[i]
+            dec_char = self.decoded_text[i]
+            
+            if orig_char != dec_char:
+                orig_display = self._format_char(orig_char)
+                dec_display = self._format_char(dec_char)
+                
+                diff_text += f"Позиция {i}:\n"
+                diff_text += f"  Оригинал: '{orig_display}' "
+                if orig_char in self.codes:
+                    diff_text += f"(код: {self.codes[orig_char]})\n"
+                else:
+                    diff_text += "(нет кода)\n"
+                
+                diff_text += f"  Декодировано: '{dec_display}' "
+                if dec_char in self.codes:
+                    diff_text += f"(код: {self.codes[dec_char]})\n"
+                else:
+                    diff_text += "(нет кода)\n"
+                
+                diff_text += "\n"
+                break
+        else:
+            if orig_len != dec_len:
+                diff_text += f"Первые {compare_len} символов совпадают, но длины различаются\n"
+            else:
+                diff_text += "Расхождений не найдено\n"
+        
+        return diff_text
+    
+    def _generate_report(self):
+        """Генерирует полный отчет."""
+        is_correct = self.original_text == self.decoded_text
+        
+        report = "=" * 60 + "\n"
+        report += "ОТЧЕТ О ДЕКОДИРОВАНИИ ХАФФМАНА\n"
+        report += "=" * 60 + "\n\n"
+        
+        report += f"СТАТУС: {'УСПЕШНО' if is_correct else 'С ОШИБКАМИ'}\n\n"
+        
+        report += "ОСНОВНАЯ ИНФОРМАЦИЯ:\n"
+        report += f"• Оригинальный текст: {len(self.original_text)} символов\n"
+        report += f"• Декодированный текст: {len(self.decoded_text)} символов\n"
+        report += f"• Битов закодировано: {self.diagnostics.get('total_bits', 0)}\n"
+        report += f"• Символов декодировано: {self.diagnostics.get('decoded_symbols', 0)}\n\n"
+        
+        if not is_correct:
+            report += "РАСХОЖДЕНИЯ:\n"
+            diff_info = self._find_differences()
+            report += diff_info + "\n"
+        
+        report += "ДИАГНОСТИКА:\n"
+        report += f"• Ошибок: {len(self.diagnostics.get('errors', []))}\n"
+        report += f"• Предупреждений: {len(self.diagnostics.get('warnings', []))}\n\n"
+        
+        report += "=" * 60 + "\n"
+        
+        return report
+    
+    def _format_char(self, char):
+        """Форматирует символ для отображения."""
+        if not char:
+            return ""
+        
+        if char == ' ':
+            return "[space]"
+        elif char == '\n':
+            return "\\n"
+        elif char == '\t':
+            return "\\t"
+        elif char == '\r':
+            return "\\r"
+        elif not char.isprintable():
+            return f"\\x{ord(char):02x}"
+        return char
+    
+    def _copy_decoded_text(self):
+        """Копирует декодированный текст в буфер обмена."""
+        clipboard = QApplication.clipboard()
+        clipboard.setText(self.decoded_text)
+        QMessageBox.information(self, "Успех", "Декодированный текст скопирован в буфер обмена!")
+    
+    def _save_to_file(self):
+        """Сохраняет результаты в файл."""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, 
+            "Сохранить результаты декодирования",
+            "huffman_decode_result.txt",
+            "Text Files (*.txt);;All Files (*)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write("РЕЗУЛЬТАТ ДЕКОДИРОВАНИЯ ХАФФМАНА\n")
+                    f.write("=" * 60 + "\n\n")
+                    
+                    f.write(f"Оригинальный текст ({len(self.original_text)} символов):\n")
+                    f.write(self.original_text + "\n\n")
+                    
+                    f.write(f"Декодированный текст ({len(self.decoded_text)} символов):\n")
+                    f.write(self.decoded_text + "\n\n")
+                    
+                    f.write(self._generate_report())
+                
+                QMessageBox.information(self, "Успех", f"Результаты сохранены в файл:\n{file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить файл: {str(e)}")
 class TempArraysWidget(QFrame):
     """Виджет для отображения временных массивов MergeSort."""
     def __init__(self):
@@ -6947,6 +7368,8 @@ class MainWindow(QMainWindow):
         
         # Текстовое поле
         self.huffman_text_input = QTextEdit()
+        # Добавьте этот сигнал после создания huffman_text_input:
+        self.huffman_text_input.textChanged.connect(self._on_huffman_text_changed)
         self.huffman_text_input.setPlaceholderText("Введите текст для кодирования Хаффмана...")
         self.huffman_text_input.setMaximumHeight(120)
         self.huffman_text_input.setStyleSheet("""
@@ -6964,7 +7387,7 @@ class MainWindow(QMainWindow):
             }
         """)
         input_layout.addWidget(self.huffman_text_input)
-        
+
         # Панель примеров
         examples_layout = QHBoxLayout()
         examples_layout.addWidget(QLabel("Примеры:"))
@@ -7106,7 +7529,22 @@ class MainWindow(QMainWindow):
                 background-color: #7D3C98;
             }
         """
-        
+        info_label = QLabel(
+            "📝 Примечание: расчет ведется для Extended ASCII (8 бит на символ)" 
+        )
+        info_label.setStyleSheet("""
+            QLabel {
+                color: #666;
+                font-size: 11px;
+                font-style: italic;
+                padding: 5px;
+                background-color: #f9f9f9;
+                border-radius: 4px;
+                border: 1px solid #eee;
+            }
+        """)
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
         # Применяем стили
         for btn in [self.huffman_analyze_btn, self.huffman_build_tree_btn, 
                     self.huffman_generate_codes_btn, self.huffman_encode_btn,
@@ -7231,7 +7669,18 @@ class MainWindow(QMainWindow):
             self._log(f"📖 Загружен пример: {example['name']}")
             self._log(f"📝 {example['description']}")
             self._update_huffman_buttons_state()
-    
+    def _on_huffman_text_changed(self):
+        """Обработка изменения текста в поле ввода Хаффмана."""
+        text = self.huffman_text_input.toPlainText().strip()
+        self.huffman_current_text = text
+        
+        # Обновляем состояние кнопок
+        self._update_huffman_buttons_state()
+        
+        # Если текст пустой, очищаем данные
+        if not text and hasattr(self, 'current_algorithm'):
+            self.current_algorithm = None
+            self.huffman_codes_table = []
     def _huffman_analyze_frequencies(self):
         """Анализирует частоты символов в тексте."""
         text = self.huffman_text_input.toPlainText().strip()
@@ -7486,23 +7935,89 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", f"Не удалось закодировать текст: {str(e)}")
     
     def _huffman_decode_text(self):
-        """Декодирует текст."""
+        """Декодирует текст и открывает окно с результатами."""
         if not self.current_algorithm or not hasattr(self.current_algorithm, 'decode_text'):
             QMessageBox.warning(self, "Ошибка", "Сначала закодируйте текст")
             return
         
-        # Декодируем текст
-        decoded_text = self.current_algorithm.decode_text()
+        try:
+            # Сохраняем оригинальный текст
+            original_text = self.huffman_current_text
+            
+            # Проверяем, есть ли закодированный текст
+            if not hasattr(self.current_algorithm, 'encoded_text') or not self.current_algorithm.encoded_text:
+                QMessageBox.warning(self, "Ошибка", "Сначала закодируйте текст")
+                return
+            
+            # Показываем прогресс
+            self._log("Начало декодирования...")
+            
+            # Декодируем текст
+            decoded_text = self.current_algorithm.decode_text()
+            
+            # Получаем диагностику
+            diagnostics = self.current_algorithm.get_decoding_diagnostics()
+            
+            # Получаем коды
+            codes = getattr(self.current_algorithm, 'codes', {})
+            
+            # Показываем окно с результатами
+            result_window = HuffmanDecodeResultWindow(
+                original_text=original_text,
+                decoded_text=decoded_text,
+                diagnostics=diagnostics,
+                codes=codes,
+                parent=self
+            )
+            
+            # Позиционируем окно рядом с главным окном
+            main_window_rect = self.geometry()
+            result_window.move(
+                main_window_rect.right() + 10,
+                main_window_rect.top()
+            )
+            
+            # Показываем окно
+            result_window.exec()
+            
+            # Логируем результат
+            is_correct = decoded_text == original_text
+            if is_correct:
+                self._log(f"Декодирование успешно! Получено {len(decoded_text)} символов.")
+            else:
+                self._log(f"Ошибка декодирования! Получено {len(decoded_text)} символов вместо {len(original_text)}.")
+                
+        except Exception as e:
+            self._log(f"Критическая ошибка при декодировании: {str(e)}")
+            QMessageBox.critical(self, "Ошибка", f"Ошибка декодирования: {str(e)}")
+
+    def _safe_format_char(self, char):
+        """Безопасное форматирование символа для Windows."""
+        if not char:
+            return ""
         
-        # Проверяем корректность
-        is_correct = decoded_text == self.huffman_current_text
-        
-        if is_correct:
-            self._log("✅ Декодирование успешно! Текст восстановлен без ошибок.")
-            QMessageBox.information(self, "Успех", "Текст успешно декодирован и соответствует оригиналу!")
-        else:
-            self._log("❌ Ошибка декодирования! Текст не соответствует оригиналу.")
-            QMessageBox.warning(self, "Ошибка", "Декодированный текст не совпадает с оригиналом")
+        try:
+            # Если символ можно безопасно отобразить
+            if isinstance(char, str) and len(char) > 0:
+                # Проверяем, является ли символ ASCII и печатным
+                char_code = ord(char[0])
+                if 32 <= char_code <= 126:  # ASCII печатные символы
+                    return char[0]
+                else:
+                    # Заменяем специальные символы
+                    if char_code == 32:
+                        return "[space]"
+                    elif char_code == 10:
+                        return "\\n"
+                    elif char_code == 9:
+                        return "\\t"
+                    elif char_code == 13:
+                        return "\\r"
+                    else:
+                        return f"\\x{char_code:02x}"
+            return str(char)
+        except:
+            return "?"
     
     def _huffman_full_process(self):
         """Выполняет полный процесс сжатия с пошаговой визуализацией через Engine."""
@@ -7675,8 +8190,8 @@ class MainWindow(QMainWindow):
         self.huffman_generate_codes_btn.setEnabled(False)
         self.huffman_encode_btn.setEnabled(False)
         self.huffman_decode_btn.setEnabled(False)
-        self.huffman_export_btn.setEnabled(False)
-        self.huffman_copy_btn.setEnabled(False)
+        self.huffman_export_btn.setEnabled(True)
+        self.huffman_copy_btn.setEnabled(True)
         
         if has_algorithm:
             # Проверяем состояние алгоритма
