@@ -1,0 +1,126 @@
+{
+  "GraphAlgorithms": {
+    "name": "Алгоритмы на графах",
+    "category": "Графы",
+    "complexity": "Зависит от алгоритма и представления графа",
+    "description": "Набор алгоритмов для работы с графами — математическими структурами, состоящими из вершин (узлов) и ребер (связей между ними).",
+    "properties": [
+      "Ориентированные и неориентированные графы",
+      "Взвешенные и невзвешенные графы",
+      "Циклические и ациклические графы",
+      "Связные и несвязные графы"
+    ],
+    "formulas": [
+      "Количество ребер в полном графе: E = n(n-1)/2",
+      "Теорема Эйлера: V - E + F = 2 (для планарных графов)",
+      "Лемма о рукопожатиях: Σ deg(v) = 2E",
+      "Теорема о четырех красках: любой планарный граф можно раскрасить в 4 цвета"
+    ],
+    "complexity_analysis": "Сложность алгоритмов на графах зависит от представления (матрица смежности O(V²), список смежности O(V+E)) и от конкретного алгоритма (DFS/BFS O(V+E), Дейкстра O((V+E)log V)).",
+    "algorithm": "// Представление графа списком смежности\nclass Graph:\n    def __init__(self, vertices):\n        self.V = vertices\n        self.adj = [[] for _ in range(vertices)]\n    \n    def addEdge(self, u, v):\n        self.adj[u].append(v)\n        self.adj[v].append(u)  // для неориентированного графа\n\n// Поиск в глубину (DFS)\nfunction DFS(graph, v, visited):\n    visited[v] = True\n    print(v, end=' ')\n    \n    for neighbor in graph.adj[v]:\n        if not visited[neighbor]:\n            DFS(graph, neighbor, visited)\n\n// Поиск в ширину (BFS)\nfunction BFS(graph, start):\n    visited = [False] * graph.V\n    queue = []\n    \n    visited[start] = True\n    queue.append(start)\n    \n    while queue:\n        v = queue.pop(0)\n        print(v, end=' ')\n        \n        for neighbor in graph.adj[v]:\n            if not visited[neighbor]:\n                visited[neighbor] = True\n                queue.append(neighbor)",
+    "example": "Граф с 4 вершинами и ребрами: (0-1), (0-2), (1-2), (2-3)\nDFS из вершины 0: 0 → 1 → 2 → 3\nBFS из вершины 0: 0 → 1 → 2 → 3",
+    "applications": [
+      "Социальные сети (анализ связей)",
+      "Маршрутизация в сетях",
+      "Рекомендательные системы",
+      "Анализ цепей поставок"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Граф_(математика)",
+      "visualgo": "https://visualgo.net/ru/graphds"
+    }
+  },
+  "BFS": {
+    "name": "Поиск в ширину (Breadth-First Search)",
+    "category": "Графы",
+    "complexity": "O(V + E) для списка смежности, O(V²) для матрицы смежности",
+    "description": "Алгоритм обхода графа, который посещает все вершины уровня за уровнем, начиная с заданной начальной вершины. Использует очередь для хранения вершин.",
+    "properties": [
+      "Находит кратчайшие пути в невзвешенном графе",
+      "Использует очередь (FIFO)",
+      "Работает как для ориентированных, так и для неориентированных графов",
+      "Гарантирует посещение всех достижимых вершин"
+    ],
+    "formulas": [
+      "Время работы: T(V, E) = O(V + E)",
+      "Память: O(V) для хранения очереди и меток",
+      "Длина кратчайшего пути: d[v] = d[u] + 1",
+      "Инвариант: все вершины на расстоянии k от источника посещаются до вершин на расстоянии k+1"
+    ],
+    "complexity_analysis": "BFS посещает каждую вершину и ребро ровно один раз, поэтому сложность составляет O(V + E). Алгоритм требует O(V) дополнительной памяти для хранения очереди и массива посещенных вершин.",
+    "algorithm": "function BFS(graph, start):\n    visited = [False] * graph.V\n    distance = [float('inf')] * graph.V\n    parent = [-1] * graph.V\n    \n    queue = []\n    visited[start] = True\n    distance[start] = 0\n    queue.append(start)\n    \n    while queue:\n        vertex = queue.pop(0)\n        \n        for neighbor in graph.adj[vertex]:\n            if not visited[neighbor]:\n                visited[neighbor] = True\n                distance[neighbor] = distance[vertex] + 1\n                parent[neighbor] = vertex\n                queue.append(neighbor)\n    \n    return distance, parent",
+    "example": "Граф с вершинами: 0-1, 0-2, 1-3, 2-3\nBFS из вершины 0:\nУровень 0: [0]\nУровень 1: [1, 2]\nУровень 2: [3]\nРасстояния: d[0]=0, d[1]=1, d[2]=1, d[3]=2",
+    "applications": [
+      "Поиск кратчайшего пути в лабиринте",
+      "Социальные сети (поиск друзей на заданном расстоянии)",
+      "Сетевая маршрутизация",
+      "Проверка связности графа"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Поиск_в_ширину",
+      "visualgo": "https://visualgo.net/ru/dfsbfs"
+    }
+  },
+  "DFS": {
+    "name": "Поиск в глубину (Depth-First Search)",
+    "category": "Графы",
+    "complexity": "O(V + E) для списка смежности, O(V²) для матрицы смежности",
+    "description": "Алгоритм обхода графа, который идет вглубь насколько это возможно по каждой ветви перед возвратом. Использует стек (явно или через рекурсию).",
+    "properties": [
+      "Рекурсивный алгоритм (использует стек вызовов)",
+      "Может быть реализован итеративно со стеком",
+      "Находит компоненты связности",
+      "Обнаруживает циклы в графе"
+    ],
+    "formulas": [
+      "Время работы: T(V, E) = Θ(V + E)",
+      "Память: O(V) для стека рекурсии",
+      "Время входа/выхода для вершин",
+      "Классификация ребер: древесные, обратные, прямые, поперечные"
+    ],
+    "complexity_analysis": "DFS посещает каждую вершину и ребро ровно один раз, поэтому сложность составляет O(V + E). Рекурсивная реализация использует O(V) памяти для стека вызовов.",
+    "algorithm": "// Рекурсивная реализация DFS\nfunction DFS(graph, vertex, visited, discovery_time, finish_time, time):\n    visited[vertex] = True\n    time[0] += 1\n    discovery_time[vertex] = time[0]\n    \n    for neighbor in graph.adj[vertex]:\n        if not visited[neighbor]:\n            DFS(graph, neighbor, visited, discovery_time, finish_time, time)\n    \n    time[0] += 1\n    finish_time[vertex] = time[0]\n\n// Итеративная реализация DFS\nfunction DFS_iterative(graph, start):\n    visited = [False] * graph.V\n    stack = [start]\n    \n    while stack:\n        vertex = stack.pop()\n        \n        if not visited[vertex]:\n            visited[vertex] = True\n            print(vertex, end=' ')\n            \n            // Добавляем соседей в обратном порядке для соответствия рекурсивной версии\n            for neighbor in reversed(graph.adj[vertex]):\n                if not visited[neighbor]:\n                    stack.append(neighbor)",
+    "example": "Граф с вершинами: 0-1, 0-2, 1-3, 2-3\nDFS из вершины 0 (рекурсивно):\n0 → 1 → 3 → 2\nВремена: d[0]=1, f[0]=8; d[1]=2, f[1]=5; d[2]=6, f[2]=7; d[3]=3, f[3]=4",
+    "applications": [
+      "Топологическая сортировка",
+      "Поиск компонент связности",
+      "Обнаружение циклов",
+      "Решение задач с возвратом (backtracking)"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Поиск_в_глубину",
+      "visualgo": "https://visualgo.net/ru/dfsbfs"
+    }
+  },
+  "Dijkstra": {
+    "name": "Алгоритм Дейкстры (Dijkstra's Algorithm)",
+    "category": "Графы",
+    "complexity": "O((V + E) log V) с двоичной кучей, O(V²) с массивом",
+    "description": "Алгоритм нахождения кратчайших путей от одной вершины (источника) до всех остальных вершин во взвешенном графе с неотрицательными весами ребер.",
+    "properties": [
+      "Работает только с неотрицательными весами ребер",
+      "Жадный алгоритм (greedy algorithm)",
+      "Находит кратчайшие пути в взвешенном графе",
+      "Использует приоритетную очередь для эффективности"
+    ],
+    "formulas": [
+      "Основное уравнение: d[v] = min(d[v], d[u] + w(u, v))",
+      "Сложность с двоичной кучей: O((V + E) log V)",
+      "Сложность с Фибоначчиевой кучей: O(E + V log V)",
+      "Условие оптимальности: для всех ребер (u, v): d[v] ≤ d[u] + w(u, v)"
+    ],
+    "complexity_analysis": "Стандартная реализация с массивом имеет сложность O(V²). При использовании двоичной кучи сложность улучшается до O((V + E) log V). С Фибоначчиевой кучей можно достичь O(E + V log V).",
+    "algorithm": "function dijkstra(graph, source):\n    V = graph.V\n    dist = [float('inf')] * V\n    dist[source] = 0\n    visited = [False] * V\n    \n    // Приоритетная очередь (мин-куча)\n    import heapq\n    pq = [(0, source)]  // (расстояние, вершина)\n    \n    while pq:\n        current_dist, u = heapq.heappop(pq)\n        \n        if visited[u]:\n            continue\n        \n        visited[u] = True\n        \n        for v, weight in graph.adj[u]:\n            if not visited[v]:\n                new_dist = current_dist + weight\n                if new_dist < dist[v]:\n                    dist[v] = new_dist\n                    heapq.heappush(pq, (new_dist, v))\n    \n    return dist",
+    "example": "Граф с 4 вершинами и весами:\n0-1: 4, 0-2: 1, 1-2: 2, 1-3: 1, 2-3: 5\nДейкстра из вершины 0:\nКратчайшие расстояния: d[0]=0, d[1]=3, d[2]=1, d[3]=4\nПуть 0→3: 0 → 2 → 1 → 3 (вес 4)",
+    "applications": [
+      "Маршрутизация в компьютерных сетях",
+      "Навигационные системы (GPS)",
+      "Логистика и планирование доставки",
+      "Анализ социальных сетей"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Алгоритм_Дейкстры",
+      "visualgo": "https://visualgo.net/ru/sssp"
+    }
+  }
+}

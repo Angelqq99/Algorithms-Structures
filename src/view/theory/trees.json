@@ -1,0 +1,219 @@
+{
+  "BST": {
+    "name": "Бинарное дерево поиска (BST)",
+    "category": "Деревья",
+    "complexity": "Поиск/Вставка/Удаление: O(h), где h - высота дерева",
+    "description": "Бинарное дерево, в котором для каждого узла выполняется свойство: все ключи в левом поддереве меньше ключа узла, а все ключи в правом поддереве больше.",
+    "properties": [
+      "Динамическая структура данных",
+      "Поддерживает быстрый поиск, вставку и удаление",
+      "Может вырождаться в связный список (O(n) операций)",
+      "Требует балансировки для оптимальной работы"
+    ],
+    "formulas": [
+      "Высота сбалансированного дерева: h = ⌊log₂(n)⌋",
+      "Минимальная высота: h_min = ⌊log₂(n)⌋",
+      "Максимальная высота: h_max = n-1 (вырожденное дерево)",
+      "Количество возможных BST для n узлов: Cₙ (числа Каталана)"
+    ],
+    "complexity_analysis": "В сбалансированном дереве (h = O(log n)) все операции имеют сложность O(log n). В вырожденном дереве сложность ухудшается до O(n).",
+    "algorithm": "class TreeNode:\n    def __init__(self, key):\n        self.key = key\n        self.left = None\n        self.right = None\n\nfunction search(node, key):\n    if node is None or node.key == key:\n        return node\n    if key < node.key:\n        return search(node.left, key)\n    else:\n        return search(node.right, key)\n\nfunction insert(node, key):\n    if node is None:\n        return TreeNode(key)\n    if key < node.key:\n        node.left = insert(node.left, key)\n    else:\n        node.right = insert(node.right, key)\n    return node",
+    "example": "Вставка элементов [5, 3, 7, 2, 4, 6, 8]:\n       5\n     /   \\\n    3     7\n   / \\   / \\\n  2   4 6   8",
+    "applications": [
+      "Реализация словарей (map) и множеств (set)",
+      "Базы данных (B-деревья основаны на BST)",
+      "Файловые системы",
+      "Геометрические поисковые структуры"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Бинарное_дерево_поиска",
+      "visualgo": "https://visualgo.net/ru/bst"
+    }
+  },
+  "AVL": {
+    "name": "АВЛ-дерево",
+    "category": "Деревья",
+    "complexity": "Поиск/Вставка/Удаление: O(log n)",
+    "description": "Самобалансирующееся бинарное дерево поиска, в котором разница высот левого и правого поддеревьев любого узла не превышает 1.",
+    "properties": [
+      "Самобалансирующееся дерево",
+      "Гарантированная высота O(log n)",
+      "Более строгие условия балансировки, чем у красно-черных деревьев",
+      "Частые балансировки при вставке/удалении"
+    ],
+    "formulas": [
+      "Высота дерева: h < 1.44 * log₂(n+2) - 0.328",
+      "Минимальное число узлов при высоте h: N(h) = N(h-1) + N(h-2) + 1",
+      "Коэффициент баланса: balance = height(left) - height(right) ∈ [-1, 0, 1]",
+      "Вращения: LL, RR, LR, RL"
+    ],
+    "complexity_analysis": "AVL-дерево гарантирует O(log n) время операций благодаря строгой балансировке. Это делает его идеальным для приложений, где важна производительность поиска.",
+    "algorithm": "class AVLNode:\n    def __init__(self, key):\n        self.key = key\n        self.left = None\n        self.right = None\n        self.height = 1\n\nfunction insert(node, key):\n    // 1. Стандартная вставка в BST\n    if node is None:\n        return AVLNode(key)\n    \n    if key < node.key:\n        node.left = insert(node.left, key)\n    else:\n        node.right = insert(node.right, key)\n    \n    // 2. Обновление высоты\n    node.height = 1 + max(height(node.left), height(node.right))\n    \n    // 3. Получение коэффициента баланса\n    balance = getBalance(node)\n    \n    // 4. Балансировка при необходимости\n    // Левый левый случай\n    if balance > 1 and key < node.left.key:\n        return rightRotate(node)\n    \n    // Правый правый случай\n    if balance < -1 and key > node.right.key:\n        return leftRotate(node)\n    \n    // Левый правый случай\n    if balance > 1 and key > node.left.key:\n        node.left = leftRotate(node.left)\n        return rightRotate(node)\n    \n    // Правый левый случай\n    if balance < -1 and key < node.right.key:\n        node.right = rightRotate(node.right)\n        return leftRotate(node)\n    \n    return node",
+    "example": "Вставка элементов [10, 20, 30] в AVL-дерево:\n1. Вставка 10: [10]\n2. Вставка 20: [10, null, 20]\n3. Вставка 30 требует балансировки:\n   До: [10, null, 20, null, 30]  (несбалансировано)\n   После: [20, 10, 30]",
+    "applications": [
+      "Базы данных, где требуется частый поиск",
+      "Файловые системы",
+      "Реализация ассоциативных массивов",
+      "Географические информационные системы"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/АВЛ-дерево",
+      "visualgo": "https://visualgo.net/ru/bst"
+    }
+  },
+  "RedBlackTree": {
+    "name": "Красно-черное дерево",
+    "category": "Деревья",
+    "complexity": "Поиск/Вставка/Удаление: O(log n)",
+    "description": "Самобалансирующееся бинарное дерево поиска, в котором каждый узел имеет дополнительный бит цвета (красный или черный), обеспечивающий балансировку.",
+    "properties": [
+      "Самобалансирующееся дерево",
+      "Менее строгие условия балансировки, чем у AVL",
+      "Реже требует балансировок при вставке",
+      "Используется во многих стандартных библиотеках"
+    ],
+    "formulas": [
+      "Высота дерева: h ≤ 2 * log₂(n+1)",
+      "Путь от корня к любому листу содержит одинаковое количество черных узлов",
+      "Красный узел не может иметь красных потомков",
+      "Корень всегда черный"
+    ],
+    "complexity_analysis": "Красно-черные деревья обеспечивают O(log n) время операций с меньшим количеством балансировок, чем AVL-деревья, что делает их более эффективными для частых вставок и удалений.",
+    "algorithm": "class RBNode:\n    def __init__(self, key, color='RED'):\n        self.key = key\n        self.color = color\n        self.left = None\n        self.right = None\n        self.parent = None\n\nfunction insert(root, key):\n    // 1. Стандартная вставка в BST\n    node = BSTInsert(root, key)\n    node.color = 'RED'\n    \n    // 2. Исправление нарушений свойств красно-черного дерева\n    while node != root and node.parent.color == 'RED':\n        if node.parent == node.parent.parent.left:\n            uncle = node.parent.parent.right\n            \n            if uncle.color == 'RED':\n                // Случай 1: дядя красный\n                node.parent.color = 'BLACK'\n                uncle.color = 'BLACK'\n                node.parent.parent.color = 'RED'\n                node = node.parent.parent\n            else:\n                if node == node.parent.right:\n                    // Случай 2: узел - правый потомок\n                    node = node.parent\n                    root = leftRotate(root, node)\n                \n                // Случай 3: узел - левый потомок\n                node.parent.color = 'BLACK'\n                node.parent.parent.color = 'RED'\n                root = rightRotate(root, node.parent.parent)\n        else:\n            // Симметричный случай\n            \n    root.color = 'BLACK'\n    return root",
+    "example": "Вставка элементов [7, 3, 18, 10, 22, 8, 11, 26] в красно-черное дерево:\nИтоговое дерево сбалансировано, все пути содержат одинаковое количество черных узлов.",
+    "applications": [
+      "Java Collections Framework (TreeMap, TreeSet)",
+      "C++ STL (map, set, multimap, multiset)",
+      "Ядро Linux (completely fair scheduler)",
+      "Базы данных (реализация индексов)"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Красно-чёрное_дерево",
+      "visualgo": "https://visualgo.net/ru/bst"
+    }
+  },
+  "SplayTree": {
+    "name": "Splay-дерево (дерево с раскрытием)",
+    "category": "Деревья",
+    "complexity": "Амортизированная O(log n), в худшем случае O(n)",
+    "description": "Самобалансирующееся бинарное дерево поиска, которое перемещает недавно доступные элементы ближе к корню с помощью операции 'splay' (раскрытие).",
+    "properties": [
+      "Амортизированная сложность O(log n)",
+      "Самобалансирующееся дерево",
+      "Кэширует часто используемые элементы у корня",
+      "Не требует хранения дополнительной информации в узлах"
+    ],
+    "formulas": [
+      "Амортизированная стоимость операции: O(log n)",
+      "Теорема о динамической оптимальности (гипотеза)",
+      "Splay-операция использует zig, zig-zig, zig-zag вращения",
+      "Часто используемые элементы находятся ближе к корню"
+    ],
+    "complexity_analysis": "Splay-дерево оптимизировано для доступа к недавно использованным элементам. Хотя отдельная операция может занять O(n), серия операций имеет амортизированную сложность O(log n).",
+    "algorithm": "function splay(root, key):\n    if root is None or root.key == key:\n        return root\n    \n    if key < root.key:\n        if root.left is None:\n            return root\n        \n        // Zig-Zig (лево-лево)\n        if key < root.left.key:\n            root.left.left = splay(root.left.left, key)\n            root = rightRotate(root)\n        // Zig-Zag (лево-право)\n        elif key > root.left.key:\n            root.left.right = splay(root.left.right, key)\n            if root.left.right:\n                root.left = leftRotate(root.left)\n        \n        return rightRotate(root) if root.left else root\n    \n    else: // симметричный случай для правого поддерева",
+    "example": "После доступа к элементу 10 в дереве [20, 10, 30], элемент 10 становится корнем:\nДо:    20       После:    10\n       / \\               /  \\\n      10 30             5    20\n     /                       /  \\\n    5                       15   30\n   / \\\n  4   15",
+    "applications": [
+      "Кэширование и мемоизация",
+      "Сетевые маршрутизаторы",
+      "Сборщики мусора",
+      "Оптимизация доступа к часто используемым данным"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Splay-дерево",
+      "geeksforgeeks": "https://www.geeksforgeeks.org/splay-tree-set-1-insert/"
+    }
+  },
+  "Treap": {
+    "name": "Декартово дерево (Treap)",
+    "category": "Деревья",
+    "complexity": "Ожидаемая O(log n) для всех операций",
+    "description": "Гибридная структура данных, сочетающая бинарное дерево поиска и бинарную кучу. Каждый узел имеет ключ (для BST) и приоритет (для кучи).",
+    "properties": [
+      "Вероятностная структура данных",
+      "Ожидаемая высота O(log n)",
+      "Проще в реализации, чем другие сбалансированные деревья",
+      "Не требует балансировок"
+    ],
+    "formulas": [
+      "Ожидаемая высота: E[h] = O(log n)",
+      "Вероятность несбалансированности экспоненциально мала",
+      "Приоритеты выбираются случайно из равномерного распределения",
+      "Ожидаемое время поиска: O(log n)"
+    ],
+    "complexity_analysis": "Treap использует случайные приоритеты для обеспечения сбалансированности. Ожидаемая сложность всех операций составляет O(log n), хотя в худшем случае может быть O(n).",
+    "algorithm": "class TreapNode:\n    def __init__(self, key):\n        self.key = key\n        self.priority = random()  // случайный приоритет\n        self.left = None\n        self.right = None\n\nfunction insert(root, key):\n    if root is None:\n        return TreapNode(key)\n    \n    if key <= root.key:\n        root.left = insert(root.left, key)\n        \n        // Восстановление свойства кучи\n        if root.left.priority > root.priority:\n            root = rightRotate(root)\n    else:\n        root.right = insert(root.right, key)\n        \n        if root.right.priority > root.priority:\n            root = leftRotate(root)\n    \n    return root",
+    "example": "Вставка элементов [(5, 9), (2, 6), (8, 7), (1, 5), (4, 3)]:\nПолучаем дерево, где по ключам - это BST, по приоритетам - max-heap:\n       (5,9)\n      /     \\\n   (2,6)   (8,7)\n   /   \\\n(1,5) (4,3)",
+    "applications": [
+      "Быстрые прототипы сбалансированных деревьев",
+      "Когда нужна простая реализация сбалансированного дерева",
+      "Рандомизированные алгоритмы",
+      "Образовательные цели"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Декартово_дерево",
+      "geeksforgeeks": "https://www.geeksforgeeks.org/treap-a-randomized-binary-search-tree/"
+    }
+  },
+  "BTree": {
+    "name": "B-дерево",
+    "category": "Деревья",
+    "complexity": "Поиск/Вставка/Удаление: O(log n)",
+    "description": "Сбалансированное дерево поиска, оптимизированное для систем, которые читают и записывают большие блоки данных (например, базы данных и файловые системы).",
+    "properties": [
+      "Самобалансирующееся дерево",
+      "Все листья находятся на одинаковой глубине",
+      "Каждый узел может содержать множество ключей",
+      "Оптимизировано для работы с диском"
+    ],
+    "formulas": [
+      "Минимальная степень t: t ≥ 2",
+      "Ключей в корне: от 1 до 2t-1",
+      "Ключей во внутренних узлах: от t-1 до 2t-1",
+      "Высота дерева: h ≤ log_t((n+1)/2)"
+    ],
+    "complexity_analysis": "B-дерево минимизирует количество обращений к диску за счет хранения множества ключей в одном узле. Высота дерева пропорциональна log_t n, где t - минимальная степень.",
+    "algorithm": "class BTreeNode:\n    def __init__(self, t, leaf=False):\n        self.t = t          // минимальная степень\n        self.leaf = leaf    // является ли узел листом\n        self.keys = []      // список ключей\n        self.children = []  // список дочерних узлов\n\nfunction search(node, key):\n    i = 0\n    while i < len(node.keys) and key > node.keys[i]:\n        i += 1\n    \n    if i < len(node.keys) and node.keys[i] == key:\n        return (node, i)\n    \n    if node.leaf:\n        return None\n    \n    return search(node.children[i], key)",
+    "example": "B-дерево степени t=3 с ключами [1,3,7,10,11,13,14,16,18,19,24,25,26,30]:\nУзлы содержат от 2 до 5 ключей, все листья на одном уровне.",
+    "applications": [
+      "Реляционные базы данных (индексы)",
+      "Файловые системы (NTFS, HFS+, Ext4)",
+      "Хранение больших объемов данных на диске",
+      "Базы данных NoSQL"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/B-дерево",
+      "visualgo": "https://visualgo.net/ru/bst"
+    }
+  },
+  "Heap": {
+    "name": "Бинарная куча (Heap)",
+    "category": "Деревья",
+    "complexity": "Построение: O(n), Вставка/Удаление: O(log n), Поиск минимума/максимума: O(1)",
+    "description": "Полное бинарное дерево, удовлетворяющее свойству кучи: ключ каждого узла больше (max-heap) или меньше (min-heap) ключей его потомков.",
+    "properties": [
+      "Полное бинарное дерево",
+      "Может быть реализовано на массиве",
+      "Min-heap: родитель ≤ потомки",
+      "Max-heap: родитель ≥ потомки"
+    ],
+    "formulas": [
+      "Высота кучи: h = ⌊log₂(n)⌋",
+      "Индекс родителя: parent(i) = (i-1)//2",
+      "Индекс левого потомка: left(i) = 2*i + 1",
+      "Индекс правого потомка: right(i) = 2*i + 2"
+    ],
+    "complexity_analysis": "Бинарная куча обеспечивает эффективные операции для приоритетных очередей. Построение за O(n) с использованием алгоритма heapify, основные операции за O(log n).",
+    "algorithm": "class MinHeap:\n    def __init__(self):\n        self.heap = []\n    \n    def parent(self, i):\n        return (i-1)//2\n    \n    def insert(self, k):\n        self.heap.append(k)\n        i = len(self.heap) - 1\n        \n        // Просеивание вверх\n        while i != 0 and self.heap[self.parent(i)] > self.heap[i]:\n            self.heap[i], self.heap[self.parent(i)] = \\\n                self.heap[self.parent(i)], self.heap[i]\n            i = self.parent(i)\n    \n    def heapify(self, i):\n        // Просеивание вниз\n        smallest = i\n        left = 2*i + 1\n        right = 2*i + 2\n        \n        if left < len(self.heap) and self.heap[left] < self.heap[smallest]:\n            smallest = left\n        if right < len(self.heap) and self.heap[right] < self.heap[smallest]:\n            smallest = right\n        \n        if smallest != i:\n            self.heap[i], self.heap[smallest] = self.heap[smallest], self.heap[i]\n            self.heapify(smallest)",
+    "example": "Min-heap с элементами [3, 9, 2, 1, 4, 5]:\nПредставление в виде дерева:\n       1\n     /   \\\n    3     2\n   / \\   /\n  9   4 5\n\nПредставление в виде массива: [1, 3, 2, 9, 4, 5]",
+    "applications": [
+      "Очереди с приоритетом",
+      "Алгоритм Дейкстры",
+      "Алгоритм Прима",
+      "Сортировка кучей (Heapsort)"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Куча_(структура_данных)",
+      "visualgo": "https://visualgo.net/ru/heap"
+    }
+  }
+}

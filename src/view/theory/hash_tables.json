@@ -1,0 +1,33 @@
+{
+  "HashTable": {
+    "name": "Хэш-таблица (Hash Table)",
+    "category": "Хэш-таблицы",
+    "complexity": "В среднем: O(1), в худшем случае: O(n)",
+    "description": "Структура данных, которая реализует ассоциативный массив (словарь) с использованием хэш-функции для вычисления индекса элемента в массиве.",
+    "properties": [
+      "Быстрый доступ к элементам в среднем случае",
+      "Использует хэш-функцию для преобразования ключей",
+      "Требует разрешения коллизий",
+      "Динамически расширяется при необходимости"
+    ],
+    "formulas": [
+      "Хэш-функция: h(k) = k mod m",
+      "Коэффициент загрузки: α = n/m",
+      "Ожидаемое время поиска: O(1 + α)",
+      "Универсальное хэширование уменьшает вероятность коллизий"
+    ],
+    "complexity_analysis": "При хорошей хэш-функции и низком коэффициенте загрузки (α < 0.75) операции занимают O(1). При высоком α производительность деградирует до O(n).",
+    "algorithm": "class HashTable:\n    def __init__(self, size):\n        self.size = size\n        self.table = [[] for _ in range(size)]\n    \n    def hash_function(self, key):\n        return key % self.size\n    \n    def insert(self, key, value):\n        hash_key = self.hash_function(key)\n        \n        // Проверка, существует ли уже ключ\n        for i, (k, v) in enumerate(self.table[hash_key]):\n            if k == key:\n                self.table[hash_key][i] = (key, value)\n                return\n        \n        // Добавление новой пары\n        self.table[hash_key].append((key, value))\n    \n    def search(self, key):\n        hash_key = self.hash_function(key)\n        \n        for k, v in self.table[hash_key]:\n            if k == key:\n                return v\n        \n        return None",
+    "example": "Хэш-таблица размером 10 с элементами:\nКлючи: 15, 25, 35, 45\nХэш-функция: h(k) = k % 10\nРезультат: все ключи попадают в ячейку 5 (коллизия),\nразрешаем методом цепочек.",
+    "applications": [
+      "Словари и множества в языках программирования",
+      "Кэширование (memcached, Redis)",
+      "Базы данных (хэш-индексы)",
+      "Проверка орфографии"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Хеш-таблица",
+      "visualgo": "https://visualgo.net/ru/hashtable"
+    }
+  }
+}

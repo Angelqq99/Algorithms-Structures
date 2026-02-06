@@ -1,0 +1,64 @@
+{
+  "BinarySearch": {
+    "name": "Бинарный поиск (Binary Search)",
+    "category": "Алгоритмы поиска",
+    "complexity": "O(log n)",
+    "description": "Эффективный алгоритм поиска элемента в отсортированном массиве. Работает путем многократного деления интервала поиска пополам.",
+    "properties": [
+      "Работает только с отсортированными массивами",
+      "Дихотомический поиск (деление пополам)",
+      "Рекурсивная или итеративная реализация",
+      "Требует случайного доступа к элементам"
+    ],
+    "formulas": [
+      "Количество сравнений: C(n) ≤ ⌊log₂(n)⌋ + 1",
+      "Рекуррентное соотношение: T(n) = T(n/2) + O(1)",
+      "Решение рекуррентности: T(n) = O(log n)",
+      "Инвариант: искомый элемент всегда в текущем интервале"
+    ],
+    "complexity_analysis": "Бинарный поиск имеет логарифмическую сложность O(log n), так как на каждом шаге уменьшает область поиска вдвое. Это делает его намного эффективнее линейного поиска O(n) для больших массивов.",
+    "algorithm": "function binarySearch(arr, target):\n    left = 0\n    right = len(arr) - 1\n    \n    while left <= right:\n        mid = left + (right - left) // 2\n        \n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n    \n    return -1  // элемент не найден\n\n// Рекурсивная версия\nfunction binarySearchRecursive(arr, target, left, right):\n    if left > right:\n        return -1\n    \n    mid = left + (right - left) // 2\n    \n    if arr[mid] == target:\n        return mid\n    elif arr[mid] > target:\n        return binarySearchRecursive(arr, target, left, mid - 1)\n    else:\n        return binarySearchRecursive(arr, target, mid + 1, right)",
+    "example": "Поиск числа 23 в массиве [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]:\nШаг 1: mid = 4 (16) < 23 → ищем в [23, 38, 56, 72, 91]\nШаг 2: mid = 7 (56) > 23 → ищем в [23, 38]\nШаг 3: mid = 5 (23) == 23 → найден на позиции 5",
+    "applications": [
+      "Поиск в отсортированных базах данных",
+      "Нахождение корней уравнений",
+      "Поиск в словарях и телефонных книгах",
+      "Игровые алгоритмы (поиск оптимального хода)"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Двоичный_поиск",
+      "visualgo": "https://visualgo.net/ru/bst"
+    }
+  },
+  "InterpolationSearch": {
+    "name": "Интерполяционный поиск (Interpolation Search)",
+    "category": "Алгоритмы поиска",
+    "complexity": "В среднем: O(log log n), в худшем случае: O(n)",
+    "description": "Улучшенный вариант бинарного поиска для равномерно распределенных отсортированных данных. Вместо деления пополам вычисляет вероятную позицию элемента.",
+    "properties": [
+      "Требует равномерного распределения данных",
+      "Использует интерполяцию для оценки позиции",
+      "Быстрее бинарного поиска для равномерных данных",
+      "Худший случай возникает при неравномерном распределении"
+    ],
+    "formulas": [
+      "Формула интерполяции: pos = lo + ((x - arr[lo]) * (hi - lo)) / (arr[hi] - arr[lo])",
+      "Ожидаемое количество сравнений: O(log log n)",
+      "Худший случай: O(n) (например, экспоненциальное распределение)",
+      "Условие: arr[lo] ≤ x ≤ arr[hi]"
+    ],
+    "complexity_analysis": "Для равномерно распределенных данных интерполяционный поиск имеет сложность O(log log n), что лучше чем O(log n) у бинарного поиска. Однако при неравномерном распределении может деградировать до O(n).",
+    "algorithm": "function interpolationSearch(arr, target):\n    low = 0\n    high = len(arr) - 1\n    \n    while low <= high and target >= arr[low] and target <= arr[high]:\n        if low == high:\n            if arr[low] == target:\n                return low\n            return -1\n        \n        // Формула интерполяции\n        pos = low + ((target - arr[low]) * (high - low)) // (arr[high] - arr[low])\n        \n        if arr[pos] == target:\n            return pos\n        elif arr[pos] < target:\n            low = pos + 1\n        else:\n            high = pos - 1\n    \n    return -1",
+    "example": "Поиск числа 18 в равномерно распределенном массиве [10, 12, 13, 16, 18, 19, 20, 21, 22, 23, 24, 33, 35, 42, 47]:\nШаг 1: pos = 0 + ((18-10)*(14-0))/(47-10) ≈ 4 → arr[4] = 18 → найден!",
+    "applications": [
+      "Телефонные справочники",
+      "Словари с равномерным распределением",
+      "Поиск в больших равномерно распределенных данных",
+      "Игровые базы данных"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Интерполирующий_поиск",
+      "geeksforgeeks": "https://www.geeksforgeeks.org/interpolation-search/"
+    }
+  }
+}

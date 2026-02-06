@@ -1,0 +1,92 @@
+{
+  "Stack": {
+    "name": "Стек (Stack)",
+    "category": "Структуры данных",
+    "complexity": "Push/Pop/Top: O(1)",
+    "description": "Абстрактный тип данных, представляющий собой коллекцию элементов с принципом LIFO (Last In, First Out - последним пришел, первым ушел).",
+    "properties": [
+      "Принцип LIFO (Last In, First Out)",
+      "Динамический или фиксированный размер",
+      "Может быть реализован на массиве или связном списке",
+      "Основные операции: push, pop, peek"
+    ],
+    "formulas": [
+      "Высота стека: количество элементов",
+      "Емкость стека: максимальное количество элементов",
+      "Инвариант: после n push и m pop (m ≤ n) в стеке n-m элементов"
+    ],
+    "complexity_analysis": "Все основные операции стека выполняются за O(1), так как работают только с верхним элементом. Это делает стек очень эффективной структурой.",
+    "algorithm": "class Stack:\n    def __init__(self):\n        self.items = []\n    \n    def push(self, item):\n        self.items.append(item)\n    \n    def pop(self):\n        if not self.is_empty():\n            return self.items.pop()\n        return None\n    \n    def peek(self):\n        if not self.is_empty():\n            return self.items[-1]\n        return None\n    \n    def is_empty(self):\n        return len(self.items) == 0\n    \n    def size(self):\n        return len(self.items)",
+    "example": "Операции со стеком:\n1. push(10) → [10]\n2. push(20) → [10, 20]\n3. push(30) → [10, 20, 30]\n4. pop() → возвращает 30, стек: [10, 20]\n5. peek() → возвращает 20, стек: [10, 20]",
+    "applications": [
+      "Вызов функций (стек вызовов)",
+      "Отмена действий (Ctrl+Z)",
+      "Синтаксический анализ (проверка скобок)",
+      "Обход деревьев в глубину"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Стек",
+      "visualgo": "https://visualgo.net/ru/list"
+    }
+  },
+  "Queue": {
+    "name": "Очередь (Queue)",
+    "category": "Структуры данных",
+    "complexity": "Enqueue/Dequeue: O(1)",
+    "description": "Абстрактный тип данных, представляющий собой коллекцию элементов с принципом FIFO (First In, First Out - первым пришел, первым ушел).",
+    "properties": [
+      "Принцип FIFO (First In, First Out)",
+      "Две основные операции: enqueue (добавление) и dequeue (удаление)",
+      "Может быть реализована на массиве или связном списке",
+      "Кольцевая очередь для эффективного использования памяти"
+    ],
+    "formulas": [
+      "Длина очереди: количество элементов",
+      "Инвариант: после n enqueue и m dequeue (m ≤ n) в очереди n-m элементов",
+      "Время ожидания элемента: пропорционально его позиции"
+    ],
+    "complexity_analysis": "При правильной реализации (использование кругового буфера или связного списка) операции enqueue и dequeue выполняются за O(1).",
+    "algorithm": "class Queue:\n    def __init__(self, capacity):\n        self.capacity = capacity\n        self.queue = [None] * capacity\n        self.front = 0\n        self.rear = -1\n        self.size = 0\n    \n    def enqueue(self, item):\n        if self.is_full():\n            print('Очередь переполнена')\n            return\n        \n        self.rear = (self.rear + 1) % self.capacity\n        self.queue[self.rear] = item\n        self.size += 1\n    \n    def dequeue(self):\n        if self.is_empty():\n            print('Очередь пуста')\n            return None\n        \n        item = self.queue[self.front]\n        self.front = (self.front + 1) % self.capacity\n        self.size -= 1\n        return item\n    \n    def is_empty(self):\n        return self.size == 0\n    \n    def is_full(self):\n        return self.size == self.capacity",
+    "example": "Операции с очередью:\n1. enqueue(10) → [10]\n2. enqueue(20) → [10, 20]\n3. enqueue(30) → [10, 20, 30]\n4. dequeue() → возвращает 10, очередь: [20, 30]\n5. dequeue() → возвращает 20, очередь: [30]",
+    "applications": [
+      "Очереди печати",
+      "Обработка запросов к серверу",
+      "Буферизация данных",
+      "Обход деревьев в ширину (BFS)"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Очередь_(программирование)",
+      "visualgo": "https://visualgo.net/ru/list"
+    }
+  },
+  "Deque": {
+    "name": "Дек (Deque - Double Ended Queue)",
+    "category": "Структуры данных",
+    "complexity": "Добавление/удаление с обоих концов: O(1)",
+    "description": "Обобщение стека и очереди, позволяющее добавлять и удалять элементы с обоих концов (double-ended queue).",
+    "properties": [
+      "Поддерживает операции с обоих концов",
+      "Может использоваться как стек или очередь",
+      "Реализуется на массиве или связном списке",
+      "Основные операции: addFront, addRear, removeFront, removeRear"
+    ],
+    "formulas": [
+      "Длина дека: количество элементов",
+      "Инвариант: операции симметричны с обоих концов",
+      "Емкость: может быть динамической или фиксированной"
+    ],
+    "complexity_analysis": "При правильной реализации (использование связного списка или кругового буфера) все основные операции дека выполняются за O(1).",
+    "algorithm": "class Deque:\n    def __init__(self):\n        self.items = []\n    \n    def add_front(self, item):\n        self.items.insert(0, item)\n    \n    def add_rear(self, item):\n        self.items.append(item)\n    \n    def remove_front(self):\n        if not self.is_empty():\n            return self.items.pop(0)\n        return None\n    \n    def remove_rear(self):\n        if not self.is_empty():\n            return self.items.pop()\n        return None\n    \n    def is_empty(self):\n        return len(self.items) == 0\n    \n    def size(self):\n        return len(self.items)\n    \n    def peek_front(self):\n        if not self.is_empty():\n            return self.items[0]\n        return None\n    \n    def peek_rear(self):\n        if not self.is_empty():\n            return self.items[-1]\n        return None",
+    "example": "Операции с деком:\n1. add_rear(10) → [10]\n2. add_front(20) → [20, 10]\n3. add_rear(30) → [20, 10, 30]\n4. remove_front() → возвращает 20, дек: [10, 30]\n5. remove_rear() → возвращает 30, дек: [10]",
+    "applications": [
+      "Очереди с приоритетом в некоторых алгоритмах",
+      "Палиндром-чекер",
+      "Шифрование и дешифрование",
+      "Реализация других структур данных"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Дек_(структура_данных)",
+      "geeksforgeeks": "https://www.geeksforgeeks.org/deque-set-1-introduction-applications/"
+    }
+  }
+}

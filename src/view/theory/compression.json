@@ -1,0 +1,33 @@
+{
+  "Huffman": {
+    "name": "Кодирование Хаффмана (Huffman Coding)",
+    "category": "Сжатие данных",
+    "complexity": "Построение кода: O(n log n), Кодирование/декодирование: O(n)",
+    "description": "Алгоритм сжатия данных без потерь, использующий переменную длину кодов для символов: частые символы получают короткие коды, редкие - длинные.",
+    "properties": [
+      "Сжатие без потерь",
+      "Префиксный код (никакой код не является префиксом другого)",
+      "Оптимальный для статических вероятностей",
+      "Использует дерево Хаффмана для кодирования"
+    ],
+    "formulas": [
+      "Средняя длина кода: L = Σ pᵢ * lᵢ",
+      "Энтропия Шеннона: H = -Σ pᵢ * log₂(pᵢ)",
+      "Оптимальность: L ≥ H",
+      "Для алгоритма Хаффмана: H ≤ L < H + 1"
+    ],
+    "complexity_analysis": "Построение дерева Хаффмана требует O(n log n) операций при использовании приоритетной очереди. Кодирование и декодирование одного символа занимает O(h), где h - высота дерева.",
+    "algorithm": "// Узел дерева Хаффмана\nclass HuffmanNode:\n    def __init__(self, char, freq):\n        self.char = char\n        self.freq = freq\n        self.left = None\n        self.right = None\n\nfunction build_huffman_tree(chars, freqs):\n    // Создаем узлы для каждого символа\n    nodes = []\n    for i in range(len(chars)):\n        nodes.append(HuffmanNode(chars[i], freqs[i]))\n    \n    // Используем мин-кучу для частот\n    heap = MinHeap(nodes)\n    \n    // Строим дерево\n    while len(heap) > 1:\n        // Берем два узла с наименьшей частотой\n        left = heap.extract_min()\n        right = heap.extract_min()\n        \n        // Создаем новый узел\n        merged = HuffmanNode(None, left.freq + right.freq)\n        merged.left = left\n        merged.right = right\n        \n        heap.insert(merged)\n    \n    return heap.extract_min()\n\nfunction generate_codes(node, code='', codes={}):\n    if node is None:\n        return\n    \n    if node.char is not None:\n        codes[node.char] = code\n        return\n    \n    generate_codes(node.left, code + '0', codes)\n    generate_codes(node.right, code + '1', codes)",
+    "example": "Символы: [a, b, c, d, e]\nЧастоты: [15, 7, 6, 6, 5]\nКоды Хаффмана:\na: 0\nb: 100\nc: 101\nd: 110\ne: 111",
+    "applications": [
+      "Сжатие файлов (ZIP, GZIP)",
+      "Сжатие изображений (JPEG)",
+      "Сжатие видео (MPEG)",
+      "Мобильная связь (сжатие данных)"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Код_Хаффмана",
+      "visualgo": "https://visualgo.net/ru/huffman"
+    }
+  }
+}

@@ -61,49 +61,112 @@ class GraphVisualizer:
         try:
             print(f"Clearing graph: {len(self.nodes)} nodes, {len(self.edges)} edges")
             
-            # Останавливаем все таймеры анимации
-            for node in list(self.nodes.values()):
-                if node and hasattr(node, 'color_timer') and node.color_timer.isActive():
-                    node.color_timer.stop()
-                if node and hasattr(node, 'animation') and node.animation:
-                    node.animation.stop()
+            # Останавливаем все таймеры анимации для узлов
+            for node_key, node_item in list(self.nodes.items()):
+                if node_item is None:
+                    continue
+                    
+                try:
+                    # Проверяем, что объект еще существует
+                    if hasattr(node_item, '__class__'):
+                        if hasattr(node_item, 'color_timer') and node_item.color_timer and node_item.color_timer.isActive():
+                            node_item.color_timer.stop()
+                        if hasattr(node_item, 'animation') and node_item.animation:
+                            node_item.animation.stop()
+                except RuntimeError as e:
+                    if "wrapped C/C++ object" in str(e):
+                        print(f"Node {node_key} already deleted, skipping")
+                        continue
+                    else:
+                        raise
             
             # Останавливаем анимации ребер
-            for edge_item in list(self.edges.values()):
-                if edge_item and hasattr(edge_item, 'animation') and edge_item.animation:
-                    edge_item.animation.stop()
+            for edge_key, edge_item in list(self.edges.items()):
+                if edge_item is None:
+                    continue
+                    
+                try:
+                    # Проверяем, что объект еще существует
+                    if hasattr(edge_item, '__class__'):
+                        if hasattr(edge_item, 'animation') and edge_item.animation:
+                            edge_item.animation.stop()
+                except RuntimeError as e:
+                    if "wrapped C/C++ object" in str(e):
+                        print(f"Edge {edge_key} already deleted, skipping")
+                        continue
+                    else:
+                        raise
             
             # Удаляем ребра из сцены ПЕРЕД узлами
             for edge_key, edge_item in list(self.edges.items()):
-                if edge_item:
-                    try:
-                        # Явно удаляем связи из узлов
-                        if hasattr(edge_item, 'start_node') and edge_item.start_node:
-                            edge_item.start_node.remove_connected_edge(edge_item)
-                        if hasattr(edge_item, 'end_node') and edge_item.end_node:
-                            edge_item.end_node.remove_connected_edge(edge_item)
+                if edge_item is None:
+                    continue
+                    
+                try:
+                    # Проверяем, что объект еще существует
+                    if not hasattr(edge_item, '__class__'):
+                        continue
                         
-                        # Удаляем из сцены
-                        if edge_item.scene():
-                            self.scene.removeItem(edge_item)
-                    except Exception as e:
-                        print(f"Error removing edge: {e}")
+                    # Явно удаляем связи из узлов
+                    if hasattr(edge_item, 'start_node') and edge_item.start_node:
+                        try:
+                            if hasattr(edge_item.start_node, '__class__'):
+                                edge_item.start_node.remove_connected_edge(edge_item)
+                        except RuntimeError:
+                            pass  # Узел уже удален
+                            
+                    if hasattr(edge_item, 'end_node') and edge_item.end_node:
+                        try:
+                            if hasattr(edge_item.end_node, '__class__'):
+                                edge_item.end_node.remove_connected_edge(edge_item)
+                        except RuntimeError:
+                            pass  # Узел уже удален
+                    
+                    # Удаляем из сцены
+                    if edge_item.scene():
+                        self.scene.removeItem(edge_item)
+                        
+                    # Явно удаляем ссылку
+                    del self.edges[edge_key]
+                except RuntimeError as e:
+                    if "wrapped C/C++ object" in str(e):
+                        print(f"Edge {edge_key} already deleted, skipping")
+                        continue
+                    else:
+                        raise
+            
+            # Очищаем словарь ребер
             self.edges.clear()
             self.edge_weights.clear()
             
             # Удаляем узлы из сцены
             for node_key, node_item in list(self.nodes.items()):
-                if node_item:
-                    try:
-                        # Очищаем список связанных ребер
-                        if hasattr(node_item, 'connected_edges'):
-                            node_item.connected_edges.clear()
+                if node_item is None:
+                    continue
+                    
+                try:
+                    # Проверяем, что объект еще существует
+                    if not hasattr(node_item, '__class__'):
+                        continue
                         
-                        if node_item.scene():
-                            self.scene.removeItem(node_item)
-                    except Exception as e:
-                        print(f"Error removing node: {e}")
-            self.nodes.clear()
+                    # Очищаем список связанных ребер
+                    if hasattr(node_item, 'connected_edges'):
+                        try:
+                            node_item.connected_edges.clear()
+                        except RuntimeError:
+                            pass
+                    
+                    if node_item.scene():
+                        self.scene.removeItem(node_item)
+                        
+                    # Явно удаляем ссылку
+                    del self.nodes[node_key]
+                except RuntimeError as e:
+                    if "wrapped C/C++ object" in str(e):
+                        print(f"Node {node_key} already deleted, skipping")
+                        continue
+                    else:
+                        raise
             
             # Очищаем структуры данных
             self.adjacency_list.clear()

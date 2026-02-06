@@ -1,0 +1,33 @@
+{
+  "BloomFilter": {
+    "name": "Фильтр Блума (Bloom Filter)",
+    "category": "Вероятностные структуры",
+    "complexity": "Добавление/Проверка: O(k), где k - количество хэш-функций",
+    "description": "Вероятностная структура данных для проверки принадлежности элемента множеству. Может давать ложноположительные срабатывания, но не ложноотрицательные.",
+    "properties": [
+      "Вероятностная структура данных",
+      "Ложноположительные ответы возможны",
+      "Ложноотрицательные ответы невозможны",
+      "Компактное представление больших множеств"
+    ],
+    "formulas": [
+      "Вероятность ложноположительного срабатывания: p ≈ (1 - e^{-kn/m})^k",
+      "Оптимальное количество хэш-функций: k = (m/n) * ln(2)",
+      "Оптимальный размер битового массива: m = -n * ln(p) / (ln(2))²",
+      "Ожидаемое время работы: O(k)"
+    ],
+    "complexity_analysis": "Фильтр Блума обеспечивает постоянное время добавления и проверки O(k), где k обычно мало (5-10). Память O(m), где m пропорционально n.",
+    "algorithm": "class BloomFilter:\n    def __init__(self, size, hash_count):\n        self.size = size\n        self.hash_count = hash_count\n        self.bit_array = [0] * size\n    \n    def add(self, item):\n        for i in range(self.hash_count):\n            # Вычисляем хэш для каждой функции\n            hash_val = hash(item + str(i)) % self.size\n            self.bit_array[hash_val] = 1\n    \n    def check(self, item):\n        for i in range(self.hash_count):\n            hash_val = hash(item + str(i)) % self.size\n            if self.bit_array[hash_val] == 0:\n                return False  # Определенно не в множестве\n        return True  # Возможно в множестве (ложноположительный возможен)",
+    "example": "Фильтр Блума с m=10 бит, k=3 хэш-функциями:\nДобавляем 'hello': устанавливаем биты 1, 4, 7\nДобавляем 'world': устанавливаем биты 2, 4, 9\nПроверяем 'hello': все биты 1,4,7 установлены → возможно есть\nПроверяем 'test': биты 0,3,5 не все установлены → точно нет",
+    "applications": [
+      "Проверка орфографии",
+      "Кэширование в CDN",
+      "Базы данных (ускорение запросов)",
+      "Сетевые маршрутизаторы"
+    ],
+    "links": {
+      "wikipedia": "https://ru.wikipedia.org/wiki/Фильтр_Блума",
+      "geeksforgeeks": "https://www.geeksforgeeks.org/bloom-filters-introduction-and-python-implementation/"
+    }
+  }
+}

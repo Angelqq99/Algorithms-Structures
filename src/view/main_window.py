@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty, QRectF, pyqtSignal, QEasingCurve, QObject, QPointF
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QBrush, QLinearGradient, QRadialGradient, QClipboard
+from view.theory_manager import TheoryManager
 from controller.engine import Engine
 from model.sorting.quicksort import QuickSort
 from model.sorting.mergesort import MergeSort
@@ -1333,6 +1334,8 @@ class MainWindow(QMainWindow):
         self._active_animations = []
         self._pending_nodes = []
         self._is_animation_in_progress = False
+                # Менеджер теории
+        self.theory_manager = TheoryManager()
         # Для хэш-таблицы
         self.hashtable_cells = []
         self.hashtable_stats = {}
@@ -1791,6 +1794,37 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(QLabel("Инспектор состояния:"))
         left_layout.addWidget(self.inspector)
         left_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+                # В левой панели, после других кнопок:
+        left_layout.addSpacing(20)  # Отступ
+        
+        # Кнопка теории
+        theory_btn = QPushButton("📚 ТЕОРИЯ АЛГОРИТМОВ")
+        theory_btn.setToolTip("Открыть справочник по теории алгоритмов и структур данных")
+        theory_btn.clicked.connect(self._show_theory_window)
+        theory_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                        stop:0 #9B59B6, stop:1 #8E44AD);
+                color: white;
+                border-radius: 8px;
+                padding: 12px;
+                font-weight: bold;
+                font-size: 14px;
+                border: 2px solid #7D3C98;
+                margin-top: 10px;
+                margin-bottom: 10px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                        stop:0 #8E44AD, stop:1 #7D3C98);
+                border: 2px solid #6C3483;
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                        stop:0 #7D3C98, stop:1 #6C3483);
+            }
+        """)
+        left_layout.addWidget(theory_btn)
 
         return left_panel
 
@@ -3447,7 +3481,9 @@ class MainWindow(QMainWindow):
                 self._log("❌ Сначала постройте граф")
                 QMessageBox.warning(self, "Ошибка", "Сначала постройте граф (нажмите 'Построить граф')")
                 return False
+            
             self._reset_graph_visualization()
+            
             # ИСПРАВЛЕНИЕ: Всегда используем узел из поля ввода
             start_node_text = ""
             if hasattr(self, 'graph_start_input') and self.graph_start_input:
@@ -3487,12 +3523,12 @@ class MainWindow(QMainWindow):
             # Загружаем алгоритм в движок
             self.engine.load_algorithm(self.current_algorithm)
             
-        # Сбрасываем только подсветку, не перестраиваем граф
-        if hasattr(self, 'graph_visualizer'):
-            self.graph_visualizer.reset_highlights()
+            # Сбрасываем только подсветку, не перестраиваем граф
+            if hasattr(self, 'graph_visualizer'):
+                self.graph_visualizer.reset_highlights()
             
             self._log(f"🚀 Алгоритм загружен. Начальный узел: {start_node}")
-            return True
+            return True  # ВАЖНО: возвращаем True при успешной загрузке
         elif category == "Сжатие данных" and algo_name == "Huffman Coding":
             if hasattr(self, 'huffman_text_input'):
                 text = self.huffman_text_input.toPlainText().strip()
@@ -8247,6 +8283,82 @@ class MainWindow(QMainWindow):
         right_length = self._calculate_average_path_length(tree_structure.get("right"), current_depth + 1)
         
         return left_length + right_length 
+    
+    def _show_theory_window(self):
+        """Открывает окно с теорией алгоритмов"""
+        try:
+            # Получаем текущую категорию и алгоритм
+            current_category = self.category_combo.currentText()
+            current_algorithm = self.algorithm_combo.currentText()
+            
+            # Маппинг категорий интерфейса на ключи файлов
+            category_map = {
+                "Сортировки": "sorting",
+                "Деревья": "trees", 
+                "Графы": "graphs",
+                "Хэш-таблицы": "hash_tables",
+                "Структуры данных": "data_structures",
+                "Сжатие данных": "compression",
+                "Вероятностные структуры": "probabilistic",
+                "Алгоритмы поиска": "search"
+            }
+            
+            # Маппинг названий алгоритмов
+            algorithm_map = {
+                # Сортировки
+                "QuickSort": "QuickSort",
+                "MergeSort": "MergeSort", 
+                "BubbleSort": "BubbleSort",
+                "InsertionSort": "InsertionSort",
+                "SelectionSort": "SelectionSort",
+                "ShellSort": "ShellSort",
+                
+                # Деревья
+                "BST": "BST",
+                "AVL": "AVL",
+                "RedBlackTree": "RedBlackTree",
+                "SplayTree": "SplayTree",
+                "Treap": "Treap",
+                "BTree": "BTree",
+                "Heap": "Heap",
+                
+                # Графы
+                "Graph": "GraphAlgorithms",
+                "BFS": "BFS",
+                "DFS": "DFS",
+                "Dijkstra": "Dijkstra",
+                
+                # Хэш-таблицы
+                "HashTable": "HashTable",
+                
+                # Структуры данных
+                "Stack": "Stack",
+                "Queue": "Queue", 
+                "Deque": "Deque",
+                
+                # Сжатие
+                "Huffman Coding": "Huffman",
+                
+                # Вероятностные структуры
+                "Bloom Filter": "BloomFilter",
+                
+                # Поиск
+                "Binary Search": "BinarySearch",
+                "Interpolation Search": "InterpolationSearch"
+            }
+            
+            # Открываем окно теории
+            self.theory_manager.show_theory_window(
+                category=category_map.get(current_category, current_category),
+                algorithm=algorithm_map.get(current_algorithm, current_algorithm)
+            )
+            
+            self._log("📚 Открыто окно теории алгоритмов")
+            
+        except Exception as e:
+            self._log(f"❌ Ошибка открытия теории: {str(e)}")
+            import traceback
+            traceback.print_exc()
               
 
     def closeEvent(self, event):
