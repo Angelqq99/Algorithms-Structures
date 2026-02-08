@@ -245,7 +245,7 @@ class BloomVisualizer:
         title.setPos(-50, -150)
         
         # Создаем панель для статистики
-        stats_bg = QGraphicsRectItem(-180, -90, 360, 70)
+        stats_bg = QGraphicsRectItem(-180, -90, 360, 125)
         stats_bg.setBrush(QBrush(QColor("#f8f9fa")))
         stats_bg.setPen(QPen(QColor("#bdc3c7"), 1))
         self.scene.addItem(stats_bg)
@@ -374,7 +374,7 @@ class BloomVisualizer:
             return
         
         stats_text = (
-            f"📊 Статистика (исправленная):\n"
+            f"📊 Статистика:\n"
             f"• Уникальных элементов: {stats.get('items_added', 0)}\n"
             f"• Установлено битов: {stats.get('bits_set', 0)}/{stats.get('size', 0)} "
             f"({stats.get('fill_percentage', 0):.1%})\n"

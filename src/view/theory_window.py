@@ -263,25 +263,11 @@ class TheoryWindow(QMainWindow):
         # Меню Файл
         file_menu = menubar.addMenu("Файл")
         
-        print_action = QAction("Печать", self)
-        print_action.triggered.connect(self._print_theory)
-        print_action.setShortcut("Ctrl+P")
-        file_menu.addAction(print_action)
-        
-        file_menu.addSeparator()
         
         exit_action = QAction("Выход", self)
         exit_action.triggered.connect(self.close)
         exit_action.setShortcut("Ctrl+Q")
-        file_menu.addAction(exit_action)
-        
-        # Меню Правка
-        edit_menu = menubar.addMenu("Правка")
-        
-        copy_action = QAction("Копировать", self)
-        copy_action.triggered.connect(self._copy_theory)
-        copy_action.setShortcut("Ctrl+C")
-        edit_menu.addAction(copy_action)
+        file_menu.addAction(exit_action)      
         
         # Меню Вид
         view_menu = menubar.addMenu("Вид")
@@ -382,9 +368,6 @@ class TheoryWindow(QMainWindow):
         
         layout.addWidget(splitter, 1)
         
-        # Нижняя панель: кнопки управления
-        bottom_panel = self._create_bottom_panel()
-        layout.addWidget(bottom_panel)
     
     def _create_navigation_panel(self):
         """Создает панель навигации с деревом категорий"""
@@ -454,60 +437,64 @@ class TheoryWindow(QMainWindow):
     
     def _on_search_text_changed(self, text):
         """Обработка изменения текста в поле поиска"""
-        if not text.strip():
-            # Если поиск пустой, показываем все элементы
-            self._show_all_items()
-            return
-        
         search_text = text.lower().strip()
         
         # Ищем во всех элементах дерева
         root = self.category_tree.invisibleRootItem()
         self._search_in_tree(root, search_text)
-    
+        
+        # Если поиск пустой, показываем все элементы и раскрываем первые уровни
+        if not search_text:
+            self._show_all_items_and_expand()
+    def _show_all_items_and_expand(self):
+        """Показывает все элементы дерева и раскрывает первые уровни"""
+        root = self.category_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            item.setHidden(False)
+            item.setExpanded(True)  # Раскрываем категории
+            
+            # Показываем все алгоритмы внутри категорий
+            for j in range(item.childCount()):
+                child = item.child(j)
+                child.setHidden(False)
     def _search_in_tree(self, parent_item, search_text):
         """Рекурсивный поиск в дереве"""
+        if not search_text:
+            return True
+        
+        # Флаг, показывающий, есть ли совпадения в поддереве
+        has_match_in_subtree = False
+        
+        # Проверяем все дочерние элементы
         for i in range(parent_item.childCount()):
             item = parent_item.child(i)
             
-            # Проверяем текст элемента
+            # Рекурсивно ищем в дочерних элементах
+            child_has_match = False
+            if item.childCount() > 0:
+                child_has_match = self._search_in_tree(item, search_text)
+            
+            # Проверяем сам элемент
             item_text = item.text(0).lower()
+            is_item_match = search_text in item_text
             
-            if search_text in item_text:
-                # Показываем элемент и всех его родителей
-                item.setHidden(False)
-                parent = item.parent()
-                while parent:
-                    parent.setHidden(False)
-                    parent.setExpanded(True)
-                    parent = parent.parent()
-            else:
-                # Скрываем элемент, если он не содержит искомого текста
-                item.setHidden(True)
-                
-                # Проверяем дочерние элементы
-                if item.childCount() > 0:
-                    has_visible_child = False
-                    for j in range(item.childCount()):
-                        child = item.child(j)
-                        if self._search_in_tree(item, search_text):
-                            has_visible_child = True
-                    
-                    # Если есть видимые дочерные элементы, показываем родителя
-                    if has_visible_child:
-                        item.setHidden(False)
-                        item.setExpanded(True)
-                        return True
+            # Показываем элемент если:
+            # 1. Он сам содержит искомый текст
+            # 2. Или хотя бы один из его потомков содержит текст
+            should_show = is_item_match or child_has_match
             
-            # Показываем элемент, если у него есть видимые дочерные элементы
+            item.setHidden(not should_show)
+            
+            # Раскрываем элемент, если он не скрыт и есть дочерние элементы
             if not item.isHidden() and item.childCount() > 0:
-                for j in range(item.childCount()):
-                    child = item.child(j)
-                    if not child.isHidden():
-                        item.setExpanded(True)
-                        break
-        
-        return not item.isHidden()
+                item.setExpanded(True)
+            
+            # Обновляем флаг совпадения в поддереве
+            if should_show:
+                has_match_in_subtree = True
+                
+        return has_match_in_subtree
     
     def _show_all_items(self):
         """Показывает все элементы дерева"""
@@ -702,69 +689,6 @@ class TheoryWindow(QMainWindow):
         """)
         code_container_layout.addWidget(self.example_editor, 2)
         
-        # Панель инструментов для кода
-        toolbar = QWidget()
-        toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(0, 10, 0, 0)
-        
-        # Кнопка копирования кода
-        copy_code_btn = QPushButton("📋 Копировать код")
-        copy_code_btn.clicked.connect(self._copy_code)
-        copy_code_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4ECDC4;
-                color: white;
-                padding: 8px 15px;
-                border-radius: 4px;
-                border: none;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #3DB4AC;
-            }
-        """)
-        
-        # Кнопка сохранения в файл
-        save_code_btn = QPushButton("💾 Сохранить как...")
-        save_code_btn.clicked.connect(self._save_code)
-        save_code_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #3498DB;
-                color: white;
-                padding: 8px 15px;
-                border-radius: 4px;
-                border: none;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #2980B9;
-            }
-        """)
-        
-        # Кнопка формата кода
-        format_code_btn = QPushButton("✨ Форматировать")
-        format_code_btn.clicked.connect(self._format_code)
-        format_code_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #9B59B6;
-                color: white;
-                padding: 8px 15px;
-                border-radius: 4px;
-                border: none;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #8E44AD;
-            }
-        """)
-        
-        toolbar_layout.addWidget(copy_code_btn)
-        toolbar_layout.addWidget(save_code_btn)
-        toolbar_layout.addWidget(format_code_btn)
-        toolbar_layout.addStretch()
-        
-        code_container_layout.addWidget(toolbar)
-        
         # Прокручиваемая область для контейнера кода
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -814,56 +738,6 @@ class TheoryWindow(QMainWindow):
         self.tab_widget.addTab(self.code_tab, "💻 Алгоритм")
         self.tab_widget.addTab(self.links_tab, "🔗 Применение и ссылки")
     
-    def _create_bottom_panel(self):
-        """Создает нижнюю панель с кнопками управления"""
-        panel = QWidget()
-        layout = QHBoxLayout(panel)
-        layout.setContentsMargins(0, 10, 0, 0)
-        
-        # Кнопка печати
-        print_btn = QPushButton("🖨️ Печать")
-        print_btn.clicked.connect(self._print_theory)
-        print_btn.setToolTip("Вывести теорию на печать")
-        
-        # Кнопка копирования
-        copy_btn = QPushButton("📋 Копировать")
-        copy_btn.clicked.connect(self._copy_theory)
-        copy_btn.setToolTip("Копировать текущую теорию в буфер обмена")
-        
-        # Кнопка открытия в браузере
-        browser_btn = QPushButton("🌐 Открыть в браузере")
-        browser_btn.clicked.connect(self._open_in_browser)
-        browser_btn.setToolTip("Открыть ссылки по теме в веб-браузере")
-        
-        # Кнопка закрытия
-        close_btn = QPushButton("✖ Закрыть")
-        close_btn.clicked.connect(self.close)
-        close_btn.setToolTip("Закрыть окно теории")
-        
-        # Стили кнопок
-        button_style = """
-            QPushButton {
-                padding: 10px 20px;
-                border-radius: 6px;
-                font-weight: bold;
-                font-size: 13px;
-                border: none;
-                margin: 0 5px;
-            }
-        """
-        
-        print_btn.setStyleSheet(button_style + "background-color: #4ECDC4; color: white;")
-        copy_btn.setStyleSheet(button_style + "background-color: #9B59B6; color: white;")
-        browser_btn.setStyleSheet(button_style + "background-color: #3498DB; color: white;")
-        close_btn.setStyleSheet(button_style + "background-color: #FF6B6B; color: white;")
-        
-        layout.addWidget(print_btn)
-        layout.addWidget(copy_btn)
-        layout.addWidget(browser_btn)
-        layout.addStretch()
-        layout.addWidget(close_btn)
-        
-        return panel
     
     def _on_tree_item_clicked(self, item, column):
         """Обработка клика по элементу дерева"""
@@ -1178,66 +1052,7 @@ class TheoryWindow(QMainWindow):
         links_html += "</div>"
         return links_html
     
-    def _print_theory(self):
-        """Печать текущей теории"""
-        current_tab = self.tab_widget.currentIndex()
-        tab_names = ["Общее описание", "Математика", "Алгоритм", "Применение и ссылки"]
-        
-        # Получаем текущий текст
-        current_text = ""
-        if current_tab == 0:
-            current_text = self.general_text.toPlainText()
-        elif current_tab == 1:
-            current_text = self.math_text.toPlainText()
-        elif current_tab == 2:
-            current_text = self.code_editor.toPlainText()
-        else:
-            current_text = self.links_text.toPlainText()
-        
-        # Показываем диалог печати
-        QMessageBox.information(
-            self, 
-            "Печать теории", 
-            f"Готово к печати:\n\n"
-            f"Тема: {self.topic_title.text()}\n"
-            f"Раздел: {tab_names[current_tab]}\n\n"
-            f"Для печати используйте Ctrl+P в окне теории."
-        )
-    
-    def _copy_theory(self):
-        """Копирование теории в буфер обмена"""
-        from PyQt6.QtWidgets import QApplication
-        from PyQt6.QtGui import QClipboard
-        
-        current_widget = None
-        if self.tab_widget.currentIndex() == 0:
-            current_widget = self.general_text
-        elif self.tab_widget.currentIndex() == 1:
-            current_widget = self.math_text
-        elif self.tab_widget.currentIndex() == 2:
-            current_widget = self.code_editor
-        else:
-            current_widget = self.links_text
-        
-        if current_widget:
-            clipboard = QApplication.clipboard()
-            if self.tab_widget.currentIndex() == 2:
-                clipboard.setText(current_widget.toPlainText())
-            else:
-                clipboard.setText(current_widget.toPlainText())
-            
-            QMessageBox.information(
-                self, 
-                "Скопировано", 
-                "Текст скопирован в буфер обмена!\n\n"
-                "Вы можете вставить его в любой текстовый редактор."
-            )
-    
-    def _copy_code(self):
-        """Копирует код в буфер обмена"""
-        clipboard = QApplication.clipboard()
-        clipboard.setText(self.code_editor.toPlainText())
-        QMessageBox.information(self, "Успех", "Код скопирован в буфер обмена!")
+
     
     def _save_code(self):
         """Сохраняет код в файл"""
@@ -1255,42 +1070,7 @@ class TheoryWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить файл:\n{str(e)}")
     
-    def _format_code(self):
-        """Форматирует код (базовая реализация)"""
-        code = self.code_editor.toPlainText()
-        
-        # Простое форматирование: удаление лишних пробелов в конце строк
-        lines = code.split('\n')
-        formatted_lines = [line.rstrip() for line in lines]
-        formatted_code = '\n'.join(formatted_lines)
-        
-        self.code_editor.setPlainText(formatted_code)
-        QMessageBox.information(self, "Форматирование", "Код отформатирован!")
     
-    def _open_in_browser(self):
-        """Открывает связанные ресурсы в браузере"""
-        current_item = self.category_tree.currentItem()
-        if not current_item:
-            QMessageBox.warning(self, "Ошибка", "Сначала выберите алгоритм!")
-            return
-            
-        data = current_item.data(0, Qt.ItemDataRole.UserRole)
-        if data and data["type"] == "algorithm":
-            algo_data = self.theory_data[data["category"]][data["key"]]
-            
-            # Открываем первую ссылку, если есть
-            if algo_data.get('links'):
-                links = list(algo_data['links'].values())
-                if links:
-                    QDesktopServices.openUrl(QUrl(links[0]))
-            else:
-                QMessageBox.information(
-                    self, 
-                    "Нет ссылок", 
-                    "Для этого алгоритма нет внешних ссылок."
-                )
-        else:
-            QMessageBox.warning(self, "Ошибка", "Выберите конкретный алгоритм!")
     
     def show_category(self, category_name, algorithm_name=None):
         """Показывает конкретную категорию и алгоритм"""

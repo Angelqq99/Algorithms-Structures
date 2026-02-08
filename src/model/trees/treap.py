@@ -273,3 +273,24 @@ class Treap(BaseAlgorithm):
         """Оценка общего количества шагов."""
         n = len(self.data)
         return n * 2
+    def _search_with_path(self, node, value, path=None):
+        """Рекурсивный поиск с отслеживанием пути."""
+        if path is None:
+            path = []
+        
+        if node is None:
+            path.append("Достигнут лист - значение не найдено")
+            return None, path
+        
+        path.append(f"Узел: {node.value}")
+        
+        if value == node.value:
+            return node, path
+        
+        elif value < node.value:
+            path.append("Идем в левое поддерево")
+            return self._search_with_path(node.left, value, path)
+        
+        else:
+            path.append("Идем в правое поддерево")
+            return self._search_with_path(node.right, value, path)

@@ -563,3 +563,28 @@ class BTree(BaseAlgorithm):
     def _estimate_total_steps(self):
         """Оценка общего количества шагов."""
         return len(self.data) * 3
+    def search_with_path(self, key):
+        """Поиск с отслеживанием пути в B-дереве."""
+        path = []
+        current = self.root
+        
+        while current is not None:
+            path.append(f"B-дерево узел с ключами {current.keys}")
+            
+            # Ищем ключ в текущем узле
+            i = 0
+            while i < len(current.keys) and key > current.keys[i]:
+                i += 1
+            
+            if i < len(current.keys) and key == current.keys[i]:
+                path.append(f"Найден ключ {key} в позиции {i}")
+                return current, i, path
+            
+            if current.leaf:
+                path.append(f"Достигнут лист - значение {key} не найдено")
+                return None, -1, path
+            
+            path.append(f"Идем к ребенку {i}")
+            current = current.children[i]
+        
+        return None, -1, path

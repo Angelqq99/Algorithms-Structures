@@ -161,7 +161,7 @@ class HuffmanVisualizer:
                 return False
             
             # Заголовок
-            self._create_text("🌳 Дерево Хаффмана", -150, -220, self.fonts["title"], self.color_palette["dark"])
+            self._create_text("🌳 Дерево Хаффмана", -150, -250, self.fonts["title"], self.color_palette["dark"])
             
             # Проверяем глубину дерева
             tree_height = self._calculate_tree_height(tree_structure)
@@ -530,11 +530,11 @@ class HuffmanVisualizer:
                 arrow_y = y + max(original_height, compressed_height) / 2
                 
                 # Линия стрелки
-                arrow_line = self._create_line(center_x - 60, arrow_y-150, center_x + 30, arrow_y-150,
+                arrow_line = self._create_line(center_x - 60, arrow_y-140, center_x + 30, arrow_y-140,
                                              self.color_palette["warning"], 3, Qt.PenStyle.SolidLine)
                 
                 # Наконечник стрелки
-                arrow_head = self._create_arrow_head(center_x + 30, arrow_y-150, 10, 
+                arrow_head = self._create_arrow_head(center_x + 30, arrow_y-140, 10, 
                                                    self.color_palette["warning"])
                 
                 # Текст экономии
@@ -542,7 +542,7 @@ class HuffmanVisualizer:
                 savings_percentage = stats.get('savings_percentage', 0.0)
                 savings_text = f"Экономия:\n{savings} бит ({savings_percentage:.1f}%)"
                 savings_label = self._create_text(savings_text,
-                                                center_x - 15, arrow_y - 200,
+                                                center_x - 15, arrow_y - 190,
                                                 self.fonts["small"], self.color_palette["warning"])
                 savings_label.setFont(QFont("Arial", 12, QFont.Weight.Bold))
                 self._center_text_horizontally(savings_label, center_x - 15, 30)
@@ -554,7 +554,7 @@ class HuffmanVisualizer:
         """Добавляет легенду для дерева Хаффмана."""
         try:
             legend_title = "🎨 Легенда дерева Хаффмана:"
-            self._create_text(legend_title, x, y, 
+            self._create_text(legend_title, x-120, y, 
                              self.fonts["normal"], self.color_palette["dark"])
             
             # Элементы легенды
@@ -568,20 +568,20 @@ class HuffmanVisualizer:
                 item_y = y + 30 + i * 25
                 
                 # Цветной квадрат
-                self._create_rectangle(x, item_y, 15, 15, color, self.color_palette["dark"], 1)
+                self._create_rectangle(x-100, item_y, 15, 15, color, self.color_palette["dark"], 1)
                 
                 # Текст
-                self._create_text(text, x + 20, item_y, 
+                self._create_text(text, x - 80, item_y, 
                                 self.fonts["small"], self.color_palette["dark"])
             
             # Обозначения ребер
             edge_y = y + 110
-            self._create_text("Обозначения ребер:", x, edge_y,
+            self._create_text("Обозначения ребер:", x-100, edge_y,
                              self.fonts["small"], self.color_palette["dark"])
             
-            self._create_text("0 → левое ребро", x + 10, edge_y + 25,
+            self._create_text("0 → левое ребро", x - 90, edge_y + 25,
                              self.fonts["small"], self.color_palette["info"])
-            self._create_text("1 → правое ребро", x + 10, edge_y + 45,
+            self._create_text("1 → правое ребро", x - 90, edge_y + 45,
                              self.fonts["small"], self.color_palette["info"])
                              
         except Exception as e:

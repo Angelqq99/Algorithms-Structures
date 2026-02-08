@@ -2116,7 +2116,66 @@ class MainWindow(QMainWindow):
             self._log(f"❌ Ошибка при создании фильтра Блума: {str(e)}")
             import traceback
             traceback.print_exc()
-
+    def _on_bloom_params_changed(self):
+        """Обработка изменения параметров фильтра Блума."""
+        # Только если фильтр Блума активен
+        if (self.category_combo.currentText() == "Вероятностные структуры" and 
+            hasattr(self, 'current_algorithm') and 
+            isinstance(self.current_algorithm, BloomFilter)):
+            
+            # Получаем новые параметры
+            new_size = self.bloom_size_slider.value()
+            new_hashes = self.bloom_hashes_slider.value()
+            
+            # Получаем текущие параметры
+            if hasattr(self.current_algorithm, 'size'):
+                current_size = self.current_algorithm.size
+                current_hashes = self.current_algorithm.num_hashes
+                
+                # Если параметры изменились, пересоздаем фильтр
+                if new_size != current_size or new_hashes != current_hashes:
+                    self._log(f"🔄 Параметры фильтра Блума изменены: {current_size}x{current_hashes} → {new_size}x{new_hashes}")
+                    
+                    # Сохраняем текущие элементы (если есть)
+                    saved_items = []
+                    if hasattr(self.current_algorithm, 'items_added'):
+                        # Получаем все добавленные элементы
+                        if hasattr(self.current_algorithm, '_get_all_items'):
+                            saved_items = self.current_algorithm._get_all_items()
+                    
+                    # Пересоздаем фильтр
+                    self.current_algorithm = BloomFilter(new_size, new_hashes)
+                    
+                    # Восстанавливаем элементы
+                    for item in saved_items:
+                        try:
+                            self.current_algorithm.add(item)
+                        except:
+                            pass
+                    
+                    # Перерисовываем визуализацию
+                    if hasattr(self, 'bloom_visualizer'):
+                        # Очищаем старую визуализацию
+                        self.bloom_visualizer.clear()
+                        
+                        # Создаем новую
+                        self.bloom_visualizer.create_bloom_filter(new_size, new_hashes)
+                        
+                        # Обновляем статистику
+                        stats = self.current_algorithm.get_stats()
+                        self.bloom_visualizer.update_stats(stats)
+                        
+                        # Если есть элементы, показываем их
+                        if saved_items:
+                            for item in saved_items:
+                                self.current_algorithm.add(item)  # Еще раз добавляем для подсветки
+                            
+                            # Обновляем статистику с новыми данными
+                            stats = self.current_algorithm.get_stats()
+                            self.bloom_visualizer.update_stats(stats)
+                            self.bloom_visualizer.update_bit_array(stats["bit_array"])
+                    
+                    self._log("✅ Фильтр Блума пересоздан с новыми параметрами")
     def _bloom_add_multiple(self):
         """Добавляет несколько элементов в фильтр Блума."""
         try:
@@ -3050,7 +3109,14 @@ class MainWindow(QMainWindow):
             self.bloom_test_value_input.show()
             self.bloom_test_check_btn.show()
             self.bloom_test_add_btn.show()
+            self.bloom_size_slider.valueChanged.connect(self._on_bloom_params_changed)
+            self.bloom_hashes_slider.valueChanged.connect(self._on_bloom_params_changed)
         else:
+            try:
+                self.bloom_size_slider.valueChanged.disconnect(self._on_bloom_params_changed)
+                self.bloom_hashes_slider.valueChanged.disconnect(self._on_bloom_params_changed)
+            except:
+                pass
             self.bloom_settings_label.hide()
             self.bloom_size_label.hide()
             self.bloom_size_slider.hide()
@@ -3455,25 +3521,45 @@ class MainWindow(QMainWindow):
             self._log(f"📦 {algo_name} создан. Используйте интерактивные операции справа.")
             return False  # Возвращаем False, так как для контейнеров не нужен запуск через Engine
         elif category == "Вероятностные структуры" and algo_name == "Bloom Filter":
-                self.scene.clear()
-                self.visual_items.clear()
-                # Создаем фильтр Блума с текущими настройками
-                size = self.bloom_size_slider.value()
-                num_hashes = self.bloom_hashes_slider.value()
-                
+            self.scene.clear()
+            self.visual_items.clear()
+            
+            # Создаем фильтр Блума с текущими настройками
+            size = self.bloom_size_slider.value()
+            num_hashes = self.bloom_hashes_slider.value()
+            
+            # ДОБАВЛЕНО: Проверяем, существует ли уже фильтр
+            if (hasattr(self, 'current_algorithm') and 
+                isinstance(self.current_algorithm, BloomFilter) and
+                self.current_algorithm.size == size and
+                self.current_algorithm.num_hashes == num_hashes):
+                # Фильтр уже создан с такими параметрами
+                self._log(f"🎲 Используется существующий фильтр Блума")
+            else:
+                # Создаем новый фильтр
                 self.current_algorithm = BloomFilter(size, num_hashes)
-                
-                # Создаем визуализатор
-                self.bloom_visualizer = BloomVisualizer(self.scene)
-                
-                # Загружаем начальную визуализацию
-                self._render_bloom_initial_view()
-                
-                # Создаем интерактивную панель
-                self._create_bloom_interactive_panel()
-                
                 self._log(f"🎲 Фильтр Блума создан: размер={size}, хэш-функций={num_hashes}")
-                return True
+            
+            # Создаем/пересоздаем визуализатор
+            if not hasattr(self, 'bloom_visualizer'):
+                self.bloom_visualizer = BloomVisualizer(self.scene)
+            
+            # ДОБАВЛЕНО: Полностью очищаем и пересоздаем визуализацию
+            self.bloom_visualizer.clear()
+            self.bloom_visualizer.create_bloom_filter(size, num_hashes)
+            
+            # Загружаем начальную визуализацию
+            stats = self.current_algorithm.get_stats()
+            self.bloom_visualizer.update_stats(stats)
+            
+            # Создаем интерактивную панель
+            self._create_bloom_interactive_panel()
+            
+            # Подгоняем зум
+            if hasattr(self.view, 'fit_to_content'):
+                self.view.fit_to_content(100)
+            
+            return True
         elif category == "Графы":
             # === ИСПРАВЛЕННЫЙ БЛОК ДЛЯ ГРАФОВ ===
             # Для графов проверяем, что граф построен
@@ -6154,65 +6240,38 @@ class MainWindow(QMainWindow):
 
 
     def _insert_node(self, value):
-        """Вставляет узел в дерево с безопасной анимацией."""
-        # Проверяем, идет ли уже анимация
-        if self._is_animation_in_progress:
-            self._log("⏳ Дождитесь завершения предыдущей операции")
-            return
-        
-        if not self.current_algorithm:
-            self._log("❌ Нет активного алгоритма")
-            return
-        
+        """Вставка узла в дерево."""
         try:
-            # Устанавливаем флаг анимации
-            self._is_animation_in_progress = True
+            tree = self.current_algorithm
             
-            # Вставляем узел
-            success = self.current_algorithm.insert(value)
+            if not tree:
+                self._log("❌ Нет активного дерева для операций")
+                return
             
-            if success:
-                self._log(f"✅ Вставка узла {value} начата...")
-                
-                # Получаем новую структуру дерева
-                tree_data = self.current_algorithm.get_structure_for_visualization()
-                
-                if tree_data:
-                    # Очищаем старые анимации
-                    self.clear_all_animations()
+            # Проверяем тип дерева и используем соответствующий метод
+            if hasattr(tree, 'insert') or hasattr(tree, 'insert_value'):
+                # Для B-дерева используем insert_value
+                if isinstance(tree, BTree):
+                    tree.insert_value(value)
+                    self._log(f"✅ Значение {value} добавлено в B-дерево")
                     
-                    # Создаем таймер для отложенной отрисовки
-                    timer = QTimer()
-                    timer.setSingleShot(True)
+                    # Специальная обработка для B-дерева - полное перестроение
+                    tree_data = tree._get_tree_structure_list()
+                    if tree_data:
+                        # Используем анимацию перестроения
+                        self._update_btree_visualization(tree_data, animate=True)
+                    else:
+                        self._log("⚠️ Не удалось получить данные B-дерева для визуализации")
+                else:
+                    # Для обычных деревьев
+                    tree.insert(value)
+                    self._log(f"✅ Узел {value} вставлен в дерево")
+                    self._update_tree_visualization(f"Вставлен узел: {value}")
                     
-                    def delayed_render():
-                        try:
-                            # Отображаем дерево
-                            self._render_tree(tree_data)
-                            
-                            # Снимаем флаг анимации через небольшую задержку
-                            QTimer.singleShot(500, lambda: setattr(self, '_is_animation_in_progress', False))
-                            
-                            self._log(f"🌳 Узел {value} успешно вставлен")
-                            
-                        except Exception as e:
-                            self._log(f"❌ Ошибка при отображении: {str(e)}")
-                            self._is_animation_in_progress = False
-                        
-                        finally:
-                            timer.deleteLater()
-                    
-                    timer.timeout.connect(delayed_render)
-                    self._safe_add_timer(timer)
-                    timer.start(100)  # Маленькая задержка для стабильности
-                    
-            else:
-                self._log(f"❌ Не удалось вставить узел {value}")
-                self._is_animation_in_progress = False
-                
+        except ValueError as e:
+            QMessageBox.warning(self, "Ошибка", f"Некорректное значение: {str(e)}")
         except Exception as e:
             self._log(f"❌ Ошибка при вставке: {str(e)}")
-            self._is_animation_in_progress = False
             import traceback
             traceback.print_exc()
     
@@ -6510,7 +6569,7 @@ class MainWindow(QMainWindow):
         info_text.setWordWrap(True)
         self.operations_layout.addWidget(info_text)
     def _search_node(self, value):
-        """Поиск узла в дереве."""
+        """Поиск узла в дереве с подробным объяснением пути."""
         try:
             if not self.current_algorithm:
                 self._log("❌ Нет активного дерева для операций")
@@ -6537,16 +6596,59 @@ class MainWindow(QMainWindow):
                 if tree_data:
                     self._render_tree(tree_data)
             
-            # Выполняем поиск
-            result = tree.search(value)
+            # Сбрасываем все подсветки
+            self._reset_all_highlights()
             
-            if result:
+            # Выполняем поиск с отслеживанием пути
+            search_path = []  # Будем хранить путь поиска
+            
+            # Для B-дерева
+            if hasattr(tree, 'search_with_path'):
+                result = tree.search_with_path(value)
+                if result:
+                    node, idx, path = result
+                    search_path = path
+                    found = True
+                else:
+                    found = False
+            # Для обычных деревьев
+            elif hasattr(tree, '_search_with_path'):
+                result = tree._search_with_path(tree.root, value)
+                if result:
+                    node, path = result
+                    search_path = path
+                    found = True
+                else:
+                    found = False
+            # Стандартный поиск
+            else:
+                result = tree.search(value)
+                found = bool(result)
+            
+            # Отображаем путь поиска
+            if search_path:
+                self._log("🗺️ Путь поиска:")
+                for i, step in enumerate(search_path):
+                    self._log(f"   {i+1}. {step}")
+                    
+                # Подсвечиваем путь в дереве
+                self._highlight_search_path(search_path)
+            
+            if found:
                 # Для разных типов деревьев разный формат результата
-                if isinstance(result, tuple) and len(result) == 2:  # B-дерево
+                if isinstance(result, tuple) and len(result) == 3:  # B-дерево с путем
+                    node, idx, path = result
+                    self._log(f"✅ Найден узел со значением {value} в позиции {idx}")
+                    self._highlight_found_node_in_btree(node, value, idx)
+                elif isinstance(result, tuple) and len(result) == 2:  # B-дерево без пути
                     node, idx = result
                     self._log(f"✅ Найден узел со значением {value} в позиции {idx}")
                     self._highlight_found_node_in_btree(node, value, idx)
-                else:  # Обычное дерево
+                elif isinstance(result, tuple):  # Обычное дерево с путем
+                    node, path = result
+                    self._log(f"✅ Найден узел {value}")
+                    self._highlight_found_node(value)
+                else:  # Обычный результат
                     self._log(f"✅ Найден узел {value}")
                     self._highlight_found_node(value)
             else:
@@ -6557,80 +6659,76 @@ class MainWindow(QMainWindow):
             self._log(f"❌ Ошибка при поиске: {str(e)}")
             import traceback
             traceback.print_exc()
-    
+
+    def _highlight_search_path(self, path):
+        """Подсвечивает путь поиска в дереве."""
+        for i, step in enumerate(path):
+            # step может быть строкой в формате "Узел: 10" или "Узел[ключи]: [5, 8, 12]"
+            # Извлекаем значение для подсветки
+            value = self._extract_value_from_step(step)
+            
+            # Запускаем таймер для последовательной подсветки
+            QTimer.singleShot(i * 500, lambda v=value, idx=i: self._highlight_path_step(v, idx))
+
+    def _highlight_path_step(self, value, step_index):
+        """Подсвечивает один шаг пути поиска."""
+        # Подсвечиваем узел
+        success = self.tree_visualizer.highlight_node_by_value(value, "#FFD700", 800)
+        
+        if success:
+            # Добавляем описание шага
+            self._log(f"📍 Шаг {step_index + 1}: посещаем узел {value}")
+
+    def _extract_value_from_step(self, step_str):
+        """Извлекает значение узла из описания шага."""
+        # Примеры форматов:
+        # "Узел: 10" → 10
+        # "Узел[ключи]: [5, 8, 12]" → "5,8,12"
+        # "B-дерево узел с ключами [3, 7]" → "3,7"
+        
+        import re
+        
+        # Ищем числа в строке
+        numbers = re.findall(r'\d+', step_str)
+        if numbers:
+            return ','.join(numbers)  # Для B-дерева
+        
+        # Ищем одиночное значение
+        match = re.search(r':\s*(\d+)', step_str)
+        if match:
+            return int(match.group(1))
+        
+        # По умолчанию возвращаем саму строку
+        return step_str
+
+    def _reset_all_highlights(self):
+        """Сбрасывает все подсветки в дереве."""
+        if hasattr(self, 'tree_visualizer'):
+            # Просто перерисовываем дерево
+            tree = self.current_algorithm
+            if hasattr(tree, '_get_tree_structure_list'):
+                tree_data = tree._get_tree_structure_list()
+                if tree_data:
+                    self.tree_visualizer.update_btree_visualization(tree_data, animate=False)
+            elif hasattr(tree, '_get_tree_structure'):
+                tree_data = tree._get_tree_structure(tree.root)
+                if tree_data:
+                    self._render_tree(tree_data)
+
     def _highlight_found_node(self, value):
         """Подсвечивает найденный узел."""
-        try:
-            if hasattr(self, 'tree_visualizer'):
-                # Пробуем разные способы поиска узла
-                node_found = False
-                
-                # 1. Ищем в value_to_node
-                if hasattr(self.tree_visualizer, 'value_to_node'):
-                    if value in self.tree_visualizer.value_to_node:
-                        node = self.tree_visualizer.value_to_node[value]
-                        if hasattr(node, 'highlight'):
-                            original_color = getattr(node, 'circleColor', getattr(node, 'bg_color', None))
-                            node.highlight(QColor("#FFD700"))
-                            node_found = True
-                            
-                            # Возвращаем цвет через 2 секунды
-                            QTimer.singleShot(2000, lambda: self._reset_node_color(node, original_color))
-                
-                # 2. Ищем во всех узлах сцены
-                if not node_found:
-                    for item in self.scene.items():
-                        if isinstance(item, TreeNodeItem) and str(item.value) == str(value):
-                            item.highlight(QColor("#FFD700"))
-                            node_found = True
-                            
-                            # Возвращаем цвет через 2 секунды
-                            original_color = getattr(item, 'circleColor', None)
-                            QTimer.singleShot(2000, lambda: self._reset_node_color(item, original_color))
-                            break
-                        
-                        elif isinstance(item, BTreeNodeItem):
-                            # Для B-дерева проверяем ключи
-                            if hasattr(item, 'keys') and value in item.keys:
-                                original_color = item.bg_color
-                                item.bg_color = QColor("#FFD700")
-                                item.update()
-                                node_found = True
-                                
-                                # Возвращаем цвет через 2 секунды
-                                QTimer.singleShot(2000, lambda: self._reset_btree_node_color(item, original_color))
-                                break
-                
-                if not node_found:
-                    self._log(f"⚠️ Не удалось визуально выделить узел {value}")
-                    
-        except Exception as e:
-            self._log(f"❌ Ошибка при подсветке узла: {str(e)}")
-    
-    def _highlight_found_node_in_btree(self, btree_node, value, idx):
+        # Подсвечиваем зеленым цветом
+        success = self.tree_visualizer.highlight_node_by_value(value, "#2ECC71", 3000)
+        
+        if success:
+            self._log(f"🎯 Найден целевой узел {value}")
+
+    def _highlight_found_node_in_btree(self, node, value, idx):
         """Подсвечивает найденный узел в B-дереве."""
-        try:
-            if hasattr(self, 'tree_visualizer'):
-                # Ищем узел B-дерева по ключам
-                for item in self.scene.items():
-                    if isinstance(item, BTreeNodeItem):
-                        if hasattr(item, 'keys') and value in item.keys:
-                            # Сохраняем оригинальный цвет
-                            original_color = item.bg_color
-                            
-                            # Подсвечиваем весь узел
-                            item.bg_color = QColor("#FFD700")
-                            item.update()
-                            
-                            # Также можно подсветить конкретный ключ
-                            self._log(f"✅ Найден ключ {value} в B-дереве в позиции {idx}")
-                            
-                            # Возвращаем цвет через 2 секунды
-                            QTimer.singleShot(2000, lambda: self._reset_btree_node_color(item, original_color))
-                            break
-                            
-        except Exception as e:
-            self._log(f"❌ Ошибка при подсветке B-дерева узла: {str(e)}")
+        if hasattr(node, 'keys'):
+            # Подсвечиваем весь узел B-дерева
+            self.tree_visualizer.highlight_btree_node_by_keys(node.keys, "#2ECC71", 3000)
+            self._log(f"🎯 Найден узел с ключами {node.keys}, искомое значение {value} на позиции {idx}")
     
     def _reset_node_color(self, node, color):
         """Сбрасывает цвет узла."""
